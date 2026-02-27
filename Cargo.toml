@@ -31,6 +31,8 @@ arc-swap = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
 tower = { workspace = true }
+tracing-appender = { workspace = true }
+libc = { workspace = true }
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -63,6 +65,10 @@ rustls-pki-types = "1"
 tokio-rustls = "0.26"
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
+fork = "0.6"
+sd-notify = "0.4"
+tracing-appender = "0.2"
+libc = "0.2"
 
 # workspace internal
 ai-proxy-core = { path = "crates/core" }

@@ -65,6 +65,9 @@ pub struct Config {
     // When enabled, sends periodic whitespace to prevent intermediate proxy timeouts.
     pub non_stream_keepalive_secs: u64,
 
+    // Daemon
+    pub daemon: DaemonConfig,
+
     // Provider credentials
     pub claude_api_key: Vec<ProviderKeyEntry>,
     pub openai_api_key: Vec<ProviderKeyEntry>,
@@ -97,6 +100,7 @@ impl Default for Config {
             claude_header_defaults: HashMap::new(),
             force_model_prefix: false,
             non_stream_keepalive_secs: 0,
+            daemon: DaemonConfig::default(),
             claude_api_key: Vec::new(),
             openai_api_key: Vec::new(),
             gemini_api_key: Vec::new(),
@@ -177,6 +181,26 @@ fn sanitize_entries(entries: &mut Vec<ProviderKeyEntry>) {
             .map(|(k, v)| (k.to_lowercase(), v))
             .collect();
         entry.headers = headers;
+    }
+}
+
+// ─── Daemon config ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", default)]
+pub struct DaemonConfig {
+    /// Path to the PID file.
+    pub pid_file: String,
+    /// Graceful shutdown timeout in seconds.
+    pub shutdown_timeout: u64,
+}
+
+impl Default for DaemonConfig {
+    fn default() -> Self {
+        Self {
+            pid_file: "./ai-proxy.pid".to_string(),
+            shutdown_timeout: 30,
+        }
     }
 }
 
@@ -460,5 +484,30 @@ claude-api-key:
         assert_eq!(config.routing.strategy, RoutingStrategy::FillFirst);
         assert_eq!(config.claude_api_key.len(), 1);
         assert_eq!(config.claude_api_key[0].models.len(), 1);
+    }
+
+    #[test]
+    fn test_daemon_config_defaults() {
+        let dc = DaemonConfig::default();
+        assert_eq!(dc.pid_file, "./ai-proxy.pid");
+        assert_eq!(dc.shutdown_timeout, 30);
+    }
+
+    #[test]
+    fn test_daemon_config_yaml_round_trip() {
+        let yaml = r#"
+daemon:
+  pid-file: "/run/ai-proxy.pid"
+  shutdown-timeout: 60
+"#;
+        let config: Config = serde_yml::from_str(yaml).unwrap();
+        assert_eq!(config.daemon.pid_file, "/run/ai-proxy.pid");
+        assert_eq!(config.daemon.shutdown_timeout, 60);
+
+        // Round-trip
+        let serialized = serde_yml::to_string(&config).unwrap();
+        let config2: Config = serde_yml::from_str(&serialized).unwrap();
+        assert_eq!(config2.daemon.pid_file, "/run/ai-proxy.pid");
+        assert_eq!(config2.daemon.shutdown_timeout, 60);
     }
 }
