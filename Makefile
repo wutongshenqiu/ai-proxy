@@ -6,7 +6,7 @@ build:
 	cargo build --release
 
 dev:
-	cargo run -- --config config.yaml
+	cargo run -- run --config config.yaml
 
 test:
 	cargo test --workspace
