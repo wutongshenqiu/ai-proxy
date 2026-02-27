@@ -1,0 +1,27 @@
+[Unit]
+Description=AI Proxy Gateway
+Documentation=https://github.com/your-org/ai-proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/ai-proxy run --config /etc/ai-proxy/config.yaml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/ai-proxy /run/ai-proxy
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ai-proxy
+
+[Install]
+WantedBy=multi-user.target

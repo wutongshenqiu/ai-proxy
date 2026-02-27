@@ -1,206 +1,117 @@
-use ai_proxy_core::config::{Config, ConfigWatcher};
-use ai_proxy_provider::routing::CredentialRouter;
-use arc_swap::ArcSwap;
+mod app;
+mod cli;
+
 use clap::Parser;
-use std::sync::Arc;
-use std::time::Duration;
+use cli::{Cli, Command, RunArgs};
 
-#[derive(Parser)]
-#[command(name = "ai-proxy", version, about = "AI API Proxy Gateway")]
-struct Cli {
-    #[arg(short, long, default_value = "config.yaml", env = "AI_PROXY_CONFIG")]
-    config: String,
-
-    #[arg(long, env = "AI_PROXY_HOST")]
-    host: Option<String>,
-
-    #[arg(long, env = "AI_PROXY_PORT")]
-    port: Option<u16>,
-
-    #[arg(long, default_value = "info", env = "AI_PROXY_LOG_LEVEL")]
-    log_level: String,
-}
-
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
     let cli = Cli::parse();
 
-    // Init tracing
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&cli.log_level)),
-        )
-        .init();
+    let command = cli.command.unwrap_or(Command::Run(RunArgs::default()));
 
-    // Load config
-    let mut config = Config::load(&cli.config).unwrap_or_else(|e| {
-        tracing::warn!(
-            "Failed to load config from '{}': {e}, using defaults",
-            cli.config
-        );
-        Config::default()
-    });
-
-    // CLI overrides
-    if let Some(host) = cli.host {
-        config.host = host;
+    match command {
+        Command::Run(args) => cmd_run(args),
+        Command::Stop(args) => cmd_stop(args),
+        Command::Status(args) => cmd_status(args),
+        Command::Reload(args) => cmd_reload(args),
     }
-    if let Some(port) = cli.port {
-        config.port = port;
+}
+
+fn cmd_run(args: RunArgs) -> anyhow::Result<()> {
+    // Daemonize before creating tokio runtime (unix only)
+    #[cfg(unix)]
+    if args.daemon {
+        ai_proxy_core::lifecycle::daemon::daemonize()?;
     }
 
-    // Build provider components
-    let executors = ai_proxy_provider::build_registry(config.proxy_url.clone());
-
-    let router = Arc::new(CredentialRouter::new(config.routing.strategy.clone()));
-    router.update_from_config(&config);
-
-    let translators = Arc::new(ai_proxy_translator::build_registry());
-    let executors = Arc::new(executors);
-
-    tracing::info!(
-        "Loaded {} claude keys, {} openai keys, {} gemini keys, {} compat keys",
-        config.claude_api_key.len(),
-        config.openai_api_key.len(),
-        config.gemini_api_key.len(),
-        config.openai_compatibility.len(),
+    // Init logging — force file logging when running as daemon
+    let to_file = args.daemon || {
+        // Peek at config to check logging_to_file
+        ai_proxy_core::config::Config::load(&args.config)
+            .map(|c| c.logging_to_file)
+            .unwrap_or(false)
+    };
+    let log_dir = ai_proxy_core::config::Config::load(&args.config)
+        .ok()
+        .and_then(|c| c.log_dir.clone());
+    let _guard = ai_proxy_core::lifecycle::logging::init_logging(
+        &args.log_level,
+        to_file,
+        log_dir.as_deref(),
     );
 
-    let config = Arc::new(ArcSwap::from_pointee(config));
+    // Build and run on a multi-thread runtime
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
 
-    let metrics = Arc::new(ai_proxy_core::metrics::Metrics::new());
+    runtime.block_on(async {
+        let application = app::Application::build(&args)?;
+        application.serve().await
+    })
+}
 
-    // Build AppState
-    let state = ai_proxy_server::AppState {
-        config: config.clone(),
-        router: router.clone(),
-        executors,
-        translators,
-        metrics,
-    };
+#[cfg(unix)]
+fn cmd_stop(args: cli::PidArgs) -> anyhow::Result<()> {
+    use ai_proxy_core::lifecycle::pid_file::PidFile;
 
-    let app_router = ai_proxy_server::build_router(state);
-
-    // Start config watcher — update credentials on reload
-    let watcher_router = router.clone();
-    let _watcher = ConfigWatcher::start(cli.config.clone(), config.clone(), move |new_cfg| {
-        watcher_router.update_from_config(new_cfg);
-        tracing::info!(
-            "Config reloaded: {} claude keys, {} openai keys, {} gemini keys, {} compat keys",
-            new_cfg.claude_api_key.len(),
-            new_cfg.openai_api_key.len(),
-            new_cfg.gemini_api_key.len(),
-            new_cfg.openai_compatibility.len(),
-        );
-    });
-
-    // Start server
-    let cfg = config.load();
-    let addr = format!("{}:{}", cfg.host, cfg.port);
-
-    if cfg.tls.enable {
-        let cert_path = cfg.tls.cert.as_ref().expect("TLS cert required");
-        let key_path = cfg.tls.key.as_ref().expect("TLS key required");
-
-        use rustls_pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
-
-        let certs: Vec<CertificateDer<'static>> =
-            CertificateDer::pem_file_iter(cert_path)?.collect::<Result<Vec<_>, _>>()?;
-        let key = PrivateKeyDer::from_pem_file(key_path)?;
-
-        let tls_config = rustls::ServerConfig::builder()
-            .with_no_client_auth()
-            .with_single_cert(certs, key)?;
-        let tls_acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(tls_config));
-
-        tracing::info!("Starting HTTPS server on {addr}");
-        let listener = tokio::net::TcpListener::bind(&addr).await?;
-
-        let shutdown = shutdown_signal();
-        tokio::pin!(shutdown);
-
-        loop {
-            tokio::select! {
-                result = listener.accept() => {
-                    let (stream, peer_addr) = result?;
-                    let acceptor = tls_acceptor.clone();
-                    let router = app_router.clone();
-                    tokio::spawn(async move {
-                        match acceptor.accept(stream).await {
-                            Ok(tls_stream) => {
-                                let io = hyper_util::rt::TokioIo::new(tls_stream);
-                                let service = hyper::service::service_fn(
-                                    move |req: hyper::Request<hyper::body::Incoming>| {
-                                        let router = router.clone();
-                                        async move {
-                                            let (parts, body) = req.into_parts();
-                                            let body = axum::body::Body::new(body);
-                                            let req = axum::http::Request::from_parts(parts, body);
-                                            Ok::<_, std::convert::Infallible>(
-                                                tower::ServiceExt::oneshot(router, req)
-                                                    .await
-                                                    .expect("infallible"),
-                                            )
-                                        }
-                                    },
-                                );
-                                if let Err(e) = hyper_util::server::conn::auto::Builder::new(
-                                    hyper_util::rt::TokioExecutor::new(),
-                                )
-                                .serve_connection(io, service)
-                                .await
-                                {
-                                    tracing::error!("TLS connection error from {peer_addr}: {e}");
-                                }
-                            }
-                            Err(e) => tracing::error!("TLS accept error from {peer_addr}: {e}"),
-                        }
-                    });
-                }
-                _ = &mut shutdown => {
-                    tracing::info!("Stopping TLS listener, waiting for connections to drain...");
-                    break;
-                }
-            }
-        }
-        // Give in-flight connections time to finish
-        tokio::time::sleep(Duration::from_secs(1)).await;
-    } else {
-        tracing::info!("Starting HTTP server on {addr}");
-        let listener = tokio::net::TcpListener::bind(&addr).await?;
-        axum::serve(listener, app_router)
-            .with_graceful_shutdown(shutdown_signal())
-            .await?;
+    let pid = PidFile::read_pid(&args.pid_file)?;
+    if !PidFile::is_alive(pid) {
+        println!("Process {pid} is not running.");
+        return Ok(());
     }
 
-    tracing::info!("Server shut down.");
+    println!("Stopping PID {pid} (timeout {}s)...", args.timeout);
+    PidFile::stop(pid, std::time::Duration::from_secs(args.timeout))?;
+    println!("Stopped.");
     Ok(())
 }
 
-async fn shutdown_signal() {
-    let ctrl_c = async {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
-    };
+#[cfg(not(unix))]
+fn cmd_stop(_args: cli::PidArgs) -> anyhow::Result<()> {
+    anyhow::bail!("The 'stop' command is only supported on Unix systems");
+}
 
-    #[cfg(unix)]
-    let terminate = async {
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("failed to install SIGTERM handler")
-            .recv()
-            .await;
-    };
+#[cfg(unix)]
+fn cmd_status(args: cli::PidArgs) -> anyhow::Result<()> {
+    use ai_proxy_core::lifecycle::pid_file::PidFile;
 
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
+    match PidFile::read_pid(&args.pid_file) {
+        Ok(pid) => {
+            if PidFile::is_alive(pid) {
+                println!("ai-proxy is running (PID {pid})");
+            } else {
+                println!("ai-proxy is NOT running (stale PID file, PID {pid})");
+            }
+        }
+        Err(_) => {
+            println!("ai-proxy is NOT running (no PID file at {})", args.pid_file);
+        }
+    }
+    Ok(())
+}
 
-    tokio::select! {
-        _ = ctrl_c => {},
-        _ = terminate => {},
+#[cfg(not(unix))]
+fn cmd_status(_args: cli::PidArgs) -> anyhow::Result<()> {
+    anyhow::bail!("The 'status' command is only supported on Unix systems");
+}
+
+#[cfg(unix)]
+fn cmd_reload(args: cli::PidArgs) -> anyhow::Result<()> {
+    use ai_proxy_core::lifecycle::pid_file::PidFile;
+
+    let pid = PidFile::read_pid(&args.pid_file)?;
+    if !PidFile::is_alive(pid) {
+        anyhow::bail!("Process {pid} is not running");
     }
 
-    tracing::info!("Shutdown signal received, draining connections...");
+    PidFile::send_signal(pid, libc::SIGHUP)?;
+    println!("Sent SIGHUP to PID {pid}");
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn cmd_reload(_args: cli::PidArgs) -> anyhow::Result<()> {
+    anyhow::bail!("The 'reload' command is only supported on Unix systems");
 }
