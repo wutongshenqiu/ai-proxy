@@ -1,7 +1,7 @@
 use crate::AppState;
+use axum::Json;
 use axum::extract::State;
 use axum::response::IntoResponse;
-use axum::Json;
 
 /// GET /admin/config — returns sanitized (no API keys) configuration.
 pub async fn admin_config(State(state): State<AppState>) -> impl IntoResponse {

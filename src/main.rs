@@ -52,8 +52,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Build provider components
-    let executors =
-        ai_proxy_provider::build_registry(config.proxy_url.clone());
+    let executors = ai_proxy_provider::build_registry(config.proxy_url.clone());
 
     let router = Arc::new(CredentialRouter::new(config.routing.strategy.clone()));
     router.update_from_config(&config);

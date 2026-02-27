@@ -111,7 +111,7 @@ impl AuthRecord {
             crate::glob::glob_match(&m.id, effective_model)
                 || m.alias
                     .as_deref()
-                    .map_or(false, |a| crate::glob::glob_match(a, effective_model))
+                    .is_some_and(|a| crate::glob::glob_match(a, effective_model))
         });
         found && !self.is_model_excluded(effective_model)
     }
@@ -162,10 +162,10 @@ impl AuthRecord {
         if self.disabled {
             return false;
         }
-        if let Some(until) = self.cooldown_until {
-            if std::time::Instant::now() < until {
-                return false;
-            }
+        if let Some(until) = self.cooldown_until
+            && std::time::Instant::now() < until
+        {
+            return false;
         }
         true
     }

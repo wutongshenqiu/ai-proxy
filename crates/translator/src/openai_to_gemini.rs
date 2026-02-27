@@ -1,5 +1,5 @@
 use ai_proxy_core::error::ProxyError;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub fn translate_request(
     model: &str,
@@ -46,21 +46,21 @@ fn extract_system_instruction(req: &Value) -> Option<Value> {
     let mut system_parts = Vec::new();
 
     for msg in messages {
-        if msg.get("role").and_then(|r| r.as_str()) == Some("system") {
-            if let Some(content) = msg.get("content") {
-                match content {
-                    Value::String(s) => {
-                        system_parts.push(json!({"text": s}));
-                    }
-                    Value::Array(parts) => {
-                        for part in parts {
-                            if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                                system_parts.push(json!({"text": text}));
-                            }
+        if msg.get("role").and_then(|r| r.as_str()) == Some("system")
+            && let Some(content) = msg.get("content")
+        {
+            match content {
+                Value::String(s) => {
+                    system_parts.push(json!({"text": s}));
+                }
+                Value::Array(parts) => {
+                    for part in parts {
+                        if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                            system_parts.push(json!({"text": text}));
                         }
                     }
-                    _ => {}
                 }
+                _ => {}
             }
         }
     }
@@ -95,10 +95,7 @@ fn convert_messages(req: &Value) -> Result<Vec<Value>, ProxyError> {
                 .get("name")
                 .and_then(|n| n.as_str())
                 .unwrap_or("function");
-            let content_text = msg
-                .get("content")
-                .and_then(|c| c.as_str())
-                .unwrap_or("");
+            let content_text = msg.get("content").and_then(|c| c.as_str()).unwrap_or("");
 
             // Try to parse content as JSON, fallback to wrapping in result object
             let response_val = serde_json::from_str::<Value>(content_text)
@@ -112,13 +109,14 @@ fn convert_messages(req: &Value) -> Result<Vec<Value>, ProxyError> {
             });
 
             // Merge with previous user content if last was also user/function
-            if let Some(last) = contents.last_mut() {
-                if last.get("role").and_then(|r: &Value| r.as_str()) == Some("user") {
-                    if let Some(parts) = last.get_mut("parts").and_then(|p: &mut Value| p.as_array_mut()) {
-                        parts.push(part);
-                        continue;
-                    }
-                }
+            if let Some(last) = contents.last_mut()
+                && last.get("role").and_then(|r: &Value| r.as_str()) == Some("user")
+                && let Some(parts) = last
+                    .get_mut("parts")
+                    .and_then(|p: &mut Value| p.as_array_mut())
+            {
+                parts.push(part);
+                continue;
             }
 
             contents.push(json!({
@@ -136,14 +134,14 @@ fn convert_messages(req: &Value) -> Result<Vec<Value>, ProxyError> {
         let parts = convert_content_to_parts(msg)?;
 
         // If the role matches the previous message, merge parts
-        if let Some(last) = contents.last_mut() {
-            if last.get("role").and_then(|r: &Value| r.as_str()) == Some(gemini_role) {
-                if let Some(existing_parts) = last.get_mut("parts").and_then(|p: &mut Value| p.as_array_mut())
-                {
-                    existing_parts.extend(parts);
-                    continue;
-                }
-            }
+        if let Some(last) = contents.last_mut()
+            && last.get("role").and_then(|r: &Value| r.as_str()) == Some(gemini_role)
+            && let Some(existing_parts) = last
+                .get_mut("parts")
+                .and_then(|p: &mut Value| p.as_array_mut())
+        {
+            existing_parts.extend(parts);
+            continue;
         }
 
         contents.push(json!({
@@ -174,10 +172,7 @@ fn convert_content_to_parts(msg: &Value) -> Result<Vec<Value>, ProxyError> {
                         }
                         "image_url" => {
                             if let Some(url_obj) = part.get("image_url") {
-                                let url = url_obj
-                                    .get("url")
-                                    .and_then(|u| u.as_str())
-                                    .unwrap_or("");
+                                let url = url_obj.get("url").and_then(|u| u.as_str()).unwrap_or("");
                                 if let Some(inline) = convert_image_url_to_inline(url) {
                                     parts.push(inline);
                                 }
@@ -307,9 +302,5 @@ fn build_generation_config(req: &Value) -> Option<Value> {
         }
     }
 
-    if has_any {
-        Some(config)
-    } else {
-        None
-    }
+    if has_any { Some(config) } else { None }
 }

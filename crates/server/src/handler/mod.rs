@@ -15,7 +15,10 @@ pub(crate) struct ParsedRequest {
     pub user_agent: Option<String>,
 }
 
-pub(crate) fn parse_request(headers: &HeaderMap, body: &Bytes) -> Result<ParsedRequest, ProxyError> {
+pub(crate) fn parse_request(
+    headers: &HeaderMap,
+    body: &Bytes,
+) -> Result<ParsedRequest, ProxyError> {
     let req_value: serde_json::Value =
         serde_json::from_slice(body).map_err(|e| ProxyError::BadRequest(e.to_string()))?;
 
@@ -35,5 +38,9 @@ pub(crate) fn parse_request(headers: &HeaderMap, body: &Bytes) -> Result<ParsedR
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
 
-    Ok(ParsedRequest { model, stream, user_agent })
+    Ok(ParsedRequest {
+        model,
+        stream,
+        user_agent,
+    })
 }

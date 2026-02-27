@@ -1,7 +1,7 @@
 use crate::glob::glob_match;
 use serde_json::Value;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct PayloadConfig {
     #[serde(default)]
@@ -10,16 +10,6 @@ pub struct PayloadConfig {
     pub r#override: Vec<PayloadRule>,
     #[serde(default)]
     pub filter: Vec<FilterRule>,
-}
-
-impl Default for PayloadConfig {
-    fn default() -> Self {
-        Self {
-            default: Vec::new(),
-            r#override: Vec::new(),
-            filter: Vec::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -48,9 +38,10 @@ pub struct FilterRule {
 fn matches_rule(matchers: &[ModelMatcher], model: &str, protocol: Option<&str>) -> bool {
     matchers.iter().any(|m| {
         let name_match = glob_match(&m.name, model);
-        let protocol_match = m.protocol.as_ref().map_or(true, |p| {
-            protocol.map_or(false, |actual| actual.eq_ignore_ascii_case(p))
-        });
+        let protocol_match = m
+            .protocol
+            .as_ref()
+            .is_none_or(|p| protocol.is_some_and(|actual| actual.eq_ignore_ascii_case(p)));
         name_match && protocol_match
     })
 }

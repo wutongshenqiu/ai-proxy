@@ -31,18 +31,13 @@ impl Default for CloakConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum CloakMode {
     Auto,
     Always,
+    #[default]
     Never,
-}
-
-impl Default for CloakMode {
-    fn default() -> Self {
-        Self::Never
-    }
 }
 
 /// Cached user IDs per API key.
@@ -85,18 +80,16 @@ pub fn generate_user_id(api_key: &str, cache: bool) -> String {
 
 fn make_user_id() -> String {
     let mut rng = rand::rng();
-    let hex: String = (0..64).map(|_| format!("{:x}", rng.random_range(0..16u8))).collect();
+    let hex: String = (0..64)
+        .map(|_| format!("{:x}", rng.random_range(0..16u8)))
+        .collect();
     let session_uuid = uuid::Uuid::new_v4();
     format!("user_{hex}_account__session_{session_uuid}")
 }
 
 /// Apply cloaking to a Claude Messages API request body.
 /// Injects system prompt, user_id, and obfuscates sensitive words.
-pub fn apply_cloak(
-    body: &mut serde_json::Value,
-    cloak_cfg: &CloakConfig,
-    api_key: &str,
-) {
+pub fn apply_cloak(body: &mut serde_json::Value, cloak_cfg: &CloakConfig, api_key: &str) {
     let obj = match body.as_object_mut() {
         Some(o) => o,
         None => return,
@@ -120,10 +113,7 @@ pub fn apply_cloak(
         } else {
             format!("{CLOAK_SYSTEM_PROMPT}\n\n{existing}")
         };
-        obj.insert(
-            "system".to_string(),
-            serde_json::Value::String(combined),
-        );
+        obj.insert("system".to_string(), serde_json::Value::String(combined));
     }
 
     // 2. Inject metadata with fake user_id
@@ -132,10 +122,7 @@ pub fn apply_cloak(
         .entry("metadata")
         .or_insert_with(|| serde_json::json!({}));
     if let Some(meta_obj) = metadata.as_object_mut() {
-        meta_obj.insert(
-            "user_id".to_string(),
-            serde_json::Value::String(user_id),
-        );
+        meta_obj.insert("user_id".to_string(), serde_json::Value::String(user_id));
     }
 
     // 3. Obfuscate sensitive words in messages
@@ -211,7 +198,10 @@ mod tests {
 
     #[test]
     fn test_should_cloak_auto() {
-        let cfg = CloakConfig { mode: CloakMode::Auto, ..Default::default() };
+        let cfg = CloakConfig {
+            mode: CloakMode::Auto,
+            ..Default::default()
+        };
         assert!(!should_cloak(&cfg, Some("claude-cli/2.1.58")));
         assert!(should_cloak(&cfg, Some("python-requests/2.31.0")));
         assert!(should_cloak(&cfg, None));
@@ -219,10 +209,16 @@ mod tests {
 
     #[test]
     fn test_should_cloak_always_never() {
-        let always = CloakConfig { mode: CloakMode::Always, ..Default::default() };
+        let always = CloakConfig {
+            mode: CloakMode::Always,
+            ..Default::default()
+        };
         assert!(should_cloak(&always, Some("claude-cli/2.1.58")));
 
-        let never = CloakConfig { mode: CloakMode::Never, ..Default::default() };
+        let never = CloakConfig {
+            mode: CloakMode::Never,
+            ..Default::default()
+        };
         assert!(!should_cloak(&never, None));
     }
 
