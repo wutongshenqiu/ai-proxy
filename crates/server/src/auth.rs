@@ -28,9 +28,7 @@ pub async fn auth_middleware(
         });
 
     match token {
-        Some(t) if config.api_keys_set.contains(t) => {
-            Ok(next.run(request).await)
-        }
+        Some(t) if config.api_keys_set.contains(t) => Ok(next.run(request).await),
         _ => Err(ProxyError::Auth("Invalid API key".to_string())),
     }
 }

@@ -37,15 +37,9 @@ pub enum GeminiPart {
         data: String,
     },
     #[serde(rename = "functionCall")]
-    FunctionCall {
-        name: String,
-        args: Value,
-    },
+    FunctionCall { name: String, args: Value },
     #[serde(rename = "functionResponse")]
-    FunctionResponse {
-        name: String,
-        response: Value,
-    },
+    FunctionResponse { name: String, response: Value },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

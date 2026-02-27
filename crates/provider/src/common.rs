@@ -1,15 +1,15 @@
+use crate::sse::parse_sse_stream;
 use ai_proxy_core::error::ProxyError;
 use ai_proxy_core::provider::*;
-use crate::sse::parse_sse_stream;
 use std::collections::HashMap;
 
 /// Build an HTTP client for a provider request.
-pub fn build_client(auth: &AuthRecord, global_proxy: Option<&str>) -> Result<reqwest::Client, ProxyError> {
-    ai_proxy_core::proxy::build_http_client(
-        auth.effective_proxy(global_proxy),
-        global_proxy,
-    )
-    .map_err(|e| ProxyError::Internal(format!("failed to build HTTP client: {e}")))
+pub fn build_client(
+    auth: &AuthRecord,
+    global_proxy: Option<&str>,
+) -> Result<reqwest::Client, ProxyError> {
+    ai_proxy_core::proxy::build_http_client(auth.effective_proxy(global_proxy), global_proxy)
+        .map_err(|e| ProxyError::Internal(format!("failed to build HTTP client: {e}")))
 }
 
 /// Apply request-level and per-credential headers to a request builder.
@@ -28,7 +28,9 @@ pub fn apply_headers(
 }
 
 /// Handle a non-streaming response: check status, extract body and headers.
-pub async fn handle_response(resp: reqwest::Response) -> Result<(bytes::Bytes, HashMap<String, String>), ProxyError> {
+pub async fn handle_response(
+    resp: reqwest::Response,
+) -> Result<(bytes::Bytes, HashMap<String, String>), ProxyError> {
     let status = resp.status().as_u16();
     let headers = crate::extract_headers(&resp);
     let body = resp.bytes().await?;
@@ -75,7 +77,11 @@ pub async fn handle_stream_response(resp: reqwest::Response) -> Result<StreamRes
 }
 
 /// Build a model list from an auth record's configured models.
-pub fn supported_models_from_auth(auth: &AuthRecord, provider: &str, owned_by: &str) -> Vec<ModelInfo> {
+pub fn supported_models_from_auth(
+    auth: &AuthRecord,
+    provider: &str,
+    owned_by: &str,
+) -> Vec<ModelInfo> {
     auth.models
         .iter()
         .filter(|m| auth.supports_model(&m.id))

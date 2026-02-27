@@ -1,6 +1,6 @@
 use crate::TranslateState;
 use ai_proxy_core::error::ProxyError;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub fn translate_non_stream(
     _model: &str,
@@ -219,10 +219,7 @@ pub fn translate_stream(
                 let delta_type = delta.get("type").and_then(|t| t.as_str()).unwrap_or("");
                 match delta_type {
                     "text_delta" => {
-                        let text = delta
-                            .get("text")
-                            .and_then(|t| t.as_str())
-                            .unwrap_or("");
+                        let text = delta.get("text").and_then(|t| t.as_str()).unwrap_or("");
                         let chunk = json!({
                             "id": state.response_id,
                             "object": "chat.completion.chunk",
@@ -268,14 +265,13 @@ pub fn translate_stream(
 
         Some("message_delta") => {
             if let Some(delta) = event.get("delta") {
-                let finish_reason =
-                    match delta.get("stop_reason").and_then(|v| v.as_str()) {
-                        Some("end_turn") => "stop",
-                        Some("max_tokens") => "length",
-                        Some("tool_use") => "tool_calls",
-                        Some("stop_sequence") => "stop",
-                        _ => "stop",
-                    };
+                let finish_reason = match delta.get("stop_reason").and_then(|v| v.as_str()) {
+                    Some("end_turn") => "stop",
+                    Some("max_tokens") => "length",
+                    Some("tool_use") => "tool_calls",
+                    Some("stop_sequence") => "stop",
+                    _ => "stop",
+                };
 
                 let mut chunk = json!({
                     "id": state.response_id,
@@ -291,8 +287,10 @@ pub fn translate_stream(
 
                 // Include usage if available
                 if let Some(usage) = event.get("usage") {
-                    let output_tokens =
-                        usage.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let output_tokens = usage
+                        .get("output_tokens")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
                     let input_tokens = state.input_tokens;
                     chunk["usage"] = json!({
                         "prompt_tokens": input_tokens,

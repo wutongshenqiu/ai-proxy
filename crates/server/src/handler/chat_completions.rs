@@ -1,5 +1,5 @@
-use crate::dispatch::{dispatch, DispatchRequest};
 use crate::AppState;
+use crate::dispatch::{DispatchRequest, dispatch};
 use ai_proxy_core::error::ProxyError;
 use ai_proxy_core::provider::Format;
 use axum::extract::State;

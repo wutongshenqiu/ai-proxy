@@ -87,15 +87,10 @@ impl IntoResponse for ProxyError {
         let status = self.status_code();
 
         // For upstream errors, try to pass through the original JSON body
-        if let Self::Upstream { body, .. } = &self {
-            if serde_json::from_str::<serde_json::Value>(body).is_ok() {
-                return (
-                    status,
-                    [("content-type", "application/json")],
-                    body.clone(),
-                )
-                    .into_response();
-            }
+        if let Self::Upstream { body, .. } = &self
+            && serde_json::from_str::<serde_json::Value>(body).is_ok()
+        {
+            return (status, [("content-type", "application/json")], body.clone()).into_response();
         }
 
         let body = json!({

@@ -1,7 +1,7 @@
+use crate::common;
 use ai_proxy_core::error::ProxyError;
 use ai_proxy_core::provider::*;
 use async_trait::async_trait;
-use crate::common;
 
 const DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com";
 
@@ -61,7 +61,10 @@ impl ProviderExecutor for GeminiExecutor {
         let req = self.build_request(auth, &url, &request)?;
 
         let (body, headers) = common::handle_response(req.send().await?).await?;
-        Ok(ProviderResponse { payload: body, headers })
+        Ok(ProviderResponse {
+            payload: body,
+            headers,
+        })
     }
 
     async fn execute_stream(

@@ -1,5 +1,5 @@
-use crate::streaming::build_sse_response;
 use crate::AppState;
+use crate::streaming::build_sse_response;
 use ai_proxy_core::config::RetryConfig;
 use ai_proxy_core::error::ProxyError;
 use ai_proxy_core::provider::{Format, ProviderRequest, ProviderResponse, StreamChunk};
@@ -75,7 +75,9 @@ pub async fn dispatch(state: &AppState, req: DispatchRequest) -> Result<Response
             };
 
             // Record metrics
-            state.metrics.record_request(&actual_model, target_format.as_str());
+            state
+                .metrics
+                .record_request(&actual_model, target_format.as_str());
 
             // Translate request (source → target format)
             let translated_payload = state.translators.translate_request(
@@ -89,8 +91,7 @@ pub async fn dispatch(state: &AppState, req: DispatchRequest) -> Result<Response
             // Apply payload manipulation rules
             let translated_payload = {
                 let mut payload_value: serde_json::Value =
-                    serde_json::from_slice(&translated_payload)
-                        .unwrap_or_else(|_| serde_json::Value::Null);
+                    serde_json::from_slice(&translated_payload).unwrap_or(serde_json::Value::Null);
                 if payload_value.is_object() {
                     ai_proxy_core::payload::apply_payload_rules(
                         &mut payload_value,
@@ -129,13 +130,12 @@ pub async fn dispatch(state: &AppState, req: DispatchRequest) -> Result<Response
 
             // Build request headers — inject claude-header-defaults when cloaking
             let mut request_headers: std::collections::HashMap<String, String> = Default::default();
-            if target_format == Format::Claude {
-                if let Some(ref cloak_cfg) = auth.cloak {
-                    if ai_proxy_core::cloak::should_cloak(cloak_cfg, req.user_agent.as_deref()) {
-                        for (k, v) in &config.claude_header_defaults {
-                            request_headers.insert(k.clone(), v.clone());
-                        }
-                    }
+            if target_format == Format::Claude
+                && let Some(ref cloak_cfg) = auth.cloak
+                && ai_proxy_core::cloak::should_cloak(cloak_cfg, req.user_agent.as_deref())
+            {
+                for (k, v) in &config.claude_header_defaults {
+                    request_headers.insert(k.clone(), v.clone());
                 }
             }
 
@@ -162,32 +162,25 @@ pub async fn dispatch(state: &AppState, req: DispatchRequest) -> Result<Response
 
                         if !need_translate {
                             if req.source_format == Format::Claude {
-                                let data_stream = tokio_stream::StreamExt::map(
-                                    stream_result.stream,
-                                    |result| {
+                                let data_stream =
+                                    tokio_stream::StreamExt::map(stream_result.stream, |result| {
                                         result.map(|chunk| {
                                             if let Some(ref event_type) = chunk.event_type {
-                                                format!(
-                                                    "event: {event_type}\ndata: {}",
-                                                    chunk.data
-                                                )
+                                                format!("event: {event_type}\ndata: {}", chunk.data)
                                             } else {
                                                 chunk.data
                                             }
                                         })
-                                    },
-                                );
+                                    });
                                 return Ok(
                                     build_sse_response(data_stream, keepalive).into_response()
                                 );
                             }
-                            let data_stream = tokio_stream::StreamExt::map(
-                                stream_result.stream,
-                                |result| result.map(|chunk| chunk.data),
-                            );
-                            return Ok(
-                                build_sse_response(data_stream, keepalive).into_response()
-                            );
+                            let data_stream =
+                                tokio_stream::StreamExt::map(stream_result.stream, |result| {
+                                    result.map(|chunk| chunk.data)
+                                });
+                            return Ok(build_sse_response(data_stream, keepalive).into_response());
                         }
 
                         let translated_stream = translate_stream(
@@ -199,9 +192,7 @@ pub async fn dispatch(state: &AppState, req: DispatchRequest) -> Result<Response
                             req.body.clone(),
                         );
 
-                        return Ok(
-                            build_sse_response(translated_stream, keepalive).into_response()
-                        );
+                        return Ok(build_sse_response(translated_stream, keepalive).into_response());
                     }
                     Err(e) => {
                         bootstrap_attempts += 1;
@@ -331,7 +322,9 @@ pub async fn dispatch(state: &AppState, req: DispatchRequest) -> Result<Response
 
                         return Ok(builder
                             .body(axum::body::Body::from(translated))
-                            .map_err(|e| ProxyError::Internal(format!("failed to build response: {e}")))?
+                            .map_err(|e| {
+                                ProxyError::Internal(format!("failed to build response: {e}"))
+                            })?
                             .into_response());
                     }
                     Err(e) => {
@@ -372,9 +365,7 @@ type ProviderResult = Result<ProviderResponse, ProxyError>;
 /// for the upstream response. Leading whitespace is valid JSON and is ignored
 /// by parsers, so the client receives ` ` ` ` `{"choices":[...]}`.
 fn build_keepalive_body(
-    result_rx: std::pin::Pin<
-        Box<tokio::sync::oneshot::Receiver<ProviderResult>>,
-    >,
+    result_rx: std::pin::Pin<Box<tokio::sync::oneshot::Receiver<ProviderResult>>>,
     interval_secs: u64,
     translators: std::sync::Arc<ai_proxy_translator::TranslatorRegistry>,
     source_format: Format,
@@ -383,9 +374,7 @@ fn build_keepalive_body(
     original_body: Bytes,
 ) -> axum::body::Body {
     struct KeepaliveState {
-        rx: Option<
-            std::pin::Pin<Box<tokio::sync::oneshot::Receiver<ProviderResult>>>,
-        >,
+        rx: Option<std::pin::Pin<Box<tokio::sync::oneshot::Receiver<ProviderResult>>>>,
         interval_secs: u64,
         translators: std::sync::Arc<ai_proxy_translator::TranslatorRegistry>,
         source_format: Format,
@@ -503,10 +492,19 @@ fn translate_stream(
 
 // ─── Retry error handling ──────────────────────────────────────────────────
 
-fn handle_retry_error(state: &AppState, auth_id: &str, error: &ProxyError, retry_cfg: &RetryConfig) {
+fn handle_retry_error(
+    state: &AppState,
+    auth_id: &str,
+    error: &ProxyError,
+    retry_cfg: &RetryConfig,
+) {
     state.metrics.record_error();
     match error {
-        ProxyError::Upstream { status, retry_after_secs, .. } => match *status {
+        ProxyError::Upstream {
+            status,
+            retry_after_secs,
+            ..
+        } => match *status {
             429 => {
                 // Respect upstream Retry-After header if present, otherwise use config default
                 let secs = retry_after_secs.unwrap_or(retry_cfg.cooldown_429_secs);
