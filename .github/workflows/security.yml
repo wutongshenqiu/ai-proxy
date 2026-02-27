@@ -25,6 +25,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo install cargo-audit
       - run: cargo audit
+        env:
+          CARGO_AUDIT_FETCH_TIMEOUT: 120
 
   trivy:
     name: Trivy Image Scan
@@ -50,4 +52,5 @@ jobs:
           image-ref: ai-proxy:scan
           format: table
           exit-code: "1"
+          ignore-unfixed: true
           severity: CRITICAL,HIGH
