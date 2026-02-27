@@ -6,11 +6,11 @@ pub mod streaming;
 
 use ai_proxy_core::config::Config;
 use ai_proxy_core::metrics::Metrics;
-use ai_proxy_provider::routing::CredentialRouter;
 use ai_proxy_provider::ExecutorRegistry;
+use ai_proxy_provider::routing::CredentialRouter;
 use ai_proxy_translator::TranslatorRegistry;
 use arc_swap::ArcSwap;
-use axum::{middleware as axum_mw, Router};
+use axum::{Router, middleware as axum_mw};
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
@@ -31,16 +31,22 @@ pub fn build_router(state: AppState) -> Router {
     // Public routes — no auth required
     let public_routes = Router::new()
         .route("/health", axum::routing::get(handler::health::health))
-        .route(
-            "/metrics",
-            axum::routing::get(handler::health::metrics),
-        );
+        .route("/metrics", axum::routing::get(handler::health::metrics));
 
     // Admin routes — no auth required (read-only)
     let admin_routes = Router::new()
-        .route("/admin/config", axum::routing::get(handler::admin::admin_config))
-        .route("/admin/metrics", axum::routing::get(handler::admin::admin_metrics))
-        .route("/admin/models", axum::routing::get(handler::admin::admin_models));
+        .route(
+            "/admin/config",
+            axum::routing::get(handler::admin::admin_config),
+        )
+        .route(
+            "/admin/metrics",
+            axum::routing::get(handler::admin::admin_metrics),
+        )
+        .route(
+            "/admin/models",
+            axum::routing::get(handler::admin::admin_models),
+        );
 
     // API routes — auth required, with body size limit
     let api_routes = Router::new()

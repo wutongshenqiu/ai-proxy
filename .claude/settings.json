@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make:*)",
+      "Bash(cargo:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git branch:*)",
+      "Bash(gh:*)"
+    ]
+  },
+  "hooks": {
+    "preToolUse": [
+      {
+        "matcher": "Bash(git commit:*)",
+        "hooks": ["command:make lint && make test"]
+      },
+      {
+        "matcher": "Bash(git push:*)",
+        "hooks": ["command:make lint && make test"]
+      }
+    ]
+  }
+}

@@ -1,7 +1,7 @@
+use crate::common;
 use ai_proxy_core::error::ProxyError;
 use ai_proxy_core::provider::*;
 use async_trait::async_trait;
-use crate::common;
 
 pub struct OpenAICompatExecutor {
     pub name: String,
@@ -20,7 +20,9 @@ fn chat_to_responses(payload: &[u8]) -> Result<Vec<u8>, ProxyError> {
     let mut v: serde_json::Value =
         serde_json::from_slice(payload).map_err(|e| ProxyError::BadRequest(e.to_string()))?;
 
-    let obj = v.as_object_mut().ok_or_else(|| ProxyError::BadRequest("expected JSON object".into()))?;
+    let obj = v
+        .as_object_mut()
+        .ok_or_else(|| ProxyError::BadRequest("expected JSON object".into()))?;
 
     // messages -> input
     if let Some(messages) = obj.remove("messages") {
@@ -38,7 +40,10 @@ fn chat_to_responses(payload: &[u8]) -> Result<Vec<u8>, ProxyError> {
                 }
             }
             if !instructions.is_empty() && !obj.contains_key("instructions") {
-                obj.insert("instructions".into(), serde_json::Value::String(instructions.join("\n")));
+                obj.insert(
+                    "instructions".into(),
+                    serde_json::Value::String(instructions.join("\n")),
+                );
             }
             obj.insert("input".into(), serde_json::Value::Array(input));
         } else {
@@ -47,10 +52,10 @@ fn chat_to_responses(payload: &[u8]) -> Result<Vec<u8>, ProxyError> {
     }
 
     // max_tokens -> max_output_tokens
-    if let Some(max_tokens) = obj.remove("max_tokens") {
-        if !obj.contains_key("max_output_tokens") {
-            obj.insert("max_output_tokens".into(), max_tokens);
-        }
+    if let Some(max_tokens) = obj.remove("max_tokens")
+        && !obj.contains_key("max_output_tokens")
+    {
+        obj.insert("max_output_tokens".into(), max_tokens);
     }
 
     // Remove Chat Completions-specific fields that Responses API doesn't accept
@@ -68,14 +73,14 @@ fn responses_to_chat(payload: &[u8]) -> Result<bytes::Bytes, ProxyError> {
     let mut content = String::new();
     if let Some(output) = v.get("output").and_then(|o| o.as_array()) {
         for item in output {
-            if item.get("type").and_then(|t| t.as_str()) == Some("message") {
-                if let Some(contents) = item.get("content").and_then(|c| c.as_array()) {
-                    for c in contents {
-                        if c.get("type").and_then(|t| t.as_str()) == Some("output_text") {
-                            if let Some(text) = c.get("text").and_then(|t| t.as_str()) {
-                                content.push_str(text);
-                            }
-                        }
+            if item.get("type").and_then(|t| t.as_str()) == Some("message")
+                && let Some(contents) = item.get("content").and_then(|c| c.as_array())
+            {
+                for c in contents {
+                    if c.get("type").and_then(|t| t.as_str()) == Some("output_text")
+                        && let Some(text) = c.get("text").and_then(|t| t.as_str())
+                    {
+                        content.push_str(text);
                     }
                 }
             }
@@ -87,9 +92,18 @@ fn responses_to_chat(payload: &[u8]) -> Result<bytes::Bytes, ProxyError> {
     let created = v.get("created_at").and_then(|c| c.as_u64()).unwrap_or(0);
 
     // Extract usage
-    let usage = v.get("usage").cloned().unwrap_or_else(|| serde_json::json!({}));
-    let prompt_tokens = usage.get("input_tokens").and_then(|t| t.as_u64()).unwrap_or(0);
-    let completion_tokens = usage.get("output_tokens").and_then(|t| t.as_u64()).unwrap_or(0);
+    let usage = v
+        .get("usage")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    let prompt_tokens = usage
+        .get("input_tokens")
+        .and_then(|t| t.as_u64())
+        .unwrap_or(0);
+    let completion_tokens = usage
+        .get("output_tokens")
+        .and_then(|t| t.as_u64())
+        .unwrap_or(0);
 
     let finish_reason = match v.get("status").and_then(|s| s.as_str()) {
         Some("completed") => "stop",
@@ -145,9 +159,15 @@ impl ProviderExecutor for OpenAICompatExecutor {
         let base_url = auth.base_url_or_default(&self.default_base_url);
 
         let (url, body) = if use_responses_api(auth) {
-            (format!("{base_url}/v1/responses"), chat_to_responses(&request.payload)?)
+            (
+                format!("{base_url}/v1/responses"),
+                chat_to_responses(&request.payload)?,
+            )
         } else {
-            (format!("{base_url}/v1/chat/completions"), request.payload.to_vec())
+            (
+                format!("{base_url}/v1/chat/completions"),
+                request.payload.to_vec(),
+            )
         };
 
         let mut req = client
@@ -183,7 +203,8 @@ impl ProviderExecutor for OpenAICompatExecutor {
             let v: serde_json::Value = serde_json::from_slice(&response.payload)
                 .map_err(|e| ProxyError::Internal(e.to_string()))?;
 
-            let content = v.get("choices")
+            let content = v
+                .get("choices")
                 .and_then(|c| c.get(0))
                 .and_then(|c| c.get("message"))
                 .and_then(|m| m.get("content"))
@@ -210,10 +231,22 @@ impl ProviderExecutor for OpenAICompatExecutor {
             });
 
             let chunks: Vec<Result<StreamChunk, ProxyError>> = vec![
-                Ok(StreamChunk { event_type: None, data: role_chunk.to_string() }),
-                Ok(StreamChunk { event_type: None, data: content_chunk.to_string() }),
-                Ok(StreamChunk { event_type: None, data: stop_chunk.to_string() }),
-                Ok(StreamChunk { event_type: None, data: "[DONE]".to_string() }),
+                Ok(StreamChunk {
+                    event_type: None,
+                    data: role_chunk.to_string(),
+                }),
+                Ok(StreamChunk {
+                    event_type: None,
+                    data: content_chunk.to_string(),
+                }),
+                Ok(StreamChunk {
+                    event_type: None,
+                    data: stop_chunk.to_string(),
+                }),
+                Ok(StreamChunk {
+                    event_type: None,
+                    data: "[DONE]".to_string(),
+                }),
             ];
             return Ok(StreamResult {
                 headers: response.headers,

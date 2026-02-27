@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Lightweight in-memory metrics using atomic counters.
 pub struct Metrics {
@@ -60,7 +60,8 @@ impl Metrics {
 
     pub fn record_tokens(&self, input: u64, output: u64) {
         self.total_input_tokens.fetch_add(input, Ordering::Relaxed);
-        self.total_output_tokens.fetch_add(output, Ordering::Relaxed);
+        self.total_output_tokens
+            .fetch_add(output, Ordering::Relaxed);
     }
 
     /// Snapshot current metrics as a JSON-serializable value.
@@ -95,11 +96,11 @@ impl Default for Metrics {
 
 fn increment_map(map: &RwLock<HashMap<String, AtomicU64>>, key: &str) {
     // Fast path: read lock
-    if let Ok(m) = map.read() {
-        if let Some(counter) = m.get(key) {
-            counter.fetch_add(1, Ordering::Relaxed);
-            return;
-        }
+    if let Ok(m) = map.read()
+        && let Some(counter) = m.get(key)
+    {
+        counter.fetch_add(1, Ordering::Relaxed);
+        return;
     }
     // Slow path: write lock to insert
     if let Ok(mut m) = map.write() {

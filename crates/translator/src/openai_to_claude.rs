@@ -1,7 +1,11 @@
 use ai_proxy_core::error::ProxyError;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-pub fn translate_request(model: &str, raw_json: &[u8], stream: bool) -> Result<Vec<u8>, ProxyError> {
+pub fn translate_request(
+    model: &str,
+    raw_json: &[u8],
+    stream: bool,
+) -> Result<Vec<u8>, ProxyError> {
     let mut req: Value = serde_json::from_slice(raw_json)?;
 
     // 1. Extract system messages from messages array
@@ -67,19 +71,19 @@ fn extract_system_messages(req: &mut Value) -> String {
     let mut system_parts = Vec::new();
     if let Some(messages) = req.get("messages").and_then(|m| m.as_array()) {
         for msg in messages {
-            if msg.get("role").and_then(|r| r.as_str()) == Some("system") {
-                if let Some(content) = msg.get("content") {
-                    match content {
-                        Value::String(s) => system_parts.push(s.clone()),
-                        Value::Array(parts) => {
-                            for part in parts {
-                                if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                                    system_parts.push(text.to_string());
-                                }
+            if msg.get("role").and_then(|r| r.as_str()) == Some("system")
+                && let Some(content) = msg.get("content")
+            {
+                match content {
+                    Value::String(s) => system_parts.push(s.clone()),
+                    Value::Array(parts) => {
+                        for part in parts {
+                            if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                                system_parts.push(text.to_string());
                             }
                         }
-                        _ => {}
                     }
+                    _ => {}
                 }
             }
         }
@@ -122,15 +126,13 @@ fn convert_messages(req: &Value) -> Result<Vec<Value>, ProxyError> {
             });
 
             // Check if the last message is from the "user" role - merge tool results
-            if let Some(last) = claude_messages.last_mut() {
-                if last.get("role").and_then(|r: &Value| r.as_str()) == Some("user") {
-                    if let Some(content) = last.get_mut("content") {
-                        if let Some(arr) = content.as_array_mut() {
-                            arr.push(tool_result);
-                            continue;
-                        }
-                    }
-                }
+            if let Some(last) = claude_messages.last_mut()
+                && last.get("role").and_then(|r: &Value| r.as_str()) == Some("user")
+                && let Some(content) = last.get_mut("content")
+                && let Some(arr) = content.as_array_mut()
+            {
+                arr.push(tool_result);
+                continue;
             }
 
             claude_messages.push(json!({
@@ -167,8 +169,7 @@ fn convert_messages(req: &Value) -> Result<Vec<Value>, ProxyError> {
                         .and_then(|f| f.get("arguments"))
                         .and_then(|a| a.as_str())
                         .unwrap_or("{}");
-                    let input: Value =
-                        serde_json::from_str(arguments_str).unwrap_or(json!({}));
+                    let input: Value = serde_json::from_str(arguments_str).unwrap_or(json!({}));
 
                     content_blocks.push(json!({
                         "type": "tool_use",
@@ -215,10 +216,7 @@ fn convert_user_content(content: Option<&Value>) -> Value {
                     }
                     "image_url" => {
                         if let Some(url_obj) = part.get("image_url") {
-                            let url = url_obj
-                                .get("url")
-                                .and_then(|u| u.as_str())
-                                .unwrap_or("");
+                            let url = url_obj.get("url").and_then(|u| u.as_str()).unwrap_or("");
                             if let Some(image_block) = convert_image_url(url) {
                                 blocks.push(image_block);
                             }
@@ -309,10 +307,10 @@ fn convert_tool_choice(tc: &Value) -> Value {
             _ => json!({"type": "auto"}),
         },
         Value::Object(obj) => {
-            if let Some(func) = obj.get("function") {
-                if let Some(name) = func.get("name").and_then(|n| n.as_str()) {
-                    return json!({"type": "tool", "name": name});
-                }
+            if let Some(func) = obj.get("function")
+                && let Some(name) = func.get("name").and_then(|n| n.as_str())
+            {
+                return json!({"type": "tool", "name": name});
             }
             json!({"type": "auto"})
         }

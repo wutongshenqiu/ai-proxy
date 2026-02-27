@@ -1,7 +1,7 @@
 use crate::AppState;
+use axum::Json;
 use axum::extract::State;
 use axum::response::IntoResponse;
-use axum::Json;
 
 pub async fn health() -> impl IntoResponse {
     Json(serde_json::json!({

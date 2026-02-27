@@ -1,8 +1,8 @@
 use ai_proxy_core::config::{Config, RoutingStrategy};
 use ai_proxy_core::provider::{AuthRecord, Format, ModelEntry, ModelInfo};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::RwLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 pub struct CredentialRouter {
@@ -29,11 +29,7 @@ impl CredentialRouter {
         // Filter to available credentials that support the model and haven't been tried
         let candidates: Vec<&AuthRecord> = entries
             .iter()
-            .filter(|a| {
-                a.is_available()
-                    && a.supports_model(model)
-                    && !tried.contains(&a.id)
-            })
+            .filter(|a| a.is_available() && a.supports_model(model) && !tried.contains(&a.id))
             .collect();
 
         if candidates.is_empty() {
@@ -54,9 +50,7 @@ impl CredentialRouter {
                 } else {
                     drop(counters);
                     let mut counters = self.counters.write().ok()?;
-                    let counter = counters
-                        .entry(key)
-                        .or_insert_with(|| AtomicUsize::new(0));
+                    let counter = counters.entry(key).or_insert_with(|| AtomicUsize::new(0));
                     counter.fetch_add(1, Ordering::Relaxed)
                 };
                 let picked = candidates[idx % candidates.len()];
@@ -112,7 +106,9 @@ impl CredentialRouter {
             for (format, new_entries) in map.iter_mut() {
                 if let Some(old_entries) = creds.get(format) {
                     for new_auth in new_entries.iter_mut() {
-                        if let Some(old_auth) = old_entries.iter().find(|o| o.api_key == new_auth.api_key) {
+                        if let Some(old_auth) =
+                            old_entries.iter().find(|o| o.api_key == new_auth.api_key)
+                        {
                             new_auth.cooldown_until = old_auth.cooldown_until;
                         }
                     }
@@ -216,7 +212,11 @@ fn build_auth_record(
         prefix: entry.prefix.clone(),
         disabled: entry.disabled,
         cooldown_until: None,
-        cloak: if matches!(format, Format::Claude) { Some(entry.cloak.clone()) } else { None },
+        cloak: if matches!(format, Format::Claude) {
+            Some(entry.cloak.clone())
+        } else {
+            None
+        },
         wire_api: entry.wire_api,
     }
 }

@@ -43,6 +43,12 @@ pub struct TranslatorRegistry {
     responses: HashMap<(Format, Format), ResponseTransform>,
 }
 
+impl Default for TranslatorRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TranslatorRegistry {
     pub fn new() -> Self {
         Self {
@@ -80,6 +86,7 @@ impl TranslatorRegistry {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn translate_stream(
         &self,
         from: Format,
@@ -133,13 +140,13 @@ impl TranslatorRegistry {
 /// Replace the "model" field in a JSON payload with the resolved model name.
 fn replace_model_in_payload(raw_json: &[u8], model: &str) -> Result<Vec<u8>, ProxyError> {
     let mut val: serde_json::Value = serde_json::from_slice(raw_json)?;
-    if let Some(obj) = val.as_object_mut() {
-        if obj.contains_key("model") {
-            obj.insert(
-                "model".to_string(),
-                serde_json::Value::String(model.to_string()),
-            );
-        }
+    if let Some(obj) = val.as_object_mut()
+        && obj.contains_key("model")
+    {
+        obj.insert(
+            "model".to_string(),
+            serde_json::Value::String(model.to_string()),
+        );
     }
     serde_json::to_vec(&val).map_err(|e| ProxyError::Translation(e.to_string()))
 }

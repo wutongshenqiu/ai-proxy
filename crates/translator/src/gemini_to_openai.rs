@@ -1,6 +1,6 @@
 use crate::TranslateState;
 use ai_proxy_core::error::ProxyError;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub fn translate_non_stream(
     _model: &str,
@@ -255,8 +255,14 @@ pub fn translate_stream(
 
             // Include usage if available
             if let Some(u) = resp.get("usageMetadata") {
-                let prompt = u.get("promptTokenCount").and_then(|v| v.as_u64()).unwrap_or(0);
-                let completion = u.get("candidatesTokenCount").and_then(|v| v.as_u64()).unwrap_or(0);
+                let prompt = u
+                    .get("promptTokenCount")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let completion = u
+                    .get("candidatesTokenCount")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
                 chunk["usage"] = json!({
                     "prompt_tokens": prompt,
                     "completion_tokens": completion,

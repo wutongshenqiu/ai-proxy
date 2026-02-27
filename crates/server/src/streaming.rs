@@ -1,7 +1,7 @@
 use ai_proxy_core::error::ProxyError;
 use axum::response::sse::{Event, KeepAlive, Sse};
-use futures::stream::StreamExt;
 use futures::Stream;
+use futures::stream::StreamExt;
 use std::convert::Infallible;
 use std::time::Duration;
 
@@ -51,8 +51,7 @@ pub fn build_sse_response(
                     events
                 }
                 Err(e) => {
-                    let error_json =
-                        serde_json::json!({"error": {"message": e.to_string()}});
+                    let error_json = serde_json::json!({"error": {"message": e.to_string()}});
                     vec![Ok(Event::default().data(error_json.to_string()))]
                 }
             };

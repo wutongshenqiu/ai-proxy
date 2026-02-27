@@ -53,19 +53,17 @@ fn async_stream(
 
                 // Need more data
                 match state.stream.next().await {
-                    Some(Ok(bytes)) => {
-                        match std::str::from_utf8(&bytes) {
-                            Ok(text) => state.buffer.push_str(text),
-                            Err(e) => {
-                                return Some((
-                                    Err(ai_proxy_core::error::ProxyError::Internal(
-                                        format!("invalid UTF-8 in SSE stream: {e}"),
-                                    )),
-                                    state,
-                                ));
-                            }
+                    Some(Ok(bytes)) => match std::str::from_utf8(&bytes) {
+                        Ok(text) => state.buffer.push_str(text),
+                        Err(e) => {
+                            return Some((
+                                Err(ai_proxy_core::error::ProxyError::Internal(format!(
+                                    "invalid UTF-8 in SSE stream: {e}"
+                                ))),
+                                state,
+                            ));
                         }
-                    }
+                    },
                     Some(Err(e)) => {
                         return Some((
                             Err(ai_proxy_core::error::ProxyError::Network(e.to_string())),

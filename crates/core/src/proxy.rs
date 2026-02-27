@@ -23,9 +23,9 @@ pub fn build_http_client_with_timeout(
     request_timeout_secs: u64,
 ) -> Result<Client, anyhow::Error> {
     let proxy_url = match entry_proxy {
-        Some("") => None,         // Explicit direct connection
-        Some(url) => Some(url),   // Per-provider proxy
-        None => global_proxy,     // Fall back to global
+        Some("") => None,       // Explicit direct connection
+        Some(url) => Some(url), // Per-provider proxy
+        None => global_proxy,   // Fall back to global
     };
 
     let mut builder = Client::builder()
@@ -60,7 +60,8 @@ pub fn validate_proxy_url(url: &str) -> Result<(), anyhow::Error> {
     if url.is_empty() {
         return Ok(());
     }
-    let parsed = url::Url::parse(url).map_err(|e| anyhow::anyhow!("invalid proxy URL '{url}': {e}"))?;
+    let parsed =
+        url::Url::parse(url).map_err(|e| anyhow::anyhow!("invalid proxy URL '{url}': {e}"))?;
     match parsed.scheme() {
         "http" | "https" | "socks5" => Ok(()),
         scheme => Err(anyhow::anyhow!(

@@ -307,10 +307,10 @@ impl ConfigWatcher {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(16);
 
         let mut watcher = notify::recommended_watcher(move |res: Result<notify::Event, _>| {
-            if let Ok(event) = res {
-                if event.kind.is_modify() || event.kind.is_create() {
-                    let _ = tx.blocking_send(());
-                }
+            if let Ok(event) = res
+                && (event.kind.is_modify() || event.kind.is_create())
+            {
+                let _ = tx.blocking_send(());
             }
         })?;
         watcher.watch(Path::new(&path), RecursiveMode::NonRecursive)?;
@@ -430,7 +430,10 @@ mod tests {
         ];
         sanitize_entries(&mut entries);
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].base_url.as_deref(), Some("https://api.example.com"));
+        assert_eq!(
+            entries[0].base_url.as_deref(),
+            Some("https://api.example.com")
+        );
         assert!(entries[0].headers.contains_key("x-custom"));
     }
 
