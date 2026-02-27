@@ -1,0 +1,71 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core",
+    "crates/provider",
+    "crates/translator",
+    "crates/server",
+]
+
+[package]
+name = "ai-proxy"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ai-proxy-core = { workspace = true }
+ai-proxy-provider = { workspace = true }
+ai-proxy-translator = { workspace = true }
+ai-proxy-server = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+dotenvy = { workspace = true }
+rustls = { workspace = true }
+rustls-pki-types = { workspace = true }
+tokio-rustls = { workspace = true }
+axum = { workspace = true }
+arc-swap = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+tower = { workspace = true }
+
+[workspace.dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.8", features = ["macros"] }
+reqwest = { version = "0.13", default-features = false, features = ["stream", "json", "rustls", "socks"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yml = "0.0.12"
+tower = { version = "0.5", features = ["full"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
+rand = "0.9"
+regex = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+clap = { version = "4", features = ["derive", "env"] }
+tokio-stream = "0.1"
+futures = "0.3"
+notify = "8"
+arc-swap = "1"
+anyhow = "1"
+thiserror = "2"
+uuid = { version = "1", features = ["v4"] }
+bytes = "1"
+chrono = { version = "0.4", features = ["serde"] }
+async-trait = "0.1"
+dotenvy = "0.15"
+sha2 = "0.10"
+rustls = "0.23"
+rustls-pki-types = "1"
+tokio-rustls = "0.26"
+hyper = { version = "1", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+
+# workspace internal
+ai-proxy-core = { path = "crates/core" }
+ai-proxy-provider = { path = "crates/provider" }
+ai-proxy-translator = { path = "crates/translator" }
+ai-proxy-server = { path = "crates/server" }

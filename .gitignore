@@ -1,0 +1,8 @@
+target/
+.DS_Store
+.env
+.gitnexus/
+.claude/
+CLAUDE.md
+AGENTS.md
+test-config.yaml

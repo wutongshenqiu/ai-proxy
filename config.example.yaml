@@ -1,0 +1,89 @@
+# AI Proxy Gateway Configuration
+# Copy to config.yaml and modify as needed.
+
+# ─── Server ─────────────────────────────────────────────────────────────────
+host: "0.0.0.0"
+port: 8317
+
+# TLS configuration (optional)
+# tls:
+#   enable: true
+#   cert: "/path/to/cert.pem"
+#   key: "/path/to/key.pem"
+
+# ─── Client Authentication ──────────────────────────────────────────────────
+# API keys that clients must provide via Bearer token.
+# Leave empty to disable authentication (allow all requests).
+api-keys: []
+  # - "your-client-api-key"
+
+# ─── Global Proxy ───────────────────────────────────────────────────────────
+# Default upstream proxy for all providers. Supports http, https, socks5.
+# proxy-url: "socks5://127.0.0.1:1080"
+# proxy-url: "http://proxy.company.com:8080"
+
+# ─── Debug & Logging ────────────────────────────────────────────────────────
+debug: false
+logging-to-file: false
+# log-dir: "./logs"
+
+# ─── Routing Strategy ───────────────────────────────────────────────────────
+routing:
+  strategy: round-robin   # round-robin | fill-first
+
+# ─── Retry Configuration ────────────────────────────────────────────────────
+request-retry: 3
+max-retry-interval: 30    # seconds
+
+# ─── Timeout Configuration ─────────────────────────────────────────────────
+connect-timeout: 30       # seconds, TCP connect timeout
+request-timeout: 300      # seconds, total request timeout (5min for streaming)
+
+# ─── Streaming ──────────────────────────────────────────────────────────────
+streaming:
+  keepalive-seconds: 15
+
+# ─── Provider Credentials ───────────────────────────────────────────────────
+# Each provider supports multiple API keys with optional per-key settings.
+#
+# Per-key options:
+#   api-key:          (required) API key string
+#   base-url:         Custom API endpoint URL
+#   proxy-url:        Per-key proxy (overrides global proxy-url)
+#                     Set to "" for direct connection (bypass global proxy)
+#   prefix:           Model name prefix (e.g., "teamA/")
+#   models:           List of available models [{id, alias}]
+#   excluded-models:  Models to exclude (supports * wildcard)
+#   headers:          Custom HTTP headers
+
+claude-api-key:
+  - api-key: "sk-ant-your-claude-key"
+    # base-url: "https://api.anthropic.com"
+    # proxy-url: "http://proxy:8080"
+    # models:
+    #   - id: "claude-sonnet-4-20250514"
+    #     alias: "sonnet"
+    #   - id: "claude-opus-4-20250514"
+
+openai-api-key:
+  - api-key: "sk-your-openai-key"
+    # base-url: "https://api.openai.com"
+    # models:
+    #   - id: "gpt-4o"
+    #   - id: "gpt-4o-mini"
+
+gemini-api-key:
+  - api-key: "your-gemini-key"
+    # base-url: "https://generativelanguage.googleapis.com"
+    # models:
+    #   - id: "gemini-2.0-flash"
+    #   - id: "gemini-2.5-pro-preview-06-05"
+
+# OpenAI-compatible providers (e.g., DeepSeek, Groq, Together AI)
+# openai-compatibility:
+#   - api-key: "your-deepseek-key"
+#     base-url: "https://api.deepseek.com"
+#     prefix: "deepseek/"
+#     models:
+#       - id: "deepseek-chat"
+#       - id: "deepseek-reasoner"

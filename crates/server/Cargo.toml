@@ -1,0 +1,25 @@
+[package]
+name = "ai-proxy-server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ai-proxy-core = { workspace = true }
+ai-proxy-provider = { workspace = true }
+ai-proxy-translator = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+arc-swap = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+tokio-stream = { workspace = true }
+async-trait = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+rand = { workspace = true }
