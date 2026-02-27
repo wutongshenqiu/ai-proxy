@@ -173,6 +173,7 @@ Available commands (`.claude/commands/`):
 | `/diagnose` | 问题诊断与修复 | `/diagnose "SSE streaming drops connection"` |
 | `/lint` | 代码检查/修复 | `/lint fix` |
 | `/test` | 运行测试 | `/test cloak` |
+| `/retro` | 复盘对话，沉淀改进到 commands/skills/workflow | `/retro 3` |
 
 ## Quality Gates
 
