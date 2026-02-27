@@ -3,6 +3,7 @@ pub mod config;
 pub mod context;
 pub mod error;
 pub mod glob;
+pub mod lifecycle;
 pub mod metrics;
 pub mod payload;
 pub mod provider;

@@ -13,10 +13,12 @@ All specifications for the AI Proxy Gateway project.
 | SPEC-005 | Request Retry & Resilience                     | Completed | [completed/SPEC-005/](completed/SPEC-005/) |
 | SPEC-006 | Security & Authentication                      | Completed | [completed/SPEC-006/](completed/SPEC-006/) |
 | SPEC-007 | Request Cloaking & Payload Rules               | Completed | [completed/SPEC-007/](completed/SPEC-007/) |
+| SPEC-008 | 支持 Daemon                                    | Completed | [completed/SPEC-008/](completed/SPEC-008/) |
 
 ## Active
 
-_No active specs._
+| ID       | Title                                          | Status    | Location                        |
+|----------|------------------------------------------------|-----------|---------------------------------|
 
 ## How to Create a New Spec
 

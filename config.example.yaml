@@ -27,6 +27,11 @@ debug: false
 logging-to-file: false
 # log-dir: "./logs"
 
+# ─── Daemon ────────────────────────────────────────────────────────────────
+# daemon:
+#   pid-file: "./ai-proxy.pid"
+#   shutdown-timeout: 30
+
 # ─── Routing Strategy ───────────────────────────────────────────────────────
 routing:
   strategy: round-robin   # round-robin | fill-first
