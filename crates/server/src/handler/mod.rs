@@ -12,8 +12,12 @@ use bytes::Bytes;
 
 pub(crate) struct ParsedRequest {
     pub model: String,
+    /// Fallback model chain: try models in order until one succeeds.
+    pub models: Option<Vec<String>>,
     pub stream: bool,
     pub user_agent: Option<String>,
+    /// Debug mode: return routing details in response headers.
+    pub debug: bool,
 }
 
 pub(crate) fn parse_request(
@@ -29,6 +33,15 @@ pub(crate) fn parse_request(
         .ok_or_else(|| ProxyError::BadRequest("missing model field".into()))?
         .to_string();
 
+    // Parse `models` array for fallback chain
+    let models = req_value.get("models").and_then(|v| {
+        v.as_array().map(|arr| {
+            arr.iter()
+                .filter_map(|m| m.as_str().map(|s| s.to_string()))
+                .collect::<Vec<_>>()
+        })
+    });
+
     let stream = req_value
         .get("stream")
         .and_then(|s| s.as_bool())
@@ -39,9 +52,17 @@ pub(crate) fn parse_request(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
 
+    // Check x-debug header
+    let debug = headers
+        .get("x-debug")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v == "true" || v == "1");
+
     Ok(ParsedRequest {
         model,
+        models,
         stream,
         user_agent,
+        debug,
     })
 }

@@ -14,6 +14,9 @@ All specifications for the AI Proxy Gateway project.
 | SPEC-006 | Security & Authentication                      | Completed | [completed/SPEC-006/](completed/SPEC-006/) |
 | SPEC-007 | Request Cloaking & Payload Rules               | Completed | [completed/SPEC-007/](completed/SPEC-007/) |
 | SPEC-008 | 支持 Daemon                                    | Completed | [completed/SPEC-008/](completed/SPEC-008/) |
+| SPEC-012 | Rate Limiting                                  | Completed | [completed/SPEC-012/](completed/SPEC-012/) |
+| SPEC-013 | Model Fallback & Debug Mode                    | Completed | [completed/SPEC-013/](completed/SPEC-013/) |
+| SPEC-014 | Cost Tracking                                  | Completed | [completed/SPEC-014/](completed/SPEC-014/) |
 
 ## Active
 
