@@ -53,8 +53,22 @@ impl CredentialRouter {
                     let counter = counters.entry(key).or_insert_with(|| AtomicUsize::new(0));
                     counter.fetch_add(1, Ordering::Relaxed)
                 };
-                let picked = candidates[idx % candidates.len()];
-                Some(picked.clone())
+
+                // Weighted round-robin: build expanded index based on weights
+                let total_weight: u32 = candidates.iter().map(|c| c.weight.max(1)).sum();
+                if total_weight == 0 {
+                    return candidates.first().cloned().cloned();
+                }
+                let slot = (idx as u32) % total_weight;
+                let mut cumulative = 0u32;
+                for &c in &candidates {
+                    cumulative += c.weight.max(1);
+                    if slot < cumulative {
+                        return Some(c.clone());
+                    }
+                }
+                // Fallback (shouldn't reach here)
+                Some(candidates[idx % candidates.len()].clone())
             }
         }
     }
@@ -218,5 +232,7 @@ fn build_auth_record(
             None
         },
         wire_api: entry.wire_api,
+        credential_name: entry.name.clone(),
+        weight: entry.weight.max(1),
     }
 }
