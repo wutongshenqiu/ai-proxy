@@ -16,6 +16,7 @@ pub struct RequestLogEntry {
     pub model: Option<String>,
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
+    pub cost: Option<f64>,
     pub error: Option<String>,
 }
 
@@ -176,6 +177,7 @@ mod tests {
             model: Some(model.to_string()),
             input_tokens: Some(10),
             output_tokens: Some(20),
+            cost: None,
             error: if status >= 400 {
                 Some("error".to_string())
             } else {

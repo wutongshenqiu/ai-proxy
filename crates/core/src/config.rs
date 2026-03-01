@@ -65,6 +65,12 @@ pub struct Config {
     // When enabled, sends periodic whitespace to prevent intermediate proxy timeouts.
     pub non_stream_keepalive_secs: u64,
 
+    // Cost tracking: custom model price overrides (USD per 1M tokens).
+    pub model_prices: std::collections::HashMap<String, crate::cost::ModelPrice>,
+
+    // Rate limiting
+    pub rate_limit: RateLimitConfig,
+
     // Dashboard
     pub dashboard: DashboardConfig,
 
@@ -103,6 +109,8 @@ impl Default for Config {
             claude_header_defaults: HashMap::new(),
             force_model_prefix: false,
             non_stream_keepalive_secs: 0,
+            model_prices: HashMap::new(),
+            rate_limit: RateLimitConfig::default(),
             dashboard: DashboardConfig::default(),
             daemon: DaemonConfig::default(),
             claude_api_key: Vec::new(),
@@ -188,6 +196,19 @@ fn sanitize_entries(entries: &mut Vec<ProviderKeyEntry>) {
     }
 }
 
+// ─── Rate limit config ─────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", default)]
+pub struct RateLimitConfig {
+    /// Enable rate limiting.
+    pub enabled: bool,
+    /// Global requests per minute limit (0 = unlimited).
+    pub global_rpm: u32,
+    /// Per-API-key requests per minute limit (0 = unlimited).
+    pub per_key_rpm: u32,
+}
+
 // ─── Dashboard config ──────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -263,12 +284,14 @@ pub struct TlsConfig {
 #[serde(rename_all = "kebab-case", default)]
 pub struct RoutingConfig {
     pub strategy: RoutingStrategy,
+    pub fallback_enabled: bool,
 }
 
 impl Default for RoutingConfig {
     fn default() -> Self {
         Self {
             strategy: RoutingStrategy::RoundRobin,
+            fallback_enabled: true,
         }
     }
 }
@@ -357,6 +380,13 @@ pub struct ProviderKeyEntry {
     /// Wire API format for OpenAI-compatible providers.
     #[serde(default)]
     pub wire_api: crate::provider::WireApi,
+    /// Weight for weighted round-robin routing (default: 1, range 1-100).
+    #[serde(default = "default_weight")]
+    pub weight: u32,
+}
+
+fn default_weight() -> u32 {
+    1
 }
 
 // ─── Config Watcher ────────────────────────────────────────────────────────
@@ -469,6 +499,7 @@ mod tests {
                 name: None,
                 cloak: Default::default(),
                 wire_api: crate::provider::WireApi::default(),
+                weight: 1,
             },
             ProviderKeyEntry {
                 api_key: "".into(),
@@ -482,6 +513,7 @@ mod tests {
                 name: None,
                 cloak: Default::default(),
                 wire_api: crate::provider::WireApi::default(),
+                weight: 1,
             },
             ProviderKeyEntry {
                 api_key: "key1".into(), // duplicate
@@ -495,6 +527,7 @@ mod tests {
                 name: None,
                 cloak: Default::default(),
                 wire_api: crate::provider::WireApi::default(),
+                weight: 1,
             },
         ];
         sanitize_entries(&mut entries);

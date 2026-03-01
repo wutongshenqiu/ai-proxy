@@ -37,6 +37,9 @@ pub enum ProxyError {
     #[error("model not found: {0}")]
     ModelNotFound(String),
 
+    #[error("rate limit exceeded: {0}")]
+    RateLimited(String),
+
     #[error("internal error: {0}")]
     Internal(String),
 }
@@ -47,7 +50,7 @@ impl ProxyError {
             Self::Config(_) | Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::Auth(_) => StatusCode::UNAUTHORIZED,
             Self::NoCredentials { .. } => StatusCode::SERVICE_UNAVAILABLE,
-            Self::ModelCooldown { .. } => StatusCode::TOO_MANY_REQUESTS,
+            Self::ModelCooldown { .. } | Self::RateLimited(_) => StatusCode::TOO_MANY_REQUESTS,
             Self::Upstream { status, .. } => {
                 StatusCode::from_u16(*status).unwrap_or(StatusCode::BAD_GATEWAY)
             }
@@ -62,7 +65,7 @@ impl ProxyError {
         match self {
             Self::Auth(_) => "authentication_error",
             Self::NoCredentials { .. } => "insufficient_quota",
-            Self::ModelCooldown { .. } => "rate_limit_error",
+            Self::ModelCooldown { .. } | Self::RateLimited(_) => "rate_limit_error",
             Self::BadRequest(_) => "invalid_request_error",
             Self::ModelNotFound(_) => "invalid_request_error",
             Self::Upstream { .. } => "upstream_error",
@@ -74,7 +77,7 @@ impl ProxyError {
         match self {
             Self::Auth(_) => "invalid_api_key",
             Self::NoCredentials { .. } => "insufficient_quota",
-            Self::ModelCooldown { .. } => "rate_limit_exceeded",
+            Self::ModelCooldown { .. } | Self::RateLimited(_) => "rate_limit_exceeded",
             Self::ModelNotFound(_) => "model_not_found",
             Self::BadRequest(_) => "invalid_request",
             _ => "internal_error",
@@ -101,12 +104,21 @@ impl IntoResponse for ProxyError {
             }
         });
 
-        (
+        let mut response = (
             status,
             [("content-type", "application/json")],
             body.to_string(),
         )
-            .into_response()
+            .into_response();
+
+        // Add Retry-After header for rate limited responses
+        if matches!(&self, Self::RateLimited(_) | Self::ModelCooldown { .. }) {
+            response
+                .headers_mut()
+                .insert("retry-after", "60".parse().unwrap());
+        }
+
+        response
     }
 }
 

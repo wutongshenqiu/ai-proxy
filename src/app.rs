@@ -14,6 +14,8 @@ pub struct Application {
     app_router: axum::Router,
     config_path: String,
     credential_router: Arc<CredentialRouter>,
+    rate_limiter: Arc<ai_proxy_core::rate_limit::RateLimiter>,
+    cost_calculator: Arc<ai_proxy_core::cost::CostCalculator>,
     lifecycle: Box<dyn Lifecycle>,
     shutdown_timeout: u64,
     #[cfg(unix)]
@@ -75,6 +77,12 @@ impl Application {
         );
 
         let request_log_capacity = config.dashboard.request_log_capacity;
+        let rate_limiter = Arc::new(ai_proxy_core::rate_limit::RateLimiter::new(
+            &config.rate_limit,
+        ));
+        let cost_calculator = Arc::new(ai_proxy_core::cost::CostCalculator::new(
+            &config.model_prices,
+        ));
         let config = Arc::new(ArcSwap::from_pointee(config));
         let metrics = Arc::new(ai_proxy_core::metrics::Metrics::new());
         let request_logs = Arc::new(ai_proxy_core::request_log::RequestLogStore::new(
@@ -91,6 +99,8 @@ impl Application {
             request_logs,
             config_path: Arc::new(Mutex::new(args.config.clone())),
             credential_router: credential_router.clone(),
+            rate_limiter: rate_limiter.clone(),
+            cost_calculator: cost_calculator.clone(),
             start_time: Instant::now(),
         };
         let app_router = ai_proxy_server::build_router(state);
@@ -103,6 +113,8 @@ impl Application {
             app_router,
             config_path: args.config.clone(),
             credential_router,
+            rate_limiter,
+            cost_calculator,
             lifecycle: lc,
             shutdown_timeout,
             #[cfg(unix)]
@@ -117,6 +129,8 @@ impl Application {
             app_router,
             config_path,
             credential_router,
+            rate_limiter,
+            cost_calculator,
             lifecycle,
             shutdown_timeout,
             #[cfg(unix)]
@@ -125,8 +139,12 @@ impl Application {
 
         // Start config file watcher
         let watcher_router = credential_router.clone();
+        let watcher_rate_limiter = rate_limiter.clone();
+        let watcher_cost_calculator = cost_calculator.clone();
         let _watcher = ConfigWatcher::start(config_path.clone(), config.clone(), move |new_cfg| {
             watcher_router.update_from_config(new_cfg);
+            watcher_rate_limiter.update_config(&new_cfg.rate_limit);
+            watcher_cost_calculator.update_prices(&new_cfg.model_prices);
             tracing::info!(
                 "Config reloaded: {} claude keys, {} openai keys, {} gemini keys, {} compat keys",
                 new_cfg.claude_api_key.len(),
@@ -142,6 +160,8 @@ impl Application {
         // SIGHUP reload function
         let reload_config = config.clone();
         let reload_router = credential_router.clone();
+        let reload_rate_limiter = rate_limiter.clone();
+        let reload_cost_calculator = cost_calculator.clone();
         let reload_path = config_path.clone();
         let reload_lifecycle: Arc<dyn Lifecycle> = Arc::from(lifecycle::detect_lifecycle());
         let reload_fn = move || {
@@ -149,6 +169,8 @@ impl Application {
             match Config::load(&reload_path) {
                 Ok(new_cfg) => {
                     reload_router.update_from_config(&new_cfg);
+                    reload_rate_limiter.update_config(&new_cfg.rate_limit);
+                    reload_cost_calculator.update_prices(&new_cfg.model_prices);
                     tracing::info!(
                         "SIGHUP reload: {} claude keys, {} openai keys, {} gemini keys, {} compat keys",
                         new_cfg.claude_api_key.len(),

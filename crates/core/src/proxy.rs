@@ -1,6 +1,17 @@
 use reqwest::{Client, Proxy};
 use std::time::Duration;
 
+/// Default User-Agent for upstream requests.
+/// Can be overridden per-credential via the `headers` config field:
+///
+/// ```yaml
+/// claude-api-key:
+///   - api-key: "sk-..."
+///     headers:
+///       user-agent: "claude-code/2.1.62"
+/// ```
+const DEFAULT_USER_AGENT: &str = "ai-proxy/0.1.0";
+
 /// Build an HTTP client with optional proxy support.
 ///
 /// Proxy selection logic:
@@ -29,7 +40,7 @@ pub fn build_http_client_with_timeout(
     };
 
     let mut builder = Client::builder()
-        .user_agent("ai-proxy/0.1.0")
+        .user_agent(DEFAULT_USER_AGENT)
         .connect_timeout(Duration::from_secs(connect_timeout_secs))
         .timeout(Duration::from_secs(request_timeout_secs));
 

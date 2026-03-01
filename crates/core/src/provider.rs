@@ -73,6 +73,10 @@ pub struct AuthRecord {
     pub cloak: Option<crate::cloak::CloakConfig>,
     /// Wire API format for OpenAI-compatible providers.
     pub wire_api: WireApi,
+    /// Human-readable name for this credential.
+    pub credential_name: Option<String>,
+    /// Weight for weighted round-robin routing (default: 1).
+    pub weight: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -155,6 +159,11 @@ impl AuthRecord {
         self.excluded_models
             .iter()
             .any(|pattern| crate::glob::glob_match(pattern, model))
+    }
+
+    /// Get human-readable name for this credential.
+    pub fn name(&self) -> Option<&str> {
+        self.credential_name.as_deref()
     }
 
     /// Check if this credential is currently available.

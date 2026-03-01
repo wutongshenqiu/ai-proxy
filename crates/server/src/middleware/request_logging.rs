@@ -1,4 +1,5 @@
 use crate::AppState;
+use crate::dispatch::DispatchMeta;
 use ai_proxy_core::context::RequestContext;
 use ai_proxy_core::request_log::RequestLogEntry;
 use axum::extract::State;
@@ -46,6 +47,9 @@ pub async fn request_logging_middleware(
 
     // Capture proxy requests into the ring buffer
     if uri.starts_with("/v1/") {
+        // Read dispatch metadata from response extensions (set by dispatch)
+        let meta = response.extensions().get::<DispatchMeta>().cloned();
+
         let entry = RequestLogEntry {
             timestamp: chrono::Utc::now().timestamp_millis(),
             request_id,
@@ -53,10 +57,11 @@ pub async fn request_logging_middleware(
             path: uri,
             status,
             latency_ms: elapsed as u64,
-            provider: None, // Provider info is set during dispatch
-            model: None,
-            input_tokens: None,
-            output_tokens: None,
+            provider: meta.as_ref().and_then(|m| m.provider.clone()),
+            model: meta.as_ref().and_then(|m| m.model.clone()),
+            input_tokens: meta.as_ref().and_then(|m| m.input_tokens),
+            output_tokens: meta.as_ref().and_then(|m| m.output_tokens),
+            cost: meta.as_ref().and_then(|m| m.cost),
             error: if status >= 400 {
                 Some(format!("HTTP {status}"))
             } else {
