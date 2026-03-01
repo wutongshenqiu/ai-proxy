@@ -56,4 +56,7 @@ Steps:
         2. 然后 `gh pr merge --merge --delete-branch`
       - 如果没有依赖 PR: `gh pr merge --merge --delete-branch`
    f. 报告 PR URL 和 CI 结果（及 merge 状态）
-11. **结果报告**: 报告 commit SHA、push 结果、PR URL（如适用）、merge 状态（如适用）
+11. **本地清理** (仅 `--merge` 且合并成功后):
+    - `git checkout main && git pull origin main`
+    - `git branch -d <branch-name>` — 删除本地已合并的分支
+12. **结果报告**: 报告 commit SHA、push 结果、PR URL（如适用）、merge 状态（如适用）
