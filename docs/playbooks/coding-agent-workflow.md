@@ -26,16 +26,26 @@ Development workflow for coding agents (Claude Code, Cursor, etc.) working on th
    ```
    /spec advance SPEC-NNN
    ```
-5. **Implement** using the `/implement` command (reads TD, generates task list, executes):
+5. **Generate GitHub Issues** for tracking (optional but recommended):
+   ```
+   /issues SPEC-NNN
+   ```
+   Creates an Epic issue + sub-task issues from the TD's Task Breakdown.
+6. **Implement** using the `/implement` command (reads TD, creates branch, generates task list, executes):
    ```
    /implement SPEC-NNN
    ```
-   Or implement manually following the technical design.
-6. **Submit** using `/ship` (auto-advances Active spec to Completed, creates branch, PR, waits CI):
+   The `/implement` command will auto-generate a TD if one doesn't exist, create a feature branch, and generate GitHub Issues if they haven't been created yet.
+7. **Submit** using `/ship` (auto-advances Active spec to Completed, creates PR, waits CI):
    ```
    /ship --merge "feat: add support for new-provider streaming"
    ```
    The `--merge` flag auto-merges the PR after CI passes.
+8. **Retrospective** (optional, recommended after multi-spec sessions):
+   ```
+   /retro
+   ```
+   Reviews the session to identify workflow improvements and updates commands/docs.
 
 ### Bug Fixes
 

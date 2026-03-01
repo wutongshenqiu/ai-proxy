@@ -38,7 +38,8 @@ Upstream API (Claude, OpenAI, Gemini, etc.)
 Foundation types shared across all crates:
 - `Config` -- YAML configuration with hot-reload via `arc-swap` and `ConfigWatcher` (notify + SHA256 dedup)
 - `DaemonConfig` -- Daemon settings (PID file path, shutdown timeout)
-- `ProxyError` -- Unified error type using `thiserror`, with HTTP status code mapping
+- `RateLimitConfig` -- Per-key and global RPM limits
+- `ProxyError` -- Unified error type using `thiserror`, with HTTP status code mapping (includes `RateLimited` variant with `Retry-After`)
 - `AuthRecord` -- Provider credential record (API key, base URL, proxy, models, cooldown state, cloak config)
 - `Format` enum -- Identifies API format: `OpenAI`, `Claude`, `Gemini`, `OpenAICompat`
 - `WireApi` enum -- OpenAI-compatible wire protocol: `Chat` (default) or `Responses`
@@ -56,7 +57,9 @@ Foundation types shared across all crates:
 - `glob` -- Wildcard pattern matching for model names
 - `proxy` -- HTTP proxy client builder (http/https/socks5)
 - `context` -- `RequestContext` (request ID, start time, client IP)
-- `metrics` -- Atomic counters for requests, errors, latency, token usage
+- `metrics` -- Atomic counters for requests, errors, latency, token usage, cost (micro-USD)
+- `rate_limit` -- `RateLimiter` with sliding window algorithm, per-key and global RPM tracking
+- `cost` -- `CostCalculator` with built-in model price table (30+ models) and user overrides
 
 ### `crates/provider/`
 Provider-specific execution logic:
@@ -79,8 +82,8 @@ HTTP server and request dispatch:
 - Axum router setup with middleware stack
 - Handlers: `chat_completions`, `messages`, `responses`, `models`, `admin`, `health`
 - Auth: `auth.rs` -- Bearer token / x-api-key validation (top-level module)
-- Middleware: `request_logging`, `request_context`, `dashboard_auth` (JWT) (in `middleware/` directory)
-- `dispatch` -- Core routing logic with retry, credential rotation, translation, cloaking, and payload rules
+- Middleware: `request_logging`, `request_context`, `dashboard_auth` (JWT), `rate_limit` (in `middleware/` directory)
+- `dispatch` -- Core routing logic with retry, credential rotation, translation, cloaking, payload rules, model fallback (`models` array), debug mode (`x-debug` header), cost calculation, and token usage extraction
 - `streaming` -- SSE response builder with keepalive
 - `handler/dashboard/` -- Dashboard API handlers:
   - `auth` -- Login (bcrypt verify + JWT), token refresh

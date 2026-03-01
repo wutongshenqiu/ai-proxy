@@ -8,11 +8,11 @@ AI Proxy Gateway is a Rust/Axum multi-provider AI API gateway. It routes and tra
 
 | Path | Purpose |
 |------|---------|
-| `crates/core/` | Foundation types, config, errors, provider traits, metrics, glob, proxy, cloaking, payload rules, lifecycle |
+| `crates/core/` | Foundation types, config, errors, provider traits, metrics, rate limiting, cost tracking, glob, proxy, cloaking, payload rules, lifecycle |
 | `crates/core/src/types/` | Provider-specific request/response types (OpenAI, Claude, Gemini) |
 | `crates/provider/` | Provider executors (Claude, OpenAI, Gemini, OpenAICompat), credential routing, SSE parsing |
 | `crates/translator/` | Format translation between provider APIs |
-| `crates/server/` | Axum router, handlers, middleware (auth, logging, request_context, dashboard_auth), dispatch |
+| `crates/server/` | Axum router, handlers, middleware (auth, logging, request_context, dashboard_auth, rate_limit), dispatch |
 | `crates/server/src/handler/dashboard/` | Dashboard API handlers (auth, providers, auth_keys, routing, logs, config_ops, system, websocket) |
 | `src/` | Binary entry point (subcommand CLI, Application struct, daemon support) |
 | `web/` | React + TypeScript + Vite dashboard frontend (SPA) |
