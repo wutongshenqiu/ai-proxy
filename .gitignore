@@ -2,6 +2,7 @@ target/
 .DS_Store
 .env
 test-config.yaml
+config.test.yaml
 config.yaml
 docker-compose.override.yml
 

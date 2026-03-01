@@ -5,41 +5,50 @@
 
 前置条件:
 - Spec 必须处于 **Active** 或 **Draft** 状态
-- 优先使用 TD；如果没有 TD，从 PRD 的 Goals / User Stories / Requirements 推导实现计划
+- 优先使用 TD；如果没有 TD，自动生成 TD 后再实现
 
 Steps:
 
 1. **读取 Spec**: 读取 `docs/specs/active/$ARGUMENTS/` 下的文件
    - 如果 Spec 目录不存在，报错退出
    - 优先读取 `technical-design.md`，提取 Task Breakdown / Implementation Steps
-   - 如果 TD 不存在，读取 `prd.md`，从 Goals、User Stories、Requirements 推导实现步骤
+   - **如果 TD 不存在**: 读取 `prd.md`，基于 Goals / User Stories 生成 `technical-design.md` 并写入 Spec 目录，然后继续
    - 提取关键文件列表和涉及的 crate
 
-2. **分析依赖**: 解析各任务之间的依赖关系
+2. **创建分支**: 基于 Spec ID 创建 feature 分支
+   - `git checkout -b feature/$ARGUMENTS` (如 `feature/spec-012`)
+   - 如果分支已存在，切换到该分支
+
+3. **生成 GitHub Issues** (如尚未创建):
+   - 检查是否已有 `SPEC-NNN` 相关 issues: `gh issue list --search "SPEC-NNN"`
+   - 如果没有，按 `/issues` 命令的逻辑自动创建 Epic + Sub-task issues
+
+4. **分析依赖**: 解析各任务之间的依赖关系
    - 哪些任务可以并行执行
    - 哪些任务有严格的先后顺序
    - 标注每个任务涉及的文件和 crate
 
-3. **生成实现计划**: 基于 TD 的 Task Breakdown 创建 TaskList
+5. **生成实现计划**: 基于 TD 的 Task Breakdown 创建 TaskList
    - 每个任务包含: subject, description（来自 TD）, activeForm
    - 设置任务依赖关系（blockedBy）
    - 展示计划给用户确认
 
-4. **逐步实现**: 按依赖顺序执行每个任务
+6. **逐步实现**: 按依赖顺序执行每个任务
    - 每个任务开始前: `TaskUpdate` 标记 `in_progress`
    - 实现代码变更
    - 每个任务完成后:
      a. `cargo check --workspace` — 确保编译通过
-     b. `TaskUpdate` 标记 `completed`
+     b. `cargo fmt` — 格式化当前文件
+     c. `TaskUpdate` 标记 `completed`
    - 如果遇到编译错误，立即修复再继续
 
-5. **质量验证**: 所有任务完成后
+7. **质量验证**: 所有任务完成后
    - `make fmt` — 格式化
    - `make lint` — 确保 clippy 通过
    - `make test` — 确保所有测试通过
    - 如果有失败，修复后重新验证
 
-6. **结果报告**:
+8. **结果报告**:
    - 已完成的任务列表
    - 新增/修改的文件列表
    - 测试结果摘要
