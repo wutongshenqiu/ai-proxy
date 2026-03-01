@@ -28,7 +28,7 @@ AI Proxy Gateway is a Rust/Axum multi-provider AI API gateway. It routes and tra
 ```sh
 cargo build --release     # Production build
 cargo test --workspace    # Run all tests
-cargo clippy --workspace -- -D warnings  # Lint
+cargo clippy --workspace --tests -- -D warnings  # Lint (includes test code)
 cargo fmt                 # Format code
 cargo fmt --check         # Check formatting
 cargo check --workspace   # Type-check without building
@@ -183,7 +183,7 @@ Available commands (`.claude/commands/`):
 
 ## Quality Gates
 
-Pre-commit hook (`.claude/settings.json`) automatically runs `make lint && make test` before every `git commit`. Push does not trigger hooks -- quality is guaranteed at commit time.
+Pre-commit hook (`.claude/settings.json`) automatically runs `make fmt && make lint && make test` before every `git commit`. Push does not trigger hooks -- quality is guaranteed at commit time. When `web/` files are staged, the hook additionally runs `npx tsc --noEmit` to type-check the frontend.
 
 ## CI/CD
 
