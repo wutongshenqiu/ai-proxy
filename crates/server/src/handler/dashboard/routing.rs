@@ -38,9 +38,7 @@ pub async fn update_routing(
             "round-robin" | "RoundRobin" => {
                 Some(ai_proxy_core::config::RoutingStrategy::RoundRobin)
             }
-            "fill-first" | "FillFirst" => {
-                Some(ai_proxy_core::config::RoutingStrategy::FillFirst)
-            }
+            "fill-first" | "FillFirst" => Some(ai_proxy_core::config::RoutingStrategy::FillFirst),
             _ => {
                 return (
                     StatusCode::UNPROCESSABLE_ENTITY,
