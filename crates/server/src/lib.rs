@@ -5,7 +5,9 @@ pub mod middleware;
 pub mod streaming;
 
 use ai_proxy_core::config::Config;
+use ai_proxy_core::cost::CostCalculator;
 use ai_proxy_core::metrics::Metrics;
+use ai_proxy_core::rate_limit::RateLimiter;
 use ai_proxy_core::request_log::RequestLogStore;
 use ai_proxy_provider::ExecutorRegistry;
 use ai_proxy_provider::routing::CredentialRouter;
@@ -28,6 +30,8 @@ pub struct AppState {
     pub request_logs: Arc<RequestLogStore>,
     pub config_path: Arc<Mutex<String>>,
     pub credential_router: Arc<CredentialRouter>,
+    pub rate_limiter: Arc<RateLimiter>,
+    pub cost_calculator: Arc<CostCalculator>,
     pub start_time: Instant,
 }
 
@@ -73,6 +77,10 @@ pub fn build_router(state: AppState) -> Router {
             axum::routing::post(handler::responses::responses),
         )
         .layer(RequestBodyLimitLayer::new(body_limit_bytes))
+        .layer(axum_mw::from_fn_with_state(
+            state.clone(),
+            middleware::rate_limit::rate_limit_middleware,
+        ))
         .layer(axum_mw::from_fn_with_state(
             state.clone(),
             auth::auth_middleware,

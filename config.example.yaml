@@ -43,6 +43,13 @@ logging-to-file: false
 #   pid-file: "./ai-proxy.pid"
 #   shutdown-timeout: 30
 
+# ─── Rate Limiting ─────────────────────────────────────────────────────────
+# Protect upstream providers from excessive requests.
+# rate-limit:
+#   enabled: true
+#   global-rpm: 60          # Global requests per minute (0 = unlimited)
+#   per-key-rpm: 30         # Per-API-key requests per minute (0 = unlimited)
+
 # ─── Routing Strategy ───────────────────────────────────────────────────────
 routing:
   strategy: round-robin   # round-robin | fill-first
@@ -59,6 +66,17 @@ request-timeout: 300      # seconds, total request timeout (5min for streaming)
 streaming:
   keepalive-seconds: 15
 
+# ─── Cost Tracking ─────────────────────────────────────────────────────────
+# Custom model price overrides (USD per 1M tokens).
+# Built-in prices are included for major models. Override here if needed.
+# model-prices:
+#   my-custom-model:
+#     input: 1.0             # USD per 1M input tokens
+#     output: 2.0            # USD per 1M output tokens
+#   gpt-4o:
+#     input: 2.50            # Override built-in price
+#     output: 10.0
+
 # ─── Provider Credentials ───────────────────────────────────────────────────
 # Each provider supports multiple API keys with optional per-key settings.
 #
@@ -70,16 +88,22 @@ streaming:
 #   prefix:           Model name prefix (e.g., "teamA/")
 #   models:           List of available models [{id, alias}]
 #   excluded-models:  Models to exclude (supports * wildcard)
-#   headers:          Custom HTTP headers
+#   headers:          Custom HTTP headers sent to the upstream provider.
+#                     Use this to override User-Agent or add provider-specific
+#                     headers (similar to LiteLLM's extra_headers).
+#   weight:           Routing weight for weighted round-robin (default: 1)
 
 claude-api-key:
   - api-key: "sk-ant-your-claude-key"
     # base-url: "https://api.anthropic.com"
     # proxy-url: "http://proxy:8080"
+    # headers:
+    #   user-agent: "claude-code/2.1.62"    # Override default User-Agent
+    #   anthropic-beta: "max-tokens-3-5-sonnet-2024-07-15"
     # models:
-    #   - id: "claude-sonnet-4-20250514"
+    #   - id: "claude-sonnet-4-6"
     #     alias: "sonnet"
-    #   - id: "claude-opus-4-20250514"
+    #   - id: "claude-opus-4-6"
 
 openai-api-key:
   - api-key: "sk-your-openai-key"

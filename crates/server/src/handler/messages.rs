@@ -20,10 +20,12 @@ pub async fn messages(
         DispatchRequest {
             source_format: Format::Claude,
             model: parsed.model,
+            models: parsed.models,
             stream: parsed.stream,
             body,
             allowed_formats: Some(vec![Format::Claude]),
             user_agent: parsed.user_agent,
+            debug: parsed.debug,
         },
     )
     .await

@@ -19,10 +19,12 @@ pub async fn chat_completions(
         DispatchRequest {
             source_format: Format::OpenAI,
             model: parsed.model,
+            models: parsed.models,
             stream: parsed.stream,
             body,
             allowed_formats: None,
             user_agent: parsed.user_agent,
+            debug: parsed.debug,
         },
     )
     .await
