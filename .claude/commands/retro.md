@@ -14,8 +14,9 @@ Steps:
    - `CLAUDE.md` 和 `AGENTS.md` — 项目约定
 
 2. **收集会话记录**: 读取最近 N 个会话的 transcript
-   - 路径: `~/.claude/projects/<project-hash>/*.jsonl`
+   - 定位路径: `ls -lt ~/.claude/projects/-Users-*/*.jsonl | head -N`（项目目录名是 cwd 路径用 `-` 替换 `/`）
    - 按修改时间倒序取最近 N 个
+   - 大文件 (>5MB) 只读首尾各 2000 行；小文件全量读取
    - 提取关键动作序列（命令调用、工具使用、手动操作）
 
 3. **分析模式**: 对比会话中的实际操作 vs 现有自动化能力，识别:
