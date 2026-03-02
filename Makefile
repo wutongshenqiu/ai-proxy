@@ -2,7 +2,7 @@
        lint fmt clean check \
        docker-build docker-run docker-stop docker-logs \
        docker-compose-up docker-compose-down audit \
-       web-dev web-build web-install
+       web-dev web-build web-install web-test
 
 build:
 	cargo build --release
@@ -66,6 +66,9 @@ web-dev:
 
 web-build:
 	cd web && npm run build
+
+web-test:
+	cd web && npx vitest run
 
 # Security
 audit:
