@@ -176,5 +176,18 @@ pub fn build_registry() -> TranslatorRegistry {
         },
     );
 
+    // OpenAI -> OpenAICompat passthrough (only replace model name, pass responses as-is)
+    reg.register(
+        Format::OpenAI,
+        Format::OpenAICompat,
+        |model, raw_json, _stream| replace_model_in_payload(raw_json, model),
+        ResponseTransform {
+            stream: |_model, _orig_req, _event_type, data, _state| {
+                Ok(vec![String::from_utf8_lossy(data).to_string()])
+            },
+            non_stream: |_model, _orig_req, data| Ok(String::from_utf8_lossy(data).to_string()),
+        },
+    );
+
     reg
 }

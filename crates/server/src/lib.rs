@@ -4,10 +4,12 @@ pub mod handler;
 pub mod middleware;
 pub mod streaming;
 
+use ai_proxy_core::audit::AuditBackend;
+use ai_proxy_core::cache::ResponseCacheBackend;
 use ai_proxy_core::config::Config;
 use ai_proxy_core::cost::CostCalculator;
 use ai_proxy_core::metrics::Metrics;
-use ai_proxy_core::rate_limit::RateLimiter;
+use ai_proxy_core::rate_limit::CompositeRateLimiter;
 use ai_proxy_core::request_log::RequestLogStore;
 use ai_proxy_provider::ExecutorRegistry;
 use ai_proxy_provider::routing::CredentialRouter;
@@ -30,8 +32,10 @@ pub struct AppState {
     pub request_logs: Arc<RequestLogStore>,
     pub config_path: Arc<Mutex<String>>,
     pub credential_router: Arc<CredentialRouter>,
-    pub rate_limiter: Arc<RateLimiter>,
+    pub rate_limiter: Arc<CompositeRateLimiter>,
     pub cost_calculator: Arc<CostCalculator>,
+    pub response_cache: Option<Arc<dyn ResponseCacheBackend>>,
+    pub audit: Arc<dyn AuditBackend>,
     pub start_time: Instant,
 }
 
@@ -41,7 +45,11 @@ pub fn build_router(state: AppState) -> Router {
     // Public routes — no auth required
     let public_routes = Router::new()
         .route("/health", axum::routing::get(handler::health::health))
-        .route("/metrics", axum::routing::get(handler::health::metrics));
+        .route("/metrics", axum::routing::get(handler::health::metrics))
+        .route(
+            "/metrics/prometheus",
+            axum::routing::get(handler::health::prometheus_metrics),
+        );
 
     // Admin routes — no auth required (read-only)
     let admin_routes = Router::new()
@@ -118,7 +126,8 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route(
             "/api/dashboard/auth-keys/{id}",
-            axum::routing::delete(handler::dashboard::auth_keys::delete_auth_key),
+            axum::routing::patch(handler::dashboard::auth_keys::update_auth_key)
+                .delete(handler::dashboard::auth_keys::delete_auth_key),
         )
         // Routing
         .route(
@@ -156,6 +165,15 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/dashboard/system/logs",
             axum::routing::get(handler::dashboard::system::system_logs),
+        )
+        // Tenants
+        .route(
+            "/api/dashboard/tenants",
+            axum::routing::get(handler::dashboard::tenant::list_tenants),
+        )
+        .route(
+            "/api/dashboard/tenants/{id}/metrics",
+            axum::routing::get(handler::dashboard::tenant::tenant_metrics),
         )
         .layer(axum_mw::from_fn_with_state(
             state.clone(),

@@ -1,3 +1,7 @@
+pub mod audit;
+pub mod auth_key;
+pub mod cache;
+pub mod circuit_breaker;
 pub mod cloak;
 pub mod config;
 pub mod context;
@@ -7,8 +11,10 @@ pub mod glob;
 pub mod lifecycle;
 pub mod metrics;
 pub mod payload;
+pub mod prometheus;
 pub mod provider;
 pub mod proxy;
 pub mod rate_limit;
 pub mod request_log;
+pub mod secret;
 pub mod types;

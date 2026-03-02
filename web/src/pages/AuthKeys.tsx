@@ -42,7 +42,7 @@ export default function AuthKeys() {
     try {
       const response = await authKeysApi.create({
         name: newKeyName,
-        expires_in_days: newKeyExpiry ? parseInt(newKeyExpiry, 10) : undefined,
+        expires_at: newKeyExpiry ? new Date(Date.now() + parseInt(newKeyExpiry, 10) * 86400000).toISOString() : undefined,
       });
 
       setCreatedKey(response.data.key);
@@ -58,7 +58,7 @@ export default function AuthKeys() {
     }
   };
 
-  const handleDelete = async (id: string, name: string) => {
+  const handleDelete = async (id: number, name: string) => {
     if (!window.confirm(`Delete API key "${name}"? This cannot be undone.`)) {
       return;
     }
@@ -111,9 +111,9 @@ export default function AuthKeys() {
             <thead>
               <tr>
                 <th>Name</th>
-                <th>Key Prefix</th>
-                <th>Created</th>
-                <th>Last Used</th>
+                <th>Key</th>
+                <th>Tenant</th>
+                <th>Models</th>
                 <th>Expires</th>
                 <th>Actions</th>
               </tr>
@@ -139,15 +139,13 @@ export default function AuthKeys() {
               ) : (
                 keys.map((key) => (
                   <tr key={key.id}>
-                    <td className="text-bold">{key.name || '-'}</td>
-                    <td className="text-mono">{key.key_prefix || '-'}</td>
-                    <td className="text-nowrap">
-                      {key.created_at ? new Date(key.created_at).toLocaleDateString() : '-'}
-                    </td>
-                    <td className="text-nowrap">
-                      {key.last_used_at
-                        ? new Date(key.last_used_at).toLocaleDateString()
-                        : 'Never'}
+                    <td className="text-bold">{key.name ?? '-'}</td>
+                    <td className="text-mono">{key.key_masked || '-'}</td>
+                    <td>{key.tenant_id ?? '-'}</td>
+                    <td>
+                      {key.allowed_models.length > 0
+                        ? key.allowed_models.join(', ')
+                        : 'All'}
                     </td>
                     <td className="text-nowrap">
                       {key.expires_at
@@ -157,7 +155,7 @@ export default function AuthKeys() {
                     <td>
                       <button
                         className="btn btn-ghost btn-sm btn-danger-ghost"
-                        onClick={() => handleDelete(key.id, key.name)}
+                        onClick={() => handleDelete(key.id, key.name ?? 'Unnamed')}
                         title="Delete"
                       >
                         <Trash2 size={14} />

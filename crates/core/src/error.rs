@@ -40,6 +40,12 @@ pub enum ProxyError {
     #[error("rate limit exceeded: {0}")]
     RateLimited(String),
 
+    #[error("model access denied: {0}")]
+    ModelNotAllowed(String),
+
+    #[error("API key expired")]
+    KeyExpired,
+
     #[error("internal error: {0}")]
     Internal(String),
 }
@@ -48,7 +54,8 @@ impl ProxyError {
     pub fn status_code(&self) -> StatusCode {
         match self {
             Self::Config(_) | Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::Auth(_) => StatusCode::UNAUTHORIZED,
+            Self::Auth(_) | Self::KeyExpired => StatusCode::UNAUTHORIZED,
+            Self::ModelNotAllowed(_) => StatusCode::FORBIDDEN,
             Self::NoCredentials { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::ModelCooldown { .. } | Self::RateLimited(_) => StatusCode::TOO_MANY_REQUESTS,
             Self::Upstream { status, .. } => {
@@ -63,7 +70,8 @@ impl ProxyError {
 
     fn error_type(&self) -> &str {
         match self {
-            Self::Auth(_) => "authentication_error",
+            Self::Auth(_) | Self::KeyExpired => "authentication_error",
+            Self::ModelNotAllowed(_) => "permission_error",
             Self::NoCredentials { .. } => "insufficient_quota",
             Self::ModelCooldown { .. } | Self::RateLimited(_) => "rate_limit_error",
             Self::BadRequest(_) => "invalid_request_error",
@@ -75,7 +83,8 @@ impl ProxyError {
 
     fn error_code(&self) -> &str {
         match self {
-            Self::Auth(_) => "invalid_api_key",
+            Self::Auth(_) | Self::KeyExpired => "invalid_api_key",
+            Self::ModelNotAllowed(_) => "model_not_allowed",
             Self::NoCredentials { .. } => "insufficient_quota",
             Self::ModelCooldown { .. } | Self::RateLimited(_) => "rate_limit_exceeded",
             Self::ModelNotFound(_) => "model_not_found",

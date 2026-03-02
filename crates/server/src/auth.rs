@@ -1,16 +1,18 @@
 use crate::AppState;
+use ai_proxy_core::auth_key::AuthKeyStore;
+use ai_proxy_core::context::RequestContext;
 use ai_proxy_core::error::ProxyError;
 use axum::{extract::State, http::Request, middleware::Next, response::Response};
 
 pub async fn auth_middleware(
     State(state): State<AppState>,
-    request: Request<axum::body::Body>,
+    mut request: Request<axum::body::Body>,
     next: Next,
 ) -> Result<Response, ProxyError> {
     let config = state.config.load();
 
-    // If no API keys configured, skip auth
-    if config.api_keys.is_empty() {
+    // If no auth keys configured, skip auth
+    if config.auth_keys.is_empty() {
         return Ok(next.run(request).await);
     }
 
@@ -25,10 +27,31 @@ pub async fn auth_middleware(
                 .headers()
                 .get("x-api-key")
                 .and_then(|v| v.to_str().ok())
-        });
+        })
+        .map(|s| s.to_string());
 
-    match token {
-        Some(t) if config.api_keys_set.contains(t) => Ok(next.run(request).await),
-        _ => Err(ProxyError::Auth("Invalid API key".to_string())),
+    let token = match token {
+        Some(t) => t,
+        None => return Err(ProxyError::Auth("Missing API key".to_string())),
+    };
+
+    // Lookup in AuthKeyStore
+    let entry = match config.auth_key_store.lookup(&token) {
+        Some(e) => e,
+        None => return Err(ProxyError::Auth("Invalid API key".to_string())),
+    };
+
+    // Check expiry
+    if AuthKeyStore::is_expired(entry) {
+        return Err(ProxyError::KeyExpired);
     }
+
+    // Inject auth info into RequestContext
+    if let Some(ctx) = request.extensions_mut().get_mut::<RequestContext>() {
+        ctx.api_key_id = Some(AuthKeyStore::mask_key(&token));
+        ctx.tenant_id = entry.tenant_id.clone();
+        ctx.auth_key = Some(entry.clone());
+    }
+
+    Ok(next.run(request).await)
 }
