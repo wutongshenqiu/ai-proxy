@@ -1,9 +1,13 @@
+use crate::audit::AuditConfig;
+use crate::auth_key::{AuthKeyEntry, AuthKeyStore};
+use crate::cache::CacheConfig;
+use crate::circuit_breaker::CircuitBreakerConfig;
 use crate::payload::PayloadConfig;
 use arc_swap::ArcSwap;
 use notify::{RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -18,10 +22,10 @@ pub struct Config {
     pub port: u16,
     pub tls: TlsConfig,
 
-    // Client auth
-    pub api_keys: Vec<String>,
+    // Client auth — structured auth keys
+    pub auth_keys: Vec<AuthKeyEntry>,
     #[serde(skip)]
-    pub api_keys_set: HashSet<String>,
+    pub auth_key_store: AuthKeyStore,
 
     // Global proxy
     pub proxy_url: Option<String>,
@@ -62,7 +66,6 @@ pub struct Config {
     pub force_model_prefix: bool,
 
     // Non-stream keepalive interval in seconds (0 = disabled).
-    // When enabled, sends periodic whitespace to prevent intermediate proxy timeouts.
     pub non_stream_keepalive_secs: u64,
 
     // Cost tracking: custom model price overrides (USD per 1M tokens).
@@ -70,6 +73,15 @@ pub struct Config {
 
     // Rate limiting
     pub rate_limit: RateLimitConfig,
+
+    // Circuit breaker
+    pub circuit_breaker: CircuitBreakerConfig,
+
+    // Response cache
+    pub cache: CacheConfig,
+
+    // Audit logging
+    pub audit: AuditConfig,
 
     // Dashboard
     pub dashboard: DashboardConfig,
@@ -90,8 +102,8 @@ impl Default for Config {
             host: "0.0.0.0".to_string(),
             port: 8317,
             tls: TlsConfig::default(),
-            api_keys: Vec::new(),
-            api_keys_set: HashSet::new(),
+            auth_keys: Vec::new(),
+            auth_key_store: AuthKeyStore::default(),
             proxy_url: None,
             debug: false,
             logging_to_file: false,
@@ -111,6 +123,9 @@ impl Default for Config {
             non_stream_keepalive_secs: 0,
             model_prices: HashMap::new(),
             rate_limit: RateLimitConfig::default(),
+            circuit_breaker: CircuitBreakerConfig::default(),
+            cache: CacheConfig::default(),
+            audit: AuditConfig::default(),
             dashboard: DashboardConfig::default(),
             daemon: DaemonConfig::default(),
             claude_api_key: Vec::new(),
@@ -155,8 +170,14 @@ impl Config {
         sanitize_entries(&mut self.gemini_api_key);
         sanitize_entries(&mut self.openai_compatibility);
 
-        // Build HashSet for O(1) API key lookups
-        self.api_keys_set = self.api_keys.iter().cloned().collect();
+        // Resolve secrets in provider API keys
+        resolve_provider_secrets(&mut self.claude_api_key);
+        resolve_provider_secrets(&mut self.openai_api_key);
+        resolve_provider_secrets(&mut self.gemini_api_key);
+        resolve_provider_secrets(&mut self.openai_compatibility);
+
+        // Build AuthKeyStore for O(1) auth key lookups
+        self.auth_key_store = AuthKeyStore::new(self.auth_keys.clone());
     }
 
     /// Returns an iterator over all provider key entries.
@@ -169,13 +190,22 @@ impl Config {
     }
 }
 
+/// Resolve env:// and file:// secrets in provider API keys.
+fn resolve_provider_secrets(entries: &mut [ProviderKeyEntry]) {
+    for entry in entries.iter_mut() {
+        if let Ok(resolved) = crate::secret::resolve(&entry.api_key) {
+            entry.api_key = resolved;
+        }
+    }
+}
+
 /// Remove entries with empty api_key, deduplicate, normalize base_url.
 fn sanitize_entries(entries: &mut Vec<ProviderKeyEntry>) {
     // Remove entries with empty API keys
     entries.retain(|e| !e.api_key.is_empty());
 
     // Deduplicate by api_key
-    let mut seen = HashSet::new();
+    let mut seen = std::collections::HashSet::new();
     entries.retain(|e| seen.insert(e.api_key.clone()));
 
     // Normalize entries
@@ -198,7 +228,7 @@ fn sanitize_entries(entries: &mut Vec<ProviderKeyEntry>) {
 
 // ─── Rate limit config ─────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default)]
 pub struct RateLimitConfig {
     /// Enable rate limiting.
@@ -207,6 +237,25 @@ pub struct RateLimitConfig {
     pub global_rpm: u32,
     /// Per-API-key requests per minute limit (0 = unlimited).
     pub per_key_rpm: u32,
+    /// Global tokens per minute limit (0 = unlimited).
+    pub global_tpm: u64,
+    /// Per-API-key tokens per minute limit (0 = unlimited).
+    pub per_key_tpm: u64,
+    /// Per-API-key cost per day in USD (0.0 = unlimited).
+    pub per_key_cost_per_day_usd: f64,
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            global_rpm: 0,
+            per_key_rpm: 0,
+            global_tpm: 0,
+            per_key_tpm: 0,
+            per_key_cost_per_day_usd: 0.0,
+        }
+    }
 }
 
 // ─── Dashboard config ──────────────────────────────────────────────────────
@@ -285,6 +334,10 @@ pub struct TlsConfig {
 pub struct RoutingConfig {
     pub strategy: RoutingStrategy,
     pub fallback_enabled: bool,
+    /// EWMA smoothing factor for latency-aware routing (0.0-1.0, default 0.3).
+    pub ewma_alpha: f64,
+    /// Default region for geo-aware routing.
+    pub default_region: Option<String>,
 }
 
 impl Default for RoutingConfig {
@@ -292,6 +345,8 @@ impl Default for RoutingConfig {
         Self {
             strategy: RoutingStrategy::RoundRobin,
             fallback_enabled: true,
+            ewma_alpha: 0.3,
+            default_region: None,
         }
     }
 }
@@ -301,6 +356,8 @@ impl Default for RoutingConfig {
 pub enum RoutingStrategy {
     RoundRobin,
     FillFirst,
+    LatencyAware,
+    GeoAware,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -328,6 +385,8 @@ pub struct RetryConfig {
     pub cooldown_429_secs: u64,
     pub cooldown_5xx_secs: u64,
     pub cooldown_network_secs: u64,
+    /// Jitter factor for retry backoff (0.0 = no jitter, 1.0 = full jitter).
+    pub jitter_factor: f64,
 }
 
 impl Default for RetryConfig {
@@ -338,6 +397,7 @@ impl Default for RetryConfig {
             cooldown_429_secs: 60,
             cooldown_5xx_secs: 15,
             cooldown_network_secs: 10,
+            jitter_factor: 1.0,
         }
     }
 }
@@ -383,6 +443,9 @@ pub struct ProviderKeyEntry {
     /// Weight for weighted round-robin routing (default: 1, range 1-100).
     #[serde(default = "default_weight")]
     pub weight: u32,
+    /// Region identifier for geo-aware routing.
+    #[serde(default)]
+    pub region: Option<String>,
 }
 
 fn default_weight() -> u32 {
@@ -482,6 +545,9 @@ mod tests {
         assert_eq!(cfg.retry.cooldown_429_secs, 60);
         assert_eq!(cfg.retry.cooldown_5xx_secs, 15);
         assert_eq!(cfg.retry.cooldown_network_secs, 10);
+        assert!(!cfg.cache.enabled);
+        assert!(!cfg.audit.enabled);
+        assert!(cfg.circuit_breaker.enabled);
     }
 
     #[test]
@@ -500,6 +566,7 @@ mod tests {
                 cloak: Default::default(),
                 wire_api: crate::provider::WireApi::default(),
                 weight: 1,
+                region: None,
             },
             ProviderKeyEntry {
                 api_key: "".into(),
@@ -514,6 +581,7 @@ mod tests {
                 cloak: Default::default(),
                 wire_api: crate::provider::WireApi::default(),
                 weight: 1,
+                region: None,
             },
             ProviderKeyEntry {
                 api_key: "key1".into(), // duplicate
@@ -528,6 +596,7 @@ mod tests {
                 cloak: Default::default(),
                 wire_api: crate::provider::WireApi::default(),
                 weight: 1,
+                region: None,
             },
         ];
         sanitize_entries(&mut entries);
@@ -544,8 +613,11 @@ mod tests {
         let yaml = r#"
 host: "127.0.0.1"
 port: 9000
-api-keys:
-  - "test-key"
+auth-keys:
+  - key: "test-key"
+    name: "Test"
+    tenant-id: "t1"
+    allowed-models: ["claude-*"]
 routing:
   strategy: fill-first
 claude-api-key:
@@ -558,7 +630,9 @@ claude-api-key:
         let config: Config = serde_yml::from_str(yaml).unwrap();
         assert_eq!(config.host, "127.0.0.1");
         assert_eq!(config.port, 9000);
-        assert_eq!(config.api_keys, vec!["test-key"]);
+        assert_eq!(config.auth_keys.len(), 1);
+        assert_eq!(config.auth_keys[0].key, "test-key");
+        assert_eq!(config.auth_keys[0].tenant_id.as_deref(), Some("t1"));
         assert_eq!(config.routing.strategy, RoutingStrategy::FillFirst);
         assert_eq!(config.claude_api_key.len(), 1);
         assert_eq!(config.claude_api_key[0].models.len(), 1);
@@ -587,5 +661,34 @@ daemon:
         let config2: Config = serde_yml::from_str(&serialized).unwrap();
         assert_eq!(config2.daemon.pid_file, "/run/ai-proxy.pid");
         assert_eq!(config2.daemon.shutdown_timeout, 60);
+    }
+
+    #[test]
+    fn test_rate_limit_config_new_fields() {
+        let yaml = r#"
+rate-limit:
+  enabled: true
+  global-rpm: 100
+  per-key-rpm: 50
+  global-tpm: 1000000
+  per-key-tpm: 500000
+  per-key-cost-per-day-usd: 10.0
+"#;
+        let config: Config = serde_yml::from_str(yaml).unwrap();
+        assert!(config.rate_limit.enabled);
+        assert_eq!(config.rate_limit.global_tpm, 1_000_000);
+        assert_eq!(config.rate_limit.per_key_tpm, 500_000);
+        assert_eq!(config.rate_limit.per_key_cost_per_day_usd, 10.0);
+    }
+
+    #[test]
+    fn test_routing_strategy_variants() {
+        let yaml = r#"routing: { strategy: latency-aware }"#;
+        let config: Config = serde_yml::from_str(yaml).unwrap();
+        assert_eq!(config.routing.strategy, RoutingStrategy::LatencyAware);
+
+        let yaml = r#"routing: { strategy: geo-aware }"#;
+        let config: Config = serde_yml::from_str(yaml).unwrap();
+        assert_eq!(config.routing.strategy, RoutingStrategy::GeoAware);
     }
 }

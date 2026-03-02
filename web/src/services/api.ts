@@ -39,7 +39,9 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // Skip token refresh for login/refresh endpoints — let the caller handle the error
+    const isAuthEndpoint = originalRequest.url?.includes('/auth/login') || originalRequest.url?.includes('/auth/refresh');
+    if (error.response?.status === 401 && !originalRequest._retry && !isAuthEndpoint) {
       originalRequest._retry = true;
 
       try {
@@ -109,9 +111,7 @@ export const providersApi = {
     data: {
       ...res.data,
       provider_type: providerTypeToFrontend(res.data.provider_type),
-      enabled: (res.data as Record<string, unknown>).disabled !== undefined
-        ? !(res.data as Record<string, unknown>).disabled
-        : true,
+      enabled: res.data.disabled !== undefined ? !res.data.disabled : true,
     },
   })),
 
@@ -140,12 +140,15 @@ export const authKeysApi = {
       const raw = res.data.auth_keys || res.data;
       const data = Array.isArray(raw)
         ? raw.map((item: Record<string, unknown>) => ({
-            id: String(item.id ?? ''),
-            name: (item.name as string) || '',
-            key_prefix: (item.key_prefix as string) || (item.key_masked as string) || '',
-            created_at: (item.created_at as string) || '',
-            last_used_at: (item.last_used_at as string) || null,
-            expires_at: (item.expires_at as string) || null,
+            id: Number(item.id ?? 0),
+            key_masked: (item.key_masked as string) || '',
+            name: (item.name as string | null) ?? null,
+            tenant_id: (item.tenant_id as string | null) ?? null,
+            allowed_models: (item.allowed_models as string[]) || [],
+            rate_limit: (item.rate_limit as AuthKey['rate_limit']) ?? null,
+            budget: (item.budget as AuthKey['budget']) ?? null,
+            expires_at: (item.expires_at as string | null) ?? null,
+            metadata: (item.metadata as Record<string, string>) || {},
           }))
         : [];
       return { ...res, data };
@@ -154,7 +157,7 @@ export const authKeysApi = {
   create: (data: AuthKeyCreateRequest) =>
     api.post<AuthKeyCreateResponse>('/auth-keys', data),
 
-  delete: (id: string) => api.delete(`/auth-keys/${id}`),
+  delete: (id: number | string) => api.delete(`/auth-keys/${id}`),
 };
 
 // ── Routing ──

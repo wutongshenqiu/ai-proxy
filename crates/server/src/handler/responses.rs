@@ -1,6 +1,8 @@
 use crate::AppState;
+use ai_proxy_core::context::RequestContext;
 use ai_proxy_core::error::ProxyError;
 use ai_proxy_core::provider::Format;
+use axum::Extension;
 use axum::extract::State;
 use axum::response::IntoResponse;
 use bytes::Bytes;
@@ -9,6 +11,7 @@ use bytes::Bytes;
 /// This endpoint forwards directly to upstream since there's no translation layer.
 pub async fn responses(
     State(state): State<AppState>,
+    Extension(ctx): Extension<RequestContext>,
     body: Bytes,
 ) -> Result<impl IntoResponse, ProxyError> {
     let req_value: serde_json::Value =
@@ -33,7 +36,7 @@ pub async fn responses(
 
     let auth = state
         .router
-        .pick(*target_format, &model, &[])
+        .pick(*target_format, &model, &[], ctx.client_region.as_deref())
         .ok_or_else(|| ProxyError::NoCredentials {
             provider: target_format.as_str().into(),
             model: model.clone(),

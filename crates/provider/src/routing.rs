@@ -1,14 +1,24 @@
+use ai_proxy_core::circuit_breaker::{
+    CircuitBreakerConfig, CircuitBreakerPolicy, CircuitState, NoopCircuitBreaker,
+    ThreeStateCircuitBreaker,
+};
 use ai_proxy_core::config::{Config, RoutingStrategy};
 use ai_proxy_core::provider::{AuthRecord, Format, ModelEntry, ModelInfo};
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::RwLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
 
 pub struct CredentialRouter {
     credentials: RwLock<HashMap<Format, Vec<AuthRecord>>>,
     counters: RwLock<HashMap<String, AtomicUsize>>,
     strategy: RwLock<RoutingStrategy>,
+    /// EWMA latency per credential_id (ms).
+    latency_ewma: RwLock<HashMap<String, f64>>,
+    /// EWMA smoothing factor (0.0-1.0).
+    ewma_alpha: RwLock<f64>,
+    /// Circuit breaker config (used when building new records).
+    cb_config: RwLock<CircuitBreakerConfig>,
 }
 
 impl CredentialRouter {
@@ -17,12 +27,21 @@ impl CredentialRouter {
             credentials: RwLock::new(HashMap::new()),
             counters: RwLock::new(HashMap::new()),
             strategy: RwLock::new(strategy),
+            latency_ewma: RwLock::new(HashMap::new()),
+            ewma_alpha: RwLock::new(0.3),
+            cb_config: RwLock::new(CircuitBreakerConfig::default()),
         }
     }
 
     /// Pick the next available credential for the given provider and model.
     /// Skips credentials whose IDs are in `tried`.
-    pub fn pick(&self, provider: Format, model: &str, tried: &[String]) -> Option<AuthRecord> {
+    pub fn pick(
+        &self,
+        provider: Format,
+        model: &str,
+        tried: &[String],
+        client_region: Option<&str>,
+    ) -> Option<AuthRecord> {
         let creds = self.credentials.read().ok()?;
         let entries = creds.get(&provider)?;
 
@@ -42,94 +61,197 @@ impl CredentialRouter {
                 // Always pick the first available credential
                 candidates.first().cloned().cloned()
             }
-            RoutingStrategy::RoundRobin => {
-                let key = format!("{}:{}", provider.as_str(), model);
-                let counters = self.counters.read().ok()?;
-                let idx = if let Some(counter) = counters.get(&key) {
-                    counter.fetch_add(1, Ordering::Relaxed)
-                } else {
-                    drop(counters);
-                    let mut counters = self.counters.write().ok()?;
-                    let counter = counters.entry(key).or_insert_with(|| AtomicUsize::new(0));
-                    counter.fetch_add(1, Ordering::Relaxed)
-                };
-
-                // Weighted round-robin: build expanded index based on weights
-                let total_weight: u32 = candidates.iter().map(|c| c.weight.max(1)).sum();
-                if total_weight == 0 {
-                    return candidates.first().cloned().cloned();
-                }
-                let slot = (idx as u32) % total_weight;
-                let mut cumulative = 0u32;
-                for &c in &candidates {
-                    cumulative += c.weight.max(1);
-                    if slot < cumulative {
-                        return Some(c.clone());
-                    }
-                }
-                // Fallback (shouldn't reach here)
-                Some(candidates[idx % candidates.len()].clone())
-            }
+            RoutingStrategy::RoundRobin => self.pick_round_robin(provider, model, &candidates),
+            RoutingStrategy::LatencyAware => self.pick_latency_aware(&candidates),
+            RoutingStrategy::GeoAware => self.pick_geo_aware(&candidates, client_region),
         }
     }
 
-    /// Mark a credential as unavailable for a duration (cooldown).
-    pub fn mark_unavailable(&self, auth_id: &str, duration: Duration) {
-        if let Ok(mut creds) = self.credentials.write() {
-            let until = Instant::now() + duration;
-            for entries in creds.values_mut() {
-                for auth in entries.iter_mut() {
+    fn pick_round_robin(
+        &self,
+        provider: Format,
+        model: &str,
+        candidates: &[&AuthRecord],
+    ) -> Option<AuthRecord> {
+        let key = format!("{}:{}", provider.as_str(), model);
+        let counters = self.counters.read().ok()?;
+        let idx = if let Some(counter) = counters.get(&key) {
+            counter.fetch_add(1, Ordering::Relaxed)
+        } else {
+            drop(counters);
+            let mut counters = self.counters.write().ok()?;
+            let counter = counters.entry(key).or_insert_with(|| AtomicUsize::new(0));
+            counter.fetch_add(1, Ordering::Relaxed)
+        };
+
+        // Weighted round-robin: build expanded index based on weights
+        let total_weight: u32 = candidates.iter().map(|c| c.weight.max(1)).sum();
+        if total_weight == 0 {
+            return candidates.first().cloned().cloned();
+        }
+        let slot = (idx as u32) % total_weight;
+        let mut cumulative = 0u32;
+        for &c in candidates {
+            cumulative += c.weight.max(1);
+            if slot < cumulative {
+                return Some(c.clone());
+            }
+        }
+        // Fallback (shouldn't reach here)
+        Some(candidates[idx % candidates.len()].clone())
+    }
+
+    fn pick_latency_aware(&self, candidates: &[&AuthRecord]) -> Option<AuthRecord> {
+        if candidates.len() == 1 {
+            return candidates.first().cloned().cloned();
+        }
+
+        let ewma = self.latency_ewma.read().ok()?;
+        let mut best: Option<&AuthRecord> = None;
+        let mut best_latency = f64::MAX;
+
+        for &c in candidates {
+            let latency = ewma.get(&c.id).copied().unwrap_or(0.0);
+            if latency < best_latency {
+                best_latency = latency;
+                best = Some(c);
+            }
+        }
+
+        best.cloned()
+    }
+
+    fn pick_geo_aware(
+        &self,
+        candidates: &[&AuthRecord],
+        client_region: Option<&str>,
+    ) -> Option<AuthRecord> {
+        if let Some(region) = client_region {
+            // Prefer same-region credentials
+            let same_region: Vec<&&AuthRecord> = candidates
+                .iter()
+                .filter(|c| c.region.as_deref() == Some(region))
+                .collect();
+
+            if !same_region.is_empty() {
+                return same_region.first().cloned().cloned().cloned();
+            }
+        }
+
+        // Fallback to first available
+        candidates.first().cloned().cloned()
+    }
+
+    /// Record a credential's request latency for EWMA tracking.
+    pub fn record_latency(&self, credential_id: &str, latency_ms: f64) {
+        let alpha = *self.ewma_alpha.read().unwrap();
+        let mut ewma = self.latency_ewma.write().unwrap();
+        let current = ewma.entry(credential_id.to_string()).or_insert(latency_ms);
+        *current = alpha * latency_ms + (1.0 - alpha) * *current;
+    }
+
+    /// Record a successful request for a credential.
+    pub fn record_success(&self, auth_id: &str) {
+        if let Ok(creds) = self.credentials.read() {
+            for entries in creds.values() {
+                for auth in entries {
                     if auth.id == auth_id {
-                        auth.cooldown_until = Some(until);
+                        auth.circuit_breaker.record_success();
+                        return;
                     }
                 }
             }
         }
     }
 
-    /// Rebuild credentials from config, preserving cooldown state from existing credentials.
+    /// Record a failure for a credential (circuit breaker).
+    pub fn record_failure(&self, auth_id: &str) {
+        if let Ok(creds) = self.credentials.read() {
+            for entries in creds.values() {
+                for auth in entries {
+                    if auth.id == auth_id {
+                        auth.circuit_breaker.record_failure();
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Get circuit breaker states for all credentials (for Prometheus).
+    pub fn circuit_breaker_states(&self) -> Vec<(String, bool)> {
+        let mut states = Vec::new();
+        if let Ok(creds) = self.credentials.read() {
+            for entries in creds.values() {
+                for auth in entries {
+                    let name = auth
+                        .credential_name
+                        .clone()
+                        .unwrap_or_else(|| auth.id[..8].to_string());
+                    states.push((name, auth.circuit_state() == CircuitState::Open));
+                }
+            }
+        }
+        states
+    }
+
+    /// Rebuild credentials from config, preserving circuit breaker state.
     pub fn update_from_config(&self, config: &Config) {
+        // Update CB config and EWMA alpha
+        if let Ok(mut cb) = self.cb_config.write() {
+            *cb = config.circuit_breaker.clone();
+        }
+        if let Ok(mut alpha) = self.ewma_alpha.write() {
+            *alpha = config.routing.ewma_alpha;
+        }
+
+        let cb_config = config.circuit_breaker.clone();
+
         let mut map: HashMap<Format, Vec<AuthRecord>> = HashMap::new();
 
         // Claude credentials
         for entry in &config.claude_api_key {
-            let auth = build_auth_record(entry, Format::Claude);
+            let auth = build_auth_record(entry, Format::Claude, &cb_config);
             map.entry(Format::Claude).or_default().push(auth);
         }
 
         // OpenAI credentials
         for entry in &config.openai_api_key {
-            let auth = build_auth_record(entry, Format::OpenAI);
+            let auth = build_auth_record(entry, Format::OpenAI, &cb_config);
             map.entry(Format::OpenAI).or_default().push(auth);
         }
 
         // Gemini credentials
         for entry in &config.gemini_api_key {
-            let auth = build_auth_record(entry, Format::Gemini);
+            let auth = build_auth_record(entry, Format::Gemini, &cb_config);
             map.entry(Format::Gemini).or_default().push(auth);
         }
 
         // OpenAI-compatible credentials
         for entry in &config.openai_compatibility {
-            let auth = build_auth_record(entry, Format::OpenAICompat);
+            let auth = build_auth_record(entry, Format::OpenAICompat, &cb_config);
             map.entry(Format::OpenAICompat).or_default().push(auth);
         }
 
         if let Ok(mut creds) = self.credentials.write() {
-            // Preserve cooldown state from existing credentials (matched by api_key + format)
+            // Preserve circuit breaker state from existing credentials
             for (format, new_entries) in map.iter_mut() {
                 if let Some(old_entries) = creds.get(format) {
                     for new_auth in new_entries.iter_mut() {
                         if let Some(old_auth) =
                             old_entries.iter().find(|o| o.api_key == new_auth.api_key)
                         {
-                            new_auth.cooldown_until = old_auth.cooldown_until;
+                            // Preserve CB state by reusing the old Arc
+                            new_auth.circuit_breaker = old_auth.circuit_breaker.clone();
                         }
                     }
                 }
             }
             *creds = map;
         }
+
+        // Preserve latency EWMA data (keyed by credential id changes, so
+        // we can't perfectly preserve — but it's ephemeral data anyway)
 
         // Update strategy
         if let Ok(mut strategy) = self.strategy.write() {
@@ -168,7 +290,6 @@ impl CredentialRouter {
     }
 
     /// Check if the model name matches any credential that has a prefix configured.
-    /// Used by `force_model_prefix` to reject unprefixed model requests.
     pub fn model_has_prefix(&self, model: &str) -> bool {
         if let Ok(creds) = self.credentials.read() {
             for entries in creds.values() {
@@ -204,6 +325,7 @@ impl CredentialRouter {
 fn build_auth_record(
     entry: &ai_proxy_core::config::ProviderKeyEntry,
     format: Format,
+    cb_config: &CircuitBreakerConfig,
 ) -> AuthRecord {
     let models = entry
         .models
@@ -213,6 +335,12 @@ fn build_auth_record(
             alias: m.alias.clone(),
         })
         .collect();
+
+    let circuit_breaker: Arc<dyn CircuitBreakerPolicy> = if cb_config.enabled {
+        Arc::new(ThreeStateCircuitBreaker::new(cb_config.clone()))
+    } else {
+        Arc::new(NoopCircuitBreaker)
+    };
 
     AuthRecord {
         id: uuid::Uuid::new_v4().to_string(),
@@ -225,7 +353,7 @@ fn build_auth_record(
         excluded_models: entry.excluded_models.clone(),
         prefix: entry.prefix.clone(),
         disabled: entry.disabled,
-        cooldown_until: None,
+        circuit_breaker,
         cloak: if matches!(format, Format::Claude) {
             Some(entry.cloak.clone())
         } else {
@@ -234,5 +362,6 @@ fn build_auth_record(
         wire_api: entry.wire_api,
         credential_name: entry.name.clone(),
         weight: entry.weight.max(1),
+        region: entry.region.clone(),
     }
 }

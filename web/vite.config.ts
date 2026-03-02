@@ -10,6 +10,10 @@ export default defineConfig({
         target: 'http://localhost:8317',
         changeOrigin: true,
       },
+      '/metrics': {
+        target: 'http://localhost:8317',
+        changeOrigin: true,
+      },
       '/ws': {
         target: 'ws://localhost:8317',
         ws: true,

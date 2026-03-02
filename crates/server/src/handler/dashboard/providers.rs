@@ -189,6 +189,7 @@ pub async fn create_provider(
         cloak: Default::default(),
         wire_api: Default::default(),
         weight: 1,
+        region: None,
     };
 
     match update_config_file(&state, |config| match body.provider_type.as_str() {
@@ -354,7 +355,7 @@ async fn update_config_file(
     mutate(&mut config);
 
     // Rebuild derived fields
-    config.api_keys_set = config.api_keys.iter().cloned().collect();
+    config.auth_key_store = ai_proxy_core::auth_key::AuthKeyStore::new(config.auth_keys.clone());
 
     let yaml =
         serde_yml::to_string(&config).map_err(|e| format!("Failed to serialize config: {e}"))?;

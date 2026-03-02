@@ -10,7 +10,7 @@ pub async fn admin_config(State(state): State<AppState>) -> impl IntoResponse {
         "host": config.host,
         "port": config.port,
         "tls": { "enable": config.tls.enable },
-        "api_keys_count": config.api_keys.len(),
+        "auth_keys_count": config.auth_keys.len(),
         "routing": config.routing,
         "retry": config.retry,
         "body_limit_mb": config.body_limit_mb,

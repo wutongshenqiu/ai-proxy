@@ -1,9 +1,12 @@
 //! Application struct that encapsulates server assembly and serving logic.
 
 use crate::cli::RunArgs;
+use ai_proxy_core::audit::{AuditBackend, FileAuditBackend, NoopAuditBackend};
+use ai_proxy_core::cache::{MokaCache, ResponseCacheBackend};
 use ai_proxy_core::config::{Config, ConfigWatcher};
 use ai_proxy_core::lifecycle::signal::SignalHandler;
 use ai_proxy_core::lifecycle::{self, Lifecycle};
+use ai_proxy_core::rate_limit::CompositeRateLimiter;
 use ai_proxy_provider::routing::CredentialRouter;
 use arc_swap::ArcSwap;
 use std::sync::{Arc, Mutex};
@@ -14,7 +17,7 @@ pub struct Application {
     app_router: axum::Router,
     config_path: String,
     credential_router: Arc<CredentialRouter>,
-    rate_limiter: Arc<ai_proxy_core::rate_limit::RateLimiter>,
+    rate_limiter: Arc<CompositeRateLimiter>,
     cost_calculator: Arc<ai_proxy_core::cost::CostCalculator>,
     lifecycle: Box<dyn Lifecycle>,
     shutdown_timeout: u64,
@@ -77,12 +80,40 @@ impl Application {
         );
 
         let request_log_capacity = config.dashboard.request_log_capacity;
-        let rate_limiter = Arc::new(ai_proxy_core::rate_limit::RateLimiter::new(
-            &config.rate_limit,
-        ));
+        let rate_limiter = Arc::new(CompositeRateLimiter::new(&config.rate_limit));
         let cost_calculator = Arc::new(ai_proxy_core::cost::CostCalculator::new(
             &config.model_prices,
         ));
+
+        // Initialize response cache (if enabled)
+        let response_cache: Option<Arc<dyn ResponseCacheBackend>> = if config.cache.enabled {
+            tracing::info!(
+                "Response cache enabled (max_entries={}, ttl={}s)",
+                config.cache.max_entries,
+                config.cache.ttl_secs
+            );
+            Some(Arc::new(MokaCache::new(&config.cache)))
+        } else {
+            None
+        };
+
+        // Initialize audit backend
+        let audit: Arc<dyn AuditBackend> = if config.audit.enabled {
+            match FileAuditBackend::new(config.audit.clone()) {
+                Ok(backend) => {
+                    tracing::info!("Audit logging enabled (dir={})", config.audit.dir);
+                    FileAuditBackend::spawn_cleanup_task(config.audit.clone());
+                    Arc::new(backend)
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to initialize audit backend: {e}, audit disabled");
+                    Arc::new(NoopAuditBackend)
+                }
+            }
+        } else {
+            Arc::new(NoopAuditBackend)
+        };
+
         let config = Arc::new(ArcSwap::from_pointee(config));
         let metrics = Arc::new(ai_proxy_core::metrics::Metrics::new());
         let request_logs = Arc::new(ai_proxy_core::request_log::RequestLogStore::new(
@@ -101,6 +132,8 @@ impl Application {
             credential_router: credential_router.clone(),
             rate_limiter: rate_limiter.clone(),
             cost_calculator: cost_calculator.clone(),
+            response_cache,
+            audit,
             start_time: Instant::now(),
         };
         let app_router = ai_proxy_server::build_router(state);

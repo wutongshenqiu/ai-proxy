@@ -148,7 +148,7 @@ export default function RequestLogs() {
                 </tr>
               ) : (
                 logs.map((log) => (
-                  <tr key={log.id}>
+                  <tr key={log.request_id}>
                     <td className="text-nowrap">
                       {new Date(log.timestamp).toLocaleString()}
                     </td>
@@ -167,7 +167,7 @@ export default function RequestLogs() {
                     </td>
                     <td className="text-nowrap">{log.latency_ms}ms</td>
                     <td className="text-nowrap">
-                      {log.input_tokens + log.output_tokens}
+                      {(log.input_tokens ?? 0) + (log.output_tokens ?? 0)}
                     </td>
                   </tr>
                 ))
