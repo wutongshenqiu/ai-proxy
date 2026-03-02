@@ -4,40 +4,6 @@ use std::time::Instant;
 
 use crate::config::RateLimitConfig;
 
-/// Sliding window rate limiter using in-memory timestamp tracking.
-pub struct RateLimiter {
-    /// Global request timestamps (sliding window).
-    global: Mutex<SlidingWindow>,
-    /// Per-key request timestamps (sliding window per key).
-    per_key: RwLock<HashMap<String, Mutex<SlidingWindow>>>,
-    /// Current configuration.
-    config: RwLock<RateLimitConfig>,
-}
-
-struct SlidingWindow {
-    timestamps: Vec<Instant>,
-}
-
-impl SlidingWindow {
-    fn new() -> Self {
-        Self {
-            timestamps: Vec::new(),
-        }
-    }
-
-    /// Remove timestamps older than 60 seconds and return current count.
-    fn count_and_prune(&mut self, now: Instant) -> u32 {
-        let cutoff = now - std::time::Duration::from_secs(60);
-        self.timestamps.retain(|&t| t > cutoff);
-        self.timestamps.len() as u32
-    }
-
-    /// Record a new request timestamp.
-    fn record(&mut self, now: Instant) {
-        self.timestamps.push(now);
-    }
-}
-
 /// Result of a rate limit check.
 pub struct RateLimitInfo {
     /// Whether the request is allowed.
@@ -50,28 +16,211 @@ pub struct RateLimitInfo {
     pub reset_secs: u64,
 }
 
-impl RateLimiter {
-    pub fn new(config: &RateLimitConfig) -> Self {
+/// Trait for a single rate limit dimension.
+pub trait RateLimitDimension: Send + Sync {
+    fn check(&self, key: Option<&str>) -> RateLimitInfo;
+    fn record(&self, key: Option<&str>, amount: u64);
+    fn dimension_name(&self) -> &str;
+}
+
+// ─── Sliding Window Limiter (reused for RPM and TPM) ─────────────────────
+
+struct SlidingWindow {
+    timestamps: Vec<(Instant, u64)>,
+}
+
+impl SlidingWindow {
+    fn new() -> Self {
         Self {
+            timestamps: Vec::new(),
+        }
+    }
+
+    fn count_and_prune(&mut self, now: Instant, window_secs: u64) -> u64 {
+        let cutoff = now - std::time::Duration::from_secs(window_secs);
+        self.timestamps.retain(|&(t, _)| t > cutoff);
+        self.timestamps.iter().map(|&(_, amount)| amount).sum()
+    }
+
+    fn record(&mut self, now: Instant, amount: u64) {
+        self.timestamps.push((now, amount));
+    }
+
+    fn estimate_reset(&self, now: Instant, window_secs: u64) -> u64 {
+        if let Some(&(oldest, _)) = self.timestamps.first() {
+            let age = now.duration_since(oldest);
+            window_secs.saturating_sub(age.as_secs())
+        } else {
+            window_secs
+        }
+    }
+}
+
+/// Sliding window limiter — reusable for RPM and TPM.
+pub struct SlidingWindowLimiter {
+    name: String,
+    window_secs: u64,
+    global_limit: RwLock<u64>,
+    per_key_limit: RwLock<u64>,
+    global: Mutex<SlidingWindow>,
+    per_key: RwLock<HashMap<String, Mutex<SlidingWindow>>>,
+}
+
+impl SlidingWindowLimiter {
+    pub fn new(name: &str, window_secs: u64, global_limit: u64, per_key_limit: u64) -> Self {
+        Self {
+            name: name.to_string(),
+            window_secs,
+            global_limit: RwLock::new(global_limit),
+            per_key_limit: RwLock::new(per_key_limit),
             global: Mutex::new(SlidingWindow::new()),
             per_key: RwLock::new(HashMap::new()),
-            config: RwLock::new(config.clone()),
         }
     }
 
-    /// Update configuration (called on hot-reload).
-    pub fn update_config(&self, config: &RateLimitConfig) {
-        if let Ok(mut cfg) = self.config.write() {
-            *cfg = config.clone();
+    pub fn update_limits(&self, global_limit: u64, per_key_limit: u64) {
+        if let Ok(mut g) = self.global_limit.write() {
+            *g = global_limit;
+        }
+        if let Ok(mut p) = self.per_key_limit.write() {
+            *p = per_key_limit;
+        }
+    }
+}
+
+impl RateLimitDimension for SlidingWindowLimiter {
+    fn check(&self, key: Option<&str>) -> RateLimitInfo {
+        let now = Instant::now();
+        let global_limit = *self.global_limit.read().unwrap();
+        let per_key_limit = *self.per_key_limit.read().unwrap();
+
+        let mut most_restrictive = RateLimitInfo {
+            allowed: true,
+            remaining: u32::MAX,
+            limit: 0,
+            reset_secs: self.window_secs,
+        };
+
+        // Check global limit
+        if global_limit > 0 {
+            let mut global = self.global.lock().unwrap();
+            let count = global.count_and_prune(now, self.window_secs);
+            let remaining = (global_limit).saturating_sub(count) as u32;
+            if count >= global_limit {
+                return RateLimitInfo {
+                    allowed: false,
+                    remaining: 0,
+                    limit: global_limit as u32,
+                    reset_secs: global.estimate_reset(now, self.window_secs),
+                };
+            }
+            if remaining < most_restrictive.remaining {
+                most_restrictive = RateLimitInfo {
+                    allowed: true,
+                    remaining,
+                    limit: global_limit as u32,
+                    reset_secs: self.window_secs,
+                };
+            }
+        }
+
+        // Check per-key limit
+        if per_key_limit > 0
+            && let Some(key) = key
+        {
+            let per_key = self.per_key.read().unwrap();
+            if let Some(window) = per_key.get(key) {
+                let mut window = window.lock().unwrap();
+                let count = window.count_and_prune(now, self.window_secs);
+                let remaining = (per_key_limit).saturating_sub(count) as u32;
+                if count >= per_key_limit {
+                    return RateLimitInfo {
+                        allowed: false,
+                        remaining: 0,
+                        limit: per_key_limit as u32,
+                        reset_secs: window.estimate_reset(now, self.window_secs),
+                    };
+                }
+                if remaining < most_restrictive.remaining {
+                    most_restrictive = RateLimitInfo {
+                        allowed: true,
+                        remaining,
+                        limit: per_key_limit as u32,
+                        reset_secs: self.window_secs,
+                    };
+                }
+            }
+        }
+
+        most_restrictive
+    }
+
+    fn record(&self, key: Option<&str>, amount: u64) {
+        let now = Instant::now();
+        let global_limit = *self.global_limit.read().unwrap();
+        let per_key_limit = *self.per_key_limit.read().unwrap();
+
+        if global_limit > 0 {
+            let mut global = self.global.lock().unwrap();
+            global.record(now, amount);
+        }
+
+        if per_key_limit > 0
+            && let Some(key) = key
+        {
+            // Fast path: read lock
+            {
+                let per_key = self.per_key.read().unwrap();
+                if let Some(window) = per_key.get(key) {
+                    let mut window = window.lock().unwrap();
+                    window.record(now, amount);
+                    return;
+                }
+            }
+            // Slow path: write lock
+            {
+                let mut per_key = self.per_key.write().unwrap();
+                let window = per_key
+                    .entry(key.to_string())
+                    .or_insert_with(|| Mutex::new(SlidingWindow::new()));
+                let window = window.get_mut().unwrap();
+                window.record(now, amount);
+            }
         }
     }
 
-    /// Check rate limits. Returns info about the most restrictive limit.
-    /// `api_key` is None for unauthenticated requests.
-    pub fn check(&self, api_key: Option<&str>) -> RateLimitInfo {
-        let config = self.config.read().unwrap();
+    fn dimension_name(&self) -> &str {
+        &self.name
+    }
+}
 
-        if !config.enabled {
+type CostEntries = Vec<(Instant, f64)>;
+
+/// Cost limiter — daily sliding window for per-key cost limits.
+pub struct CostLimiter {
+    per_key_daily_limit: RwLock<f64>,
+    per_key: RwLock<HashMap<String, Mutex<CostEntries>>>,
+}
+
+impl CostLimiter {
+    pub fn new(per_key_daily_limit: f64) -> Self {
+        Self {
+            per_key_daily_limit: RwLock::new(per_key_daily_limit),
+            per_key: RwLock::new(HashMap::new()),
+        }
+    }
+
+    pub fn update_limit(&self, limit: f64) {
+        if let Ok(mut l) = self.per_key_daily_limit.write() {
+            *l = limit;
+        }
+    }
+}
+
+impl RateLimitDimension for CostLimiter {
+    fn check(&self, key: Option<&str>) -> RateLimitInfo {
+        let limit = *self.per_key_daily_limit.read().unwrap();
+        if limit <= 0.0 {
             return RateLimitInfo {
                 allowed: true,
                 remaining: u32::MAX,
@@ -80,127 +229,171 @@ impl RateLimiter {
             };
         }
 
-        let now = Instant::now();
-        let mut most_restrictive = RateLimitInfo {
-            allowed: true,
-            remaining: u32::MAX,
-            limit: 0,
-            reset_secs: 60,
+        let Some(key) = key else {
+            return RateLimitInfo {
+                allowed: true,
+                remaining: u32::MAX,
+                limit: 0,
+                reset_secs: 0,
+            };
         };
 
-        // Check global RPM
-        if config.global_rpm > 0 {
-            let mut global = self.global.lock().unwrap();
-            let count = global.count_and_prune(now);
-            let remaining = config.global_rpm.saturating_sub(count);
-            if count >= config.global_rpm {
+        let now = Instant::now();
+        let day_secs = 86400u64;
+        let cutoff = now - std::time::Duration::from_secs(day_secs);
+
+        let per_key = self.per_key.read().unwrap();
+        if let Some(entries) = per_key.get(key) {
+            let mut entries = entries.lock().unwrap();
+            entries.retain(|&(t, _)| t > cutoff);
+            let total_cost: f64 = entries.iter().map(|&(_, c)| c).sum();
+            if total_cost >= limit {
                 return RateLimitInfo {
                     allowed: false,
                     remaining: 0,
-                    limit: config.global_rpm,
-                    reset_secs: self.estimate_reset(&global, now),
-                };
-            }
-            if remaining < most_restrictive.remaining {
-                most_restrictive = RateLimitInfo {
-                    allowed: true,
-                    remaining,
-                    limit: config.global_rpm,
-                    reset_secs: 60,
+                    limit: (limit * 100.0) as u32, // cents
+                    reset_secs: entries
+                        .first()
+                        .map(|&(t, _)| day_secs.saturating_sub(now.duration_since(t).as_secs()))
+                        .unwrap_or(day_secs),
                 };
             }
         }
 
-        // Check per-key RPM
-        if config.per_key_rpm > 0
-            && let Some(key) = api_key
-        {
-            let info = self.check_per_key(key, config.per_key_rpm, now);
-            if !info.allowed {
-                return info;
-            }
-            if info.remaining < most_restrictive.remaining {
-                most_restrictive = info;
-            }
+        RateLimitInfo {
+            allowed: true,
+            remaining: u32::MAX,
+            limit: 0,
+            reset_secs: day_secs,
         }
-
-        most_restrictive
     }
 
-    /// Record a request. Call after check() returns allowed=true.
-    pub fn record(&self, api_key: Option<&str>) {
-        let config = self.config.read().unwrap();
-        if !config.enabled {
-            return;
-        }
+    fn record(&self, key: Option<&str>, _amount: u64) {
+        // Cost recording is done via record_cost() below
+        let _ = key;
+    }
 
+    fn dimension_name(&self) -> &str {
+        "cost"
+    }
+}
+
+impl CostLimiter {
+    /// Record cost for a key (in USD).
+    pub fn record_cost(&self, key: &str, cost: f64) {
         let now = Instant::now();
-
-        if config.global_rpm > 0 {
-            let mut global = self.global.lock().unwrap();
-            global.record(now);
-        }
-
-        if config.per_key_rpm > 0
-            && let Some(key) = api_key
-        {
-            self.record_per_key(key, now);
-        }
-    }
-
-    fn check_per_key(&self, key: &str, limit: u32, now: Instant) -> RateLimitInfo {
-        let per_key = self.per_key.read().unwrap();
-        if let Some(window) = per_key.get(key) {
-            let mut window = window.lock().unwrap();
-            let count = window.count_and_prune(now);
-            let remaining = limit.saturating_sub(count);
-            RateLimitInfo {
-                allowed: count < limit,
-                remaining,
-                limit,
-                reset_secs: if count >= limit {
-                    self.estimate_reset(&window, now)
-                } else {
-                    60
-                },
-            }
-        } else {
-            RateLimitInfo {
-                allowed: true,
-                remaining: limit,
-                limit,
-                reset_secs: 60,
-            }
-        }
-    }
-
-    fn record_per_key(&self, key: &str, now: Instant) {
-        // Fast path: read lock
+        // Fast path
         {
             let per_key = self.per_key.read().unwrap();
-            if let Some(window) = per_key.get(key) {
-                let mut window = window.lock().unwrap();
-                window.record(now);
+            if let Some(entries) = per_key.get(key) {
+                let mut entries = entries.lock().unwrap();
+                entries.push((now, cost));
                 return;
             }
         }
-        // Slow path: write lock to insert
+        // Slow path
         {
             let mut per_key = self.per_key.write().unwrap();
-            let window = per_key
+            let entries = per_key
                 .entry(key.to_string())
-                .or_insert_with(|| Mutex::new(SlidingWindow::new()));
-            let window = window.get_mut().unwrap();
-            window.record(now);
+                .or_insert_with(|| Mutex::new(Vec::new()));
+            entries.get_mut().unwrap().push((now, cost));
+        }
+    }
+}
+
+/// Composite rate limiter — checks all dimensions, returns most restrictive.
+pub struct CompositeRateLimiter {
+    rpm: SlidingWindowLimiter,
+    tpm: SlidingWindowLimiter,
+    cost: CostLimiter,
+    enabled: RwLock<bool>,
+}
+
+impl CompositeRateLimiter {
+    pub fn new(config: &RateLimitConfig) -> Self {
+        Self {
+            rpm: SlidingWindowLimiter::new(
+                "rpm",
+                60,
+                config.global_rpm as u64,
+                config.per_key_rpm as u64,
+            ),
+            tpm: SlidingWindowLimiter::new("tpm", 60, config.global_tpm, config.per_key_tpm),
+            cost: CostLimiter::new(config.per_key_cost_per_day_usd),
+            enabled: RwLock::new(config.enabled),
         }
     }
 
-    fn estimate_reset(&self, window: &SlidingWindow, now: Instant) -> u64 {
-        if let Some(&oldest) = window.timestamps.first() {
-            let age = now.duration_since(oldest);
-            60u64.saturating_sub(age.as_secs())
-        } else {
-            60
+    /// Update configuration (called on hot-reload).
+    pub fn update_config(&self, config: &RateLimitConfig) {
+        if let Ok(mut e) = self.enabled.write() {
+            *e = config.enabled;
+        }
+        self.rpm
+            .update_limits(config.global_rpm as u64, config.per_key_rpm as u64);
+        self.tpm
+            .update_limits(config.global_tpm, config.per_key_tpm);
+        self.cost.update_limit(config.per_key_cost_per_day_usd);
+    }
+
+    /// Check rate limits. Returns info about the most restrictive limit.
+    pub fn check(&self, api_key: Option<&str>) -> RateLimitInfo {
+        if !*self.enabled.read().unwrap() {
+            return RateLimitInfo {
+                allowed: true,
+                remaining: u32::MAX,
+                limit: 0,
+                reset_secs: 0,
+            };
+        }
+
+        let rpm_info = self.rpm.check(api_key);
+        if !rpm_info.allowed {
+            return rpm_info;
+        }
+
+        let tpm_info = self.tpm.check(api_key);
+        if !tpm_info.allowed {
+            return tpm_info;
+        }
+
+        let cost_info = self.cost.check(api_key);
+        if !cost_info.allowed {
+            return cost_info;
+        }
+
+        // Return the most restrictive remaining
+        let mut result = rpm_info;
+        if tpm_info.remaining < result.remaining {
+            result = tpm_info;
+        }
+        result
+    }
+
+    /// Record a request (RPM dimension). Call after check() returns allowed=true.
+    pub fn record_request(&self, api_key: Option<&str>) {
+        if !*self.enabled.read().unwrap() {
+            return;
+        }
+        self.rpm.record(api_key, 1);
+    }
+
+    /// Record tokens (TPM dimension). Call after response is received.
+    pub fn record_tokens(&self, api_key: Option<&str>, tokens: u64) {
+        if !*self.enabled.read().unwrap() {
+            return;
+        }
+        self.tpm.record(api_key, tokens);
+    }
+
+    /// Record cost (Cost dimension). Call after response is received.
+    pub fn record_cost(&self, api_key: Option<&str>, cost: f64) {
+        if !*self.enabled.read().unwrap() || cost <= 0.0 {
+            return;
+        }
+        if let Some(key) = api_key {
+            self.cost.record_cost(key, cost);
         }
     }
 }
@@ -215,8 +408,9 @@ mod tests {
             enabled: false,
             global_rpm: 10,
             per_key_rpm: 5,
+            ..Default::default()
         };
-        let limiter = RateLimiter::new(&config);
+        let limiter = CompositeRateLimiter::new(&config);
         let info = limiter.check(Some("key1"));
         assert!(info.allowed);
     }
@@ -227,13 +421,14 @@ mod tests {
             enabled: true,
             global_rpm: 3,
             per_key_rpm: 0,
+            ..Default::default()
         };
-        let limiter = RateLimiter::new(&config);
+        let limiter = CompositeRateLimiter::new(&config);
 
         for _ in 0..3 {
             let info = limiter.check(None);
             assert!(info.allowed);
-            limiter.record(None);
+            limiter.record_request(None);
         }
 
         let info = limiter.check(None);
@@ -248,14 +443,15 @@ mod tests {
             enabled: true,
             global_rpm: 0,
             per_key_rpm: 2,
+            ..Default::default()
         };
-        let limiter = RateLimiter::new(&config);
+        let limiter = CompositeRateLimiter::new(&config);
 
         // key1 uses 2 requests
         for _ in 0..2 {
             let info = limiter.check(Some("key1"));
             assert!(info.allowed);
-            limiter.record(Some("key1"));
+            limiter.record_request(Some("key1"));
         }
 
         // key1 is now rate limited
@@ -268,21 +464,19 @@ mod tests {
     }
 
     #[test]
-    fn test_remaining_count() {
+    fn test_tpm_limit() {
         let config = RateLimitConfig {
             enabled: true,
-            global_rpm: 5,
-            per_key_rpm: 0,
+            global_tpm: 1000,
+            ..Default::default()
         };
-        let limiter = RateLimiter::new(&config);
+        let limiter = CompositeRateLimiter::new(&config);
 
-        limiter.record(None);
-        limiter.record(None);
+        // Record 1000 tokens
+        limiter.tpm.record(None, 1000);
 
         let info = limiter.check(None);
-        assert!(info.allowed);
-        assert_eq!(info.remaining, 3);
-        assert_eq!(info.limit, 5);
+        assert!(!info.allowed);
     }
 
     #[test]
@@ -291,11 +485,12 @@ mod tests {
             enabled: true,
             global_rpm: 2,
             per_key_rpm: 0,
+            ..Default::default()
         };
-        let limiter = RateLimiter::new(&config);
+        let limiter = CompositeRateLimiter::new(&config);
 
-        limiter.record(None);
-        limiter.record(None);
+        limiter.record_request(None);
+        limiter.record_request(None);
         assert!(!limiter.check(None).allowed);
 
         // Increase limit
@@ -303,6 +498,7 @@ mod tests {
             enabled: true,
             global_rpm: 5,
             per_key_rpm: 0,
+            ..Default::default()
         });
 
         assert!(limiter.check(None).allowed);

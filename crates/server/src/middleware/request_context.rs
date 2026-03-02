@@ -16,7 +16,17 @@ pub async fn request_context_middleware(mut request: Request, next: Next) -> Res
                 .map(|s| s.to_string())
         });
 
-    let ctx = RequestContext::new(client_ip);
+    // Extract client region from CDN / custom headers
+    let client_region = request
+        .headers()
+        .get("x-client-region")
+        .or_else(|| request.headers().get("cf-ipcountry"))
+        .or_else(|| request.headers().get("x-vercel-ip-country"))
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let mut ctx = RequestContext::new(client_ip);
+    ctx.client_region = client_region;
     request.extensions_mut().insert(ctx);
     next.run(request).await
 }

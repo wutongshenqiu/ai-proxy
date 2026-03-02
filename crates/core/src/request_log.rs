@@ -18,6 +18,9 @@ pub struct RequestLogEntry {
     pub output_tokens: Option<u64>,
     pub cost: Option<f64>,
     pub error: Option<String>,
+    pub api_key_id: Option<String>,
+    pub tenant_id: Option<String>,
+    pub client_ip: Option<String>,
 }
 
 /// Query parameters for filtering request logs.
@@ -183,6 +186,9 @@ mod tests {
             } else {
                 None
             },
+            api_key_id: None,
+            tenant_id: None,
+            client_ip: None,
         }
     }
 

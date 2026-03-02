@@ -5,4 +5,5 @@ pub mod logs;
 pub mod providers;
 pub mod routing;
 pub mod system;
+pub mod tenant;
 pub mod websocket;

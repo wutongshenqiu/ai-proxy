@@ -70,9 +70,9 @@ export default function Providers() {
   const openEdit = (provider: Provider) => {
     setEditId(provider.id);
     setForm({
-      name: provider.name,
+      name: provider.name ?? '',
       provider_type: provider.provider_type,
-      base_url: provider.base_url,
+      base_url: provider.base_url ?? '',
       api_key: '',
       enabled: provider.enabled,
       models: provider.models.join(', '),
@@ -210,7 +210,7 @@ export default function Providers() {
                         {PROVIDER_TYPES.find((t) => t.value === provider.provider_type)?.label ?? provider.provider_type}
                       </span>
                     </td>
-                    <td className="text-mono text-ellipsis" title={provider.base_url}>
+                    <td className="text-mono text-ellipsis" title={provider.base_url ?? undefined}>
                       {provider.base_url}
                     </td>
                     <td>
@@ -247,7 +247,7 @@ export default function Providers() {
                         </button>
                         <button
                           className="btn btn-ghost btn-sm btn-danger-ghost"
-                          onClick={() => handleDelete(provider.id, provider.name)}
+                          onClick={() => handleDelete(provider.id, provider.name ?? 'Unnamed')}
                           title="Delete"
                         >
                           <Trash2 size={14} />

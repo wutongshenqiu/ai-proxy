@@ -35,8 +35,8 @@ pub async fn rate_limit_middleware(
         )));
     }
 
-    // Record the request
-    state.rate_limiter.record(api_key.as_deref());
+    // Record the request (RPM dimension)
+    state.rate_limiter.record_request(api_key.as_deref());
 
     let mut response = next.run(request).await;
 

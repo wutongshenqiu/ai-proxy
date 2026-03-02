@@ -1,3 +1,4 @@
+use crate::auth_key::AuthKeyEntry;
 use std::time::Instant;
 
 /// Per-request context carrying metadata for logging, metrics, and audit.
@@ -10,6 +11,14 @@ pub struct RequestContext {
     pub start_time: Instant,
     /// Client IP address, if available.
     pub client_ip: Option<String>,
+    /// Masked API key (first 4 + last 4 chars).
+    pub api_key_id: Option<String>,
+    /// Tenant ID from auth key entry.
+    pub tenant_id: Option<String>,
+    /// Full auth key entry (for model ACL, rate limits, etc.).
+    pub auth_key: Option<AuthKeyEntry>,
+    /// Client region from X-Client-Region / CDN headers.
+    pub client_region: Option<String>,
 }
 
 impl RequestContext {
@@ -18,6 +27,10 @@ impl RequestContext {
             request_id: uuid::Uuid::new_v4().to_string(),
             start_time: Instant::now(),
             client_ip,
+            api_key_id: None,
+            tenant_id: None,
+            auth_key: None,
+            client_region: None,
         }
     }
 
