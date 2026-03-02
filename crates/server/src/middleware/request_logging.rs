@@ -1,12 +1,14 @@
 use crate::AppState;
 use crate::dispatch::DispatchMeta;
+use ai_proxy_core::audit::AuditEntry;
 use ai_proxy_core::context::RequestContext;
 use ai_proxy_core::request_log::RequestLogEntry;
 use axum::extract::State;
 use axum::{extract::Request, middleware::Next, response::Response};
 
 /// Middleware that logs request/response with request context info.
-/// Also captures proxy requests (/v1/*) into the request log ring buffer.
+/// Also captures proxy requests (/v1/*) into the request log ring buffer
+/// and writes audit entries.
 pub async fn request_logging_middleware(
     State(state): State<AppState>,
     request: Request,
@@ -50,8 +52,36 @@ pub async fn request_logging_middleware(
         // Read dispatch metadata from response extensions (set by dispatch)
         let meta = response.extensions().get::<DispatchMeta>().cloned();
 
+        let api_key_id = ctx.as_ref().and_then(|c| c.api_key_id.clone());
+        let tenant_id = ctx.as_ref().and_then(|c| c.tenant_id.clone());
+        let client_ip_log = ctx.as_ref().and_then(|c| c.client_ip.clone());
+
         let entry = RequestLogEntry {
             timestamp: chrono::Utc::now().timestamp_millis(),
+            request_id: request_id.clone(),
+            method: method.to_string(),
+            path: uri.clone(),
+            status,
+            latency_ms: elapsed as u64,
+            provider: meta.as_ref().and_then(|m| m.provider.clone()),
+            model: meta.as_ref().and_then(|m| m.model.clone()),
+            input_tokens: meta.as_ref().and_then(|m| m.input_tokens),
+            output_tokens: meta.as_ref().and_then(|m| m.output_tokens),
+            cost: meta.as_ref().and_then(|m| m.cost),
+            error: if status >= 400 {
+                Some(format!("HTTP {status}"))
+            } else {
+                None
+            },
+            api_key_id: api_key_id.clone(),
+            tenant_id: tenant_id.clone(),
+            client_ip: client_ip_log.clone(),
+        };
+        state.request_logs.push(entry);
+
+        // Write audit entry
+        let audit_entry = AuditEntry {
+            timestamp: chrono::Utc::now(),
             request_id,
             method: method.to_string(),
             path: uri,
@@ -67,8 +97,14 @@ pub async fn request_logging_middleware(
             } else {
                 None
             },
+            api_key_id,
+            tenant_id,
+            client_ip: client_ip_log,
         };
-        state.request_logs.push(entry);
+        let audit = state.audit.clone();
+        tokio::spawn(async move {
+            audit.write(&audit_entry).await;
+        });
     }
 
     response

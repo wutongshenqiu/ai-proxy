@@ -26,6 +26,10 @@ pub struct DispatchRequest {
     pub user_agent: Option<String>,
     /// Debug mode: return routing details in response headers.
     pub debug: bool,
+    /// API key (for per-key rate limiting post-check).
+    pub api_key: Option<String>,
+    /// Client region (for geo-aware routing).
+    pub client_region: Option<String>,
 }
 
 /// Debug information collected during dispatch for x-debug response headers.
@@ -134,6 +138,45 @@ pub async fn dispatch(state: &AppState, req: DispatchRequest) -> Result<Response
     let start = Instant::now();
     let config = state.config.load();
 
+    // ── Model ACL check ──
+    if let Some(ctx) = req
+        .api_key
+        .as_ref()
+        .and_then(|k| config.auth_key_store.lookup(k))
+        && !ai_proxy_core::auth_key::AuthKeyStore::check_model_access(ctx, &req.model)
+    {
+        return Err(ProxyError::ModelNotAllowed(format!(
+            "model '{}' not allowed for this API key",
+            req.model
+        )));
+    }
+
+    // ── Cache lookup (non-stream, temperature=0) ──
+    if !req.stream
+        && let Some(ref cache) = state.response_cache
+        && let Ok(body_val) = serde_json::from_slice::<serde_json::Value>(&req.body)
+        && let Some(cache_key) = ai_proxy_core::cache::CacheKey::build(&req.model, &body_val)
+    {
+        if let Some(cached) = cache.get(&cache_key).await {
+            state.metrics.record_cache_hit();
+            let mut resp = axum::http::Response::builder()
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .header("x-cache", "HIT")
+                .body(axum::body::Body::from(cached.payload))
+                .map_err(|e| ProxyError::Internal(format!("failed to build response: {e}")))?
+                .into_response();
+            resp.extensions_mut().insert(DispatchMeta {
+                provider: Some(cached.provider),
+                model: Some(cached.model),
+                input_tokens: Some(cached.input_tokens),
+                output_tokens: Some(cached.output_tokens),
+                cost: None,
+            });
+            return Ok(resp);
+        }
+        state.metrics.record_cache_miss();
+    }
+
     // Build the model fallback chain
     let model_chain: Vec<String> = if let Some(ref models) = req.models {
         if models.is_empty() {
@@ -188,7 +231,12 @@ pub async fn dispatch(state: &AppState, req: DispatchRequest) -> Result<Response
 
         for attempt in 0..max_retries {
             for &target_format in &providers {
-                let auth = match state.router.pick(target_format, current_model, &tried) {
+                let auth = match state.router.pick(
+                    target_format,
+                    current_model,
+                    &tried,
+                    req.client_region.as_deref(),
+                ) {
                     Some(a) => a,
                     None => continue,
                 };
@@ -294,7 +342,10 @@ pub async fn dispatch(state: &AppState, req: DispatchRequest) -> Result<Response
                     // ── Streaming path with bootstrap retry limit (4D) ──
                     match executor.execute_stream(&auth, provider_request).await {
                         Ok(stream_result) => {
-                            state.metrics.record_latency_ms(start.elapsed().as_millis());
+                            let latency_ms = start.elapsed().as_millis();
+                            state.metrics.record_latency_ms(latency_ms);
+                            state.router.record_success(&auth.id);
+                            state.router.record_latency(&auth.id, latency_ms as f64);
 
                             let need_translate = state
                                 .translators
@@ -412,7 +463,10 @@ pub async fn dispatch(state: &AppState, req: DispatchRequest) -> Result<Response
                         result = &mut result_rx => {
                             match result {
                                 Ok(Ok(response)) => {
-                                    state.metrics.record_latency_ms(start.elapsed().as_millis());
+                                    let latency_ms = start.elapsed().as_millis();
+                                    state.metrics.record_latency_ms(latency_ms);
+                                    state.router.record_success(&auth.id);
+                                    state.router.record_latency(&auth.id, latency_ms as f64);
 
                                     let translated = state.translators.translate_non_stream(
                                         req.source_format,
@@ -491,7 +545,10 @@ pub async fn dispatch(state: &AppState, req: DispatchRequest) -> Result<Response
                     // ── Non-stream without keepalive (standard path) ──
                     match executor.execute(&auth, provider_request).await {
                         Ok(response) => {
-                            state.metrics.record_latency_ms(start.elapsed().as_millis());
+                            let latency_ms = start.elapsed().as_millis();
+                            state.metrics.record_latency_ms(latency_ms);
+                            state.router.record_success(&auth.id);
+                            state.router.record_latency(&auth.id, latency_ms as f64);
 
                             let translated = state.translators.translate_non_stream(
                                 req.source_format,
@@ -500,6 +557,23 @@ pub async fn dispatch(state: &AppState, req: DispatchRequest) -> Result<Response
                                 &body,
                                 &response.payload,
                             )?;
+
+                            // Write to cache for non-stream, temperature=0 requests
+                            if let Some(ref cache) = state.response_cache
+                                && let Ok(body_val) =
+                                    serde_json::from_slice::<serde_json::Value>(&req.body)
+                                && let Some(cache_key) =
+                                    ai_proxy_core::cache::CacheKey::build(&req.model, &body_val)
+                            {
+                                let cached = ai_proxy_core::cache::CachedResponse {
+                                    payload: Bytes::from(translated.clone()),
+                                    provider: target_format.as_str().to_string(),
+                                    model: actual_model.clone(),
+                                    input_tokens: 0,
+                                    output_tokens: 0,
+                                };
+                                cache.insert(cache_key, cached).await;
+                            }
 
                             let mut builder = axum::http::Response::builder()
                                 .header(axum::http::header::CONTENT_TYPE, "application/json");
@@ -537,10 +611,12 @@ pub async fn dispatch(state: &AppState, req: DispatchRequest) -> Result<Response
                 }
             }
 
-            // Exponential backoff with full jitter between retry rounds
+            // Exponential backoff with configurable jitter between retry rounds
             if attempt + 1 < max_retries {
                 let cap = std::cmp::min(1u64 << attempt, max_backoff_secs) as f64;
-                let jittered = rand::random::<f64>() * cap;
+                let jitter_factor = retry_cfg.jitter_factor.clamp(0.0, 1.0);
+                let base = cap * (1.0 - jitter_factor);
+                let jittered = base + rand::random::<f64>() * cap * jitter_factor;
                 tokio::time::sleep(Duration::from_secs_f64(jittered)).await;
             }
         }
@@ -712,34 +788,24 @@ fn handle_retry_error(
     state: &AppState,
     auth_id: &str,
     error: &ProxyError,
-    retry_cfg: &RetryConfig,
+    _retry_cfg: &RetryConfig,
 ) {
     state.metrics.record_error();
     match error {
-        ProxyError::Upstream {
-            status,
-            retry_after_secs,
-            ..
-        } => match *status {
+        ProxyError::Upstream { status, .. } => match *status {
             429 => {
-                // Respect upstream Retry-After header if present, otherwise use config default
-                let secs = retry_after_secs.unwrap_or(retry_cfg.cooldown_429_secs);
-                let cooldown = Duration::from_secs(secs);
-                state.router.mark_unavailable(auth_id, cooldown);
-                tracing::warn!("Rate limited (429), cooling down credential for {cooldown:?}");
+                state.router.record_failure(auth_id);
+                tracing::warn!("Rate limited (429), recording circuit breaker failure");
             }
             s if (500..=599).contains(&s) => {
-                let secs = retry_after_secs.unwrap_or(retry_cfg.cooldown_5xx_secs);
-                let cooldown = Duration::from_secs(secs);
-                state.router.mark_unavailable(auth_id, cooldown);
-                tracing::warn!("Upstream error ({s}), cooling down credential for {cooldown:?}");
+                state.router.record_failure(auth_id);
+                tracing::warn!("Upstream error ({s}), recording circuit breaker failure");
             }
             _ => {}
         },
         ProxyError::Network(_) => {
-            let cooldown = Duration::from_secs(retry_cfg.cooldown_network_secs);
-            state.router.mark_unavailable(auth_id, cooldown);
-            tracing::warn!("Network error, cooling down credential for {cooldown:?}");
+            state.router.record_failure(auth_id);
+            tracing::warn!("Network error, recording circuit breaker failure");
         }
         _ => {}
     }

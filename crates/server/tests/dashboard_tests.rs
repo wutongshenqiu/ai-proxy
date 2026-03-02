@@ -1,7 +1,7 @@
 use ai_proxy_core::config::{Config, DashboardConfig, RoutingStrategy};
 use ai_proxy_core::cost::CostCalculator;
 use ai_proxy_core::metrics::Metrics;
-use ai_proxy_core::rate_limit::RateLimiter;
+use ai_proxy_core::rate_limit::CompositeRateLimiter;
 use ai_proxy_core::request_log::RequestLogStore;
 use ai_proxy_provider::build_registry;
 use ai_proxy_provider::routing::CredentialRouter;
@@ -63,8 +63,10 @@ fn create_test_harness() -> TestHarness {
         request_logs,
         config_path: Arc::new(Mutex::new(config_path.to_str().unwrap().to_string())),
         credential_router,
-        rate_limiter: Arc::new(RateLimiter::new(&config.rate_limit)),
+        rate_limiter: Arc::new(CompositeRateLimiter::new(&config.rate_limit)),
         cost_calculator: Arc::new(CostCalculator::new(&config.model_prices)),
+        response_cache: None,
+        audit: Arc::new(ai_proxy_core::audit::NoopAuditBackend),
         start_time: Instant::now(),
     };
 
@@ -809,6 +811,9 @@ async fn test_log_stats_with_entries() {
             output_tokens: Some(50),
             error: None,
             cost: None,
+            api_key_id: None,
+            tenant_id: None,
+            client_ip: None,
         });
     harness
         .state
@@ -826,6 +831,9 @@ async fn test_log_stats_with_entries() {
             output_tokens: None,
             error: Some("Internal Server Error".to_string()),
             cost: None,
+            api_key_id: None,
+            tenant_id: None,
+            client_ip: None,
         });
 
     let req = authed_get("/api/dashboard/logs/stats", &token);
@@ -863,6 +871,9 @@ async fn test_query_logs_with_entries() {
                     None
                 },
                 cost: None,
+                api_key_id: None,
+                tenant_id: None,
+                client_ip: None,
             });
     }
 

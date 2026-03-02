@@ -12,10 +12,23 @@ port: 8317
 #   key: "/path/to/key.pem"
 
 # ─── Client Authentication ──────────────────────────────────────────────────
-# API keys that clients must provide via Bearer token.
+# Structured auth keys with per-key settings.
 # Leave empty to disable authentication (allow all requests).
-api-keys: []
-  # - "your-client-api-key"
+auth-keys: []
+  # - key: "sk-proxy-your-api-key"
+  #   name: "Team Alpha"
+  #   tenant-id: "alpha"
+  #   allowed-models: ["claude-*", "gpt-4o*"]
+  #   rate-limit:
+  #     rpm: 100
+  #     tpm: 1000000
+  #     cost-per-day-usd: 50.0
+  #   budget:
+  #     total-usd: 5000.0
+  #     period: monthly
+  #   expires-at: "2026-12-31T00:00:00Z"
+  #   metadata:
+  #     team: "engineering"
 
 # ─── Global Proxy ───────────────────────────────────────────────────────────
 # Default upstream proxy for all providers. Supports http, https, socks5.
@@ -44,19 +57,51 @@ logging-to-file: false
 #   shutdown-timeout: 30
 
 # ─── Rate Limiting ─────────────────────────────────────────────────────────
-# Protect upstream providers from excessive requests.
+# Multi-dimensional rate limiting: RPM + TPM + Cost.
 # rate-limit:
 #   enabled: true
-#   global-rpm: 60          # Global requests per minute (0 = unlimited)
-#   per-key-rpm: 30         # Per-API-key requests per minute (0 = unlimited)
+#   global-rpm: 60            # Global requests per minute (0 = unlimited)
+#   per-key-rpm: 30           # Per-API-key requests per minute (0 = unlimited)
+#   global-tpm: 0             # Global tokens per minute (0 = unlimited)
+#   per-key-tpm: 0            # Per-API-key tokens per minute (0 = unlimited)
+#   per-key-cost-per-day-usd: 0.0   # Per-key daily cost limit in USD (0 = unlimited)
+
+# ─── Circuit Breaker ──────────────────────────────────────────────────────
+# Three-state circuit breaker for upstream provider credentials.
+# circuit-breaker:
+#   enabled: true
+#   failure-threshold: 5      # Failures before opening
+#   cooldown-secs: 30         # Seconds in open state before half-open
+#   half-open-max-probes: 1   # Requests allowed in half-open state
+#   rolling-window-secs: 60   # Window for counting failures
+
+# ─── Response Cache ───────────────────────────────────────────────────────
+# Exact-match response cache (temperature=0, non-streaming only).
+# cache:
+#   enabled: true
+#   max-entries: 10000
+#   ttl-secs: 3600
+
+# ─── Audit Logging ───────────────────────────────────────────────────────
+# Persistent JSONL audit logs with daily rotation.
+# audit:
+#   enabled: true
+#   dir: "./logs/audit"
+#   retention-days: 30
 
 # ─── Routing Strategy ───────────────────────────────────────────────────────
 routing:
-  strategy: round-robin   # round-robin | fill-first
+  strategy: round-robin   # round-robin | fill-first | latency-aware | geo-aware
+  # ewma-alpha: 0.3        # EWMA smoothing factor for latency-aware routing
+  # default-region: "us"   # Default region for geo-aware routing
 
 # ─── Retry Configuration ────────────────────────────────────────────────────
 request-retry: 3
 max-retry-interval: 30    # seconds
+# retry:
+#   max-retries: 3
+#   max-backoff-secs: 30
+#   jitter-factor: 1.0     # 0.0 = no jitter, 1.0 = full jitter
 
 # ─── Timeout Configuration ─────────────────────────────────────────────────
 connect-timeout: 30       # seconds, TCP connect timeout
@@ -81,7 +126,7 @@ streaming:
 # Each provider supports multiple API keys with optional per-key settings.
 #
 # Per-key options:
-#   api-key:          (required) API key string
+#   api-key:          (required) API key string. Supports env://VAR and file:///path.
 #   base-url:         Custom API endpoint URL
 #   proxy-url:        Per-key proxy (overrides global proxy-url)
 #                     Set to "" for direct connection (bypass global proxy)
@@ -92,11 +137,15 @@ streaming:
 #                     Use this to override User-Agent or add provider-specific
 #                     headers (similar to LiteLLM's extra_headers).
 #   weight:           Routing weight for weighted round-robin (default: 1)
+#   region:           Region tag for geo-aware routing (e.g., "us", "eu", "asia")
 
 claude-api-key:
   - api-key: "sk-ant-your-claude-key"
+    # api-key: "env://CLAUDE_API_KEY"       # Load from environment variable
+    # api-key: "file:///etc/secrets/claude"  # Load from file
     # base-url: "https://api.anthropic.com"
     # proxy-url: "http://proxy:8080"
+    # region: "us"
     # headers:
     #   user-agent: "claude-code/2.1.62"    # Override default User-Agent
     #   anthropic-beta: "max-tokens-3-5-sonnet-2024-07-15"
@@ -108,6 +157,7 @@ claude-api-key:
 openai-api-key:
   - api-key: "sk-your-openai-key"
     # base-url: "https://api.openai.com"
+    # region: "us"
     # models:
     #   - id: "gpt-4o"
     #   - id: "gpt-4o-mini"
@@ -115,6 +165,7 @@ openai-api-key:
 gemini-api-key:
   - api-key: "your-gemini-key"
     # base-url: "https://generativelanguage.googleapis.com"
+    # region: "us"
     # models:
     #   - id: "gemini-2.0-flash"
     #   - id: "gemini-2.5-pro-preview-06-05"
@@ -124,6 +175,7 @@ gemini-api-key:
 #   - api-key: "your-deepseek-key"
 #     base-url: "https://api.deepseek.com"
 #     prefix: "deepseek/"
+#     region: "asia"
 #     models:
 #       - id: "deepseek-chat"
 #       - id: "deepseek-reasoner"
@@ -134,6 +186,7 @@ gemini-api-key:
 #   - api-key: "sk-sp-your-bailian-coding-plan-key"
 #     base-url: "https://coding.dashscope.aliyuncs.com/v1"
 #     prefix: "bailian/"
+#     region: "asia"
 #     models:
 #       - id: "qwen3-coder-next"
 #       - id: "qwen3-coder-plus"

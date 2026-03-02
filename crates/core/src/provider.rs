@@ -1,9 +1,11 @@
+use crate::circuit_breaker::{CircuitBreakerPolicy, CircuitState};
 use crate::error::ProxyError;
 use async_trait::async_trait;
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::pin::Pin;
+use std::sync::Arc;
 use tokio_stream::Stream;
 
 /// Supported provider/API format identifiers.
@@ -57,7 +59,7 @@ pub enum WireApi {
 }
 
 /// Credentials for executing a request against a specific provider.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AuthRecord {
     pub id: String,
     pub provider: Format,
@@ -69,7 +71,7 @@ pub struct AuthRecord {
     pub excluded_models: Vec<String>,
     pub prefix: Option<String>,
     pub disabled: bool,
-    pub cooldown_until: Option<std::time::Instant>,
+    pub circuit_breaker: Arc<dyn CircuitBreakerPolicy>,
     pub cloak: Option<crate::cloak::CloakConfig>,
     /// Wire API format for OpenAI-compatible providers.
     pub wire_api: WireApi,
@@ -77,6 +79,19 @@ pub struct AuthRecord {
     pub credential_name: Option<String>,
     /// Weight for weighted round-robin routing (default: 1).
     pub weight: u32,
+    /// Region for geo-aware routing.
+    pub region: Option<String>,
+}
+
+impl std::fmt::Debug for AuthRecord {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuthRecord")
+            .field("id", &self.id)
+            .field("provider", &self.provider)
+            .field("api_key", &"***")
+            .field("circuit_breaker_state", &self.circuit_state())
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -171,12 +186,12 @@ impl AuthRecord {
         if self.disabled {
             return false;
         }
-        if let Some(until) = self.cooldown_until
-            && std::time::Instant::now() < until
-        {
-            return false;
-        }
-        true
+        self.circuit_breaker.can_execute()
+    }
+
+    /// Get circuit breaker state for this credential.
+    pub fn circuit_state(&self) -> CircuitState {
+        self.circuit_breaker.state()
     }
 }
 

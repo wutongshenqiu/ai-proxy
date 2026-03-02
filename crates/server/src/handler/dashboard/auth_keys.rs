@@ -1,4 +1,5 @@
 use crate::AppState;
+use ai_proxy_core::auth_key::{AuthKeyEntry, AuthKeyStore};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -6,36 +7,60 @@ use axum::response::IntoResponse;
 use serde::Deserialize;
 use serde_json::json;
 
-fn mask_key(key: &str) -> String {
-    if key.len() <= 8 {
-        return "****".to_string();
-    }
-    format!("{}****{}", &key[..4], &key[key.len() - 4..])
-}
-
 #[derive(Debug, Deserialize)]
 pub struct CreateAuthKeyRequest {
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
-    pub expires_in_days: Option<u32>,
+    pub tenant_id: Option<String>,
+    #[serde(default)]
+    pub allowed_models: Vec<String>,
+    #[serde(default)]
+    pub rate_limit: Option<ai_proxy_core::auth_key::KeyRateLimitConfig>,
+    #[serde(default)]
+    pub budget: Option<ai_proxy_core::auth_key::BudgetConfig>,
+    #[serde(default)]
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default)]
+    pub metadata: std::collections::HashMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateAuthKeyRequest {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub tenant_id: Option<Option<String>>,
+    #[serde(default)]
+    pub allowed_models: Option<Vec<String>>,
+    #[serde(default)]
+    pub rate_limit: Option<Option<ai_proxy_core::auth_key::KeyRateLimitConfig>>,
+    #[serde(default)]
+    pub budget: Option<Option<ai_proxy_core::auth_key::BudgetConfig>>,
+    #[serde(default)]
+    pub expires_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
+    #[serde(default)]
+    pub metadata: Option<std::collections::HashMap<String, String>>,
 }
 
 /// GET /api/dashboard/auth-keys
 pub async fn list_auth_keys(State(state): State<AppState>) -> impl IntoResponse {
     let config = state.config.load();
     let keys: Vec<serde_json::Value> = config
-        .api_keys
+        .auth_keys
         .iter()
         .enumerate()
-        .map(|(i, k)| {
+        .map(|(i, entry)| {
             json!({
                 "id": i,
-                "name": format!("Key {}", i + 1),
-                "key_masked": mask_key(k),
-                "created_at": null,
-                "last_used_at": null,
-                "expires_at": null,
+                "key_masked": AuthKeyStore::mask_key(&entry.key),
+                "name": entry.name,
+                "tenant_id": entry.tenant_id,
+                "allowed_models": entry.allowed_models,
+                "rate_limit": entry.rate_limit,
+                "budget": entry.budget,
+                "expires_at": entry.expires_at,
+                "metadata": entry.metadata,
             })
         })
         .collect();
@@ -47,28 +72,26 @@ pub async fn create_auth_key(
     State(state): State<AppState>,
     Json(body): Json<CreateAuthKeyRequest>,
 ) -> impl IntoResponse {
-    // Generate a secure random key with optional name prefix
-    let name = body.name.clone().unwrap_or_default();
     let key = format!(
         "sk-proxy-{}",
         uuid::Uuid::new_v4().to_string().replace('-', "")
     );
 
-    let expires_at = body.expires_in_days.map(|days| {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        let expires = now + (days as u64) * 86400;
-        // Format as ISO 8601
-        let dt = chrono::DateTime::from_timestamp(expires as i64, 0);
-        dt.map(|d| d.to_rfc3339()).unwrap_or_default()
-    });
-
     let full_key = key.clone();
+    let entry = AuthKeyEntry {
+        key,
+        name: body.name,
+        tenant_id: body.tenant_id,
+        allowed_models: body.allowed_models,
+        rate_limit: body.rate_limit,
+        budget: body.budget,
+        expires_at: body.expires_at,
+        metadata: body.metadata,
+    };
+
     match super::providers::update_config_file_public(&state, move |config| {
-        config.api_keys.push(key);
-        config.api_keys_set = config.api_keys.iter().cloned().collect();
+        config.auth_keys.push(entry);
+        config.auth_key_store = AuthKeyStore::new(config.auth_keys.clone());
     })
     .await
     {
@@ -76,10 +99,54 @@ pub async fn create_auth_key(
             StatusCode::CREATED,
             Json(json!({
                 "key": full_key,
-                "name": name,
-                "expires_at": expires_at,
                 "message": "API key created. Save this key - it will not be shown again.",
             })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "write_failed", "message": e})),
+        ),
+    }
+}
+
+/// PATCH /api/dashboard/auth-keys/:id
+pub async fn update_auth_key(
+    State(state): State<AppState>,
+    Path(id): Path<usize>,
+    Json(body): Json<UpdateAuthKeyRequest>,
+) -> impl IntoResponse {
+    match super::providers::update_config_file_public(&state, move |config| {
+        if id < config.auth_keys.len() {
+            let entry = &mut config.auth_keys[id];
+            if let Some(name) = body.name {
+                entry.name = Some(name);
+            }
+            if let Some(tenant_id) = body.tenant_id {
+                entry.tenant_id = tenant_id;
+            }
+            if let Some(allowed_models) = body.allowed_models {
+                entry.allowed_models = allowed_models;
+            }
+            if let Some(rate_limit) = body.rate_limit {
+                entry.rate_limit = rate_limit;
+            }
+            if let Some(budget) = body.budget {
+                entry.budget = budget;
+            }
+            if let Some(expires_at) = body.expires_at {
+                entry.expires_at = expires_at;
+            }
+            if let Some(metadata) = body.metadata {
+                entry.metadata = metadata;
+            }
+            config.auth_key_store = AuthKeyStore::new(config.auth_keys.clone());
+        }
+    })
+    .await
+    {
+        Ok(()) => (
+            StatusCode::OK,
+            Json(json!({"message": "Auth key updated successfully"})),
         ),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -94,9 +161,9 @@ pub async fn delete_auth_key(
     Path(id): Path<usize>,
 ) -> impl IntoResponse {
     match super::providers::update_config_file_public(&state, move |config| {
-        if id < config.api_keys.len() {
-            config.api_keys.remove(id);
-            config.api_keys_set = config.api_keys.iter().cloned().collect();
+        if id < config.auth_keys.len() {
+            config.auth_keys.remove(id);
+            config.auth_key_store = AuthKeyStore::new(config.auth_keys.clone());
         }
     })
     .await

@@ -71,6 +71,7 @@ tracing-appender = "0.2"
 libc = "0.2"
 jsonwebtoken = "9"
 bcrypt = "0.17"
+moka = { version = "0.12", features = ["future"] }
 
 # workspace internal
 ai-proxy-core = { path = "crates/core" }

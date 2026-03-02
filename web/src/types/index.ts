@@ -22,14 +22,17 @@ export interface AuthState {
 
 export interface Provider {
   id: string;
-  name: string;
+  name: string | null;
   provider_type: ProviderType;
-  base_url: string;
+  base_url: string | null;
+  api_key_masked: string;
   api_key?: string;
   enabled: boolean;
+  disabled: boolean;
   models: string[];
-  created_at: string;
-  updated_at: string;
+  models_count: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export type ProviderType = 'openai' | 'claude' | 'gemini' | 'openai_compat';
@@ -54,24 +57,38 @@ export interface ProviderUpdateRequest {
 // ── Auth Keys ──
 
 export interface AuthKey {
-  id: string;
-  name: string;
-  key_prefix: string;
-  created_at: string;
-  last_used_at: string | null;
+  id: number;
+  key_masked: string;
+  name: string | null;
+  tenant_id: string | null;
+  allowed_models: string[];
+  rate_limit: KeyRateLimitConfig | null;
+  budget: BudgetConfig | null;
   expires_at: string | null;
+  metadata: Record<string, string>;
+}
+
+export interface KeyRateLimitConfig {
+  rpm?: number;
+  tpm?: number;
+  cost_per_day_usd?: number;
+}
+
+export interface BudgetConfig {
+  total_usd: number;
+  period: 'daily' | 'monthly';
 }
 
 export interface AuthKeyCreateRequest {
-  name: string;
-  expires_in_days?: number;
+  name?: string;
+  tenant_id?: string;
+  allowed_models?: string[];
+  expires_at?: string;
 }
 
 export interface AuthKeyCreateResponse {
-  id: string;
-  name: string;
   key: string;
-  expires_at: string | null;
+  message: string;
 }
 
 // ── Routing ──
@@ -103,6 +120,7 @@ export interface MetricsSnapshot {
   avg_latency_ms: number;
   error_rate: number;
   uptime_seconds: number;
+  [key: string]: unknown;
 }
 
 export interface MetricsTimeSeries {
@@ -139,17 +157,22 @@ export interface MetricsState {
 // ── Request Logs ──
 
 export interface RequestLog {
-  id: string;
-  timestamp: string;
+  request_id: string;
+  timestamp: number;
   method: string;
   path: string;
-  provider: string;
-  model: string;
+  provider: string | null;
+  model: string | null;
   status: number;
   latency_ms: number;
-  input_tokens: number;
-  output_tokens: number;
-  error?: string;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cost: number | null;
+  error?: string | null;
+  api_key_id: string | null;
+  tenant_id: string | null;
+  client_ip: string | null;
+  [key: string]: unknown;
 }
 
 export interface RequestLogFilter {
