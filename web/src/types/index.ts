@@ -10,14 +10,6 @@ export interface LoginResponse {
   expires_in: number;
 }
 
-export interface AuthState {
-  token: string | null;
-  isAuthenticated: boolean;
-  login: (username: string, password: string) => Promise<void>;
-  logout: () => void;
-  refreshToken: () => Promise<void>;
-}
-
 // ── Provider ──
 
 export interface Provider {
@@ -142,18 +134,6 @@ export interface LatencyBucket {
   count: number;
 }
 
-export interface MetricsState {
-  snapshot: MetricsSnapshot | null;
-  timeSeries: MetricsTimeSeries[];
-  providerDistribution: ProviderDistribution[];
-  latencyBuckets: LatencyBucket[];
-  setSnapshot: (snapshot: MetricsSnapshot) => void;
-  addTimeSeriesPoint: (point: MetricsTimeSeries) => void;
-  setProviderDistribution: (data: ProviderDistribution[]) => void;
-  setLatencyBuckets: (data: LatencyBucket[]) => void;
-  fetchStats: () => Promise<void>;
-}
-
 // ── Request Logs ──
 
 export interface RequestLog {
@@ -189,19 +169,6 @@ export interface PaginatedResponse<T> {
   page_size: number;
   total: number;
   total_pages: number;
-}
-
-export interface LogsState {
-  logs: RequestLog[];
-  page: number;
-  pageSize: number;
-  total: number;
-  totalPages: number;
-  filters: RequestLogFilter;
-  setFilters: (filters: RequestLogFilter) => void;
-  setPage: (page: number) => void;
-  fetchLogs: () => Promise<void>;
-  addLog: (log: RequestLog) => void;
 }
 
 // ── System ──

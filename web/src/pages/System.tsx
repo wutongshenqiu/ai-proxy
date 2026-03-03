@@ -3,6 +3,7 @@ import { systemApi, configApi } from '../services/api';
 import type { SystemHealth } from '../types';
 import StatusBadge from '../components/StatusBadge';
 import MetricCard from '../components/MetricCard';
+import { formatUptime } from '../utils/format';
 import {
   Activity,
   RefreshCw,
@@ -35,20 +36,6 @@ export default function System() {
     const interval = setInterval(fetchHealth, 15000);
     return () => clearInterval(interval);
   }, [fetchHealth]);
-
-  const formatUptime = (seconds: number): string => {
-    const days = Math.floor(seconds / 86400);
-    const hours = Math.floor((seconds % 86400) / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-
-    const parts: string[] = [];
-    if (days > 0) parts.push(`${days}d`);
-    if (hours > 0) parts.push(`${hours}h`);
-    if (mins > 0) parts.push(`${mins}m`);
-    if (parts.length === 0) parts.push(`${secs}s`);
-    return parts.join(' ');
-  };
 
   const handleReload = async () => {
     if (!window.confirm('Reload the gateway configuration? Active connections will not be affected.')) {
