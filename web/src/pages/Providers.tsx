@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { providersApi } from '../services/api';
 import type { Provider, ProviderCreateRequest, ProviderType } from '../types';
 import StatusBadge from '../components/StatusBadge';
-import { Server, Plus, Pencil, Trash2, X } from 'lucide-react';
+import { Server, Plus, Pencil, Trash2, X, RefreshCw, HeartPulse } from 'lucide-react';
 
 const PROVIDER_TYPES: { value: ProviderType; label: string }[] = [
   { value: 'openai', label: 'OpenAI' },
@@ -25,6 +25,7 @@ interface FormState {
   api_key: string;
   enabled: boolean;
   models: string;
+  headers: string;
 }
 
 const emptyForm: FormState = {
@@ -34,6 +35,7 @@ const emptyForm: FormState = {
   api_key: '',
   enabled: true,
   models: '',
+  headers: '',
 };
 
 export default function Providers() {
@@ -44,6 +46,9 @@ export default function Providers() {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const [healthChecking, setHealthChecking] = useState<string | null>(null);
+  const [healthResults, setHealthResults] = useState<Record<string, { status: string; latency_ms?: number; message?: string }>>({});
 
   const fetchProviders = async () => {
     try {
@@ -69,6 +74,9 @@ export default function Providers() {
 
   const openEdit = (provider: Provider) => {
     setEditId(provider.id);
+    const headersStr = provider.headers
+      ? Object.entries(provider.headers).map(([k, v]) => `${k}: ${v}`).join('\n')
+      : '';
     setForm({
       name: provider.name ?? '',
       provider_type: provider.provider_type,
@@ -76,6 +84,7 @@ export default function Providers() {
       api_key: '',
       enabled: provider.enabled,
       models: provider.models.join(', '),
+      headers: headersStr,
     });
     setError('');
     setShowModal(true);
@@ -104,6 +113,16 @@ export default function Providers() {
         .map((m) => m.trim())
         .filter(Boolean);
 
+      const headers: Record<string, string> = {};
+      form.headers.split('\n').forEach((line) => {
+        const idx = line.indexOf(':');
+        if (idx > 0) {
+          const key = line.slice(0, idx).trim();
+          const val = line.slice(idx + 1).trim();
+          if (key && val) headers[key] = val;
+        }
+      });
+
       if (editId) {
         await providersApi.update(editId, {
           name: form.name,
@@ -111,6 +130,7 @@ export default function Providers() {
           api_key: form.api_key || undefined,
           enabled: form.enabled,
           models,
+          headers,
         });
       } else {
         const data: ProviderCreateRequest = {
@@ -120,6 +140,7 @@ export default function Providers() {
           api_key: form.api_key,
           enabled: form.enabled,
           models,
+          headers,
         };
         await providersApi.create(data);
       }
@@ -154,6 +175,37 @@ export default function Providers() {
         ? DEFAULT_BASE_URLS[type]
         : prev.base_url,
     }));
+  };
+
+  const handleFetchModels = async () => {
+    setFetchingModels(true);
+    try {
+      const result = await providersApi.fetchModels({
+        provider_type: form.provider_type,
+        api_key: form.api_key,
+        base_url: form.base_url || undefined,
+      });
+      setForm((prev) => ({ ...prev, models: result.join(', ') }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch models');
+    } finally {
+      setFetchingModels(false);
+    }
+  };
+
+  const handleHealthCheck = async (id: string) => {
+    setHealthChecking(id);
+    try {
+      const result = await providersApi.healthCheck(id);
+      setHealthResults((prev) => ({ ...prev, [id]: result }));
+    } catch (err) {
+      setHealthResults((prev) => ({
+        ...prev,
+        [id]: { status: 'error', message: err instanceof Error ? err.message : 'Health check failed' },
+      }));
+    } finally {
+      setHealthChecking(null);
+    }
   };
 
   return (
@@ -232,6 +284,16 @@ export default function Providers() {
                       <StatusBadge
                         status={(provider.enabled ?? !provider.disabled) ? 'active' : 'inactive'}
                       />
+                      {healthResults[provider.id] && (
+                        <span
+                          className={`health-badge ${healthResults[provider.id].status === 'ok' ? 'health-ok' : 'health-error'}`}
+                          title={healthResults[provider.id].message || `${healthResults[provider.id].latency_ms}ms`}
+                        >
+                          {healthResults[provider.id].status === 'ok'
+                            ? `✓ ${healthResults[provider.id].latency_ms}ms`
+                            : '✗ Error'}
+                        </span>
+                      )}
                     </td>
                     <td className="text-nowrap">
                       {provider.updated_at ? new Date(provider.updated_at).toLocaleDateString() : '-'}
@@ -244,6 +306,14 @@ export default function Providers() {
                           title="Edit"
                         >
                           <Pencil size={14} />
+                        </button>
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => handleHealthCheck(provider.id)}
+                          title="Health Check"
+                          disabled={healthChecking === provider.id}
+                        >
+                          <HeartPulse size={14} />
                         </button>
                         <button
                           className="btn btn-ghost btn-sm btn-danger-ghost"
@@ -319,12 +389,34 @@ export default function Providers() {
               </div>
 
               <div className="form-group">
-                <label>Models (comma-separated)</label>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <label>Models (comma-separated)</label>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={handleFetchModels}
+                    disabled={fetchingModels || (!form.api_key && !editId)}
+                    title={editId && !form.api_key ? 'Enter API key to fetch models' : 'Fetch available models from provider'}
+                  >
+                    <RefreshCw size={14} className={fetchingModels ? 'spinning' : ''} />
+                    {fetchingModels ? 'Fetching...' : 'Fetch Models'}
+                  </button>
+                </div>
                 <input
                   type="text"
                   value={form.models}
                   onChange={(e) => setForm({ ...form, models: e.target.value })}
                   placeholder="gpt-4o, gpt-4o-mini, gpt-3.5-turbo"
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Custom Headers <span className="form-hint">(one per line, format: Key: Value)</span></label>
+                <textarea
+                  rows={3}
+                  value={form.headers}
+                  onChange={(e) => setForm({ ...form, headers: e.target.value })}
+                  placeholder={"user-agent: my-app/1.0\nanthropics-beta: max-tokens"}
                 />
               </div>
 

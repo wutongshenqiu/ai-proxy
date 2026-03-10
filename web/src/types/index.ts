@@ -23,6 +23,7 @@ export interface Provider {
   disabled: boolean;
   models: string[];
   models_count: number;
+  headers?: Record<string, string>;
   created_at?: string;
   updated_at?: string;
 }
@@ -36,6 +37,7 @@ export interface ProviderCreateRequest {
   api_key: string;
   enabled: boolean;
   models: string[];
+  headers?: Record<string, string>;
 }
 
 export interface ProviderUpdateRequest {
@@ -44,6 +46,7 @@ export interface ProviderUpdateRequest {
   api_key?: string;
   enabled?: boolean;
   models?: string[];
+  headers?: Record<string, string>;
 }
 
 // ── Auth Keys ──

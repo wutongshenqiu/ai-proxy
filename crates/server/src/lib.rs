@@ -107,6 +107,14 @@ pub fn build_router(state: AppState) -> Router {
         )
         // Providers
         .route(
+            "/api/dashboard/providers/fetch-models",
+            axum::routing::post(handler::dashboard::providers::fetch_models),
+        )
+        .route(
+            "/api/dashboard/providers/{id}/health",
+            axum::routing::post(handler::dashboard::providers::health_check),
+        )
+        .route(
             "/api/dashboard/providers",
             axum::routing::get(handler::dashboard::providers::list_providers)
                 .post(handler::dashboard::providers::create_provider),
