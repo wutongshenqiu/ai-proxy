@@ -1912,6 +1912,7 @@ dependencies = [
  "prism-provider",
  "prism-translator",
  "rand 0.10.0",
+ "reqwest",
  "serde",
  "serde_json",
  "serde_yml",

@@ -106,3 +106,34 @@ a {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-tertiary);
 }
+
+/* ── Spinning animation ── */
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ── Health badge ── */
+
+.health-badge {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 0.75rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.health-ok {
+  color: var(--color-success, #22c55e);
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.health-error {
+  color: var(--color-danger, #ef4444);
+  background: rgba(239, 68, 68, 0.1);
+}

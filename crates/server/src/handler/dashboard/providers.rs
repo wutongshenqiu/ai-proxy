@@ -5,6 +5,7 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::time::Instant;
 
 #[derive(Debug, Serialize)]
 struct ProviderSummary {
@@ -28,7 +29,7 @@ pub struct CreateProviderRequest {
     #[serde(default)]
     pub prefix: Option<String>,
     #[serde(default)]
-    pub models: Vec<prism_core::config::ModelMapping>,
+    pub models: Vec<String>,
     #[serde(default)]
     pub excluded_models: Vec<String>,
     #[serde(default)]
@@ -48,7 +49,7 @@ pub struct UpdateProviderRequest {
     #[serde(default)]
     pub prefix: Option<Option<String>>,
     #[serde(default)]
-    pub models: Option<Vec<prism_core::config::ModelMapping>>,
+    pub models: Option<Vec<String>>,
     #[serde(default)]
     pub excluded_models: Option<Vec<String>>,
     #[serde(default)]
@@ -176,12 +177,18 @@ pub async fn create_provider(
         );
     }
 
+    let models = body
+        .models
+        .into_iter()
+        .map(|id| prism_core::config::ModelMapping { id, alias: None })
+        .collect();
+
     let new_entry = prism_core::config::ProviderKeyEntry {
         api_key: body.api_key,
         base_url: body.base_url,
         proxy_url: None,
         prefix: body.prefix,
-        models: body.models,
+        models,
         excluded_models: body.excluded_models,
         headers: body.headers,
         disabled: body.disabled,
@@ -251,7 +258,13 @@ pub async fn update_provider(
                 entry.prefix = prefix.clone();
             }
             if let Some(ref models) = body.models {
-                entry.models = models.clone();
+                entry.models = models
+                    .iter()
+                    .map(|id| prism_core::config::ModelMapping {
+                        id: id.clone(),
+                        alias: None,
+                    })
+                    .collect();
             }
             if let Some(ref excluded) = body.excluded_models {
                 entry.excluded_models = excluded.clone();
@@ -373,4 +386,279 @@ async fn update_config_file(
     state.config.store(std::sync::Arc::new(config));
 
     Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FetchModelsRequest {
+    pub provider_type: String,
+    pub api_key: String,
+    #[serde(default)]
+    pub base_url: Option<String>,
+}
+
+fn build_reqwest_client(
+    proxy_url: Option<&str>,
+    timeout_secs: u64,
+) -> Result<reqwest::Client, String> {
+    let mut builder =
+        reqwest::Client::builder().timeout(std::time::Duration::from_secs(timeout_secs));
+    if let Some(proxy) = proxy_url {
+        let p = reqwest::Proxy::all(proxy).map_err(|e| format!("Invalid proxy URL: {e}"))?;
+        builder = builder.proxy(p);
+    }
+    builder
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {e}"))
+}
+
+fn default_base_url(provider_type: &str) -> Option<&'static str> {
+    match provider_type {
+        "openai" => Some("https://api.openai.com"),
+        "claude" => Some("https://api.anthropic.com"),
+        "gemini" => Some("https://generativelanguage.googleapis.com"),
+        _ => None,
+    }
+}
+
+fn build_models_request(
+    client: &reqwest::Client,
+    provider_type: &str,
+    api_key: &str,
+    base_url: &str,
+) -> Result<reqwest::RequestBuilder, String> {
+    match provider_type {
+        "openai" | "openai-compat" | "openai_compat" => Ok(client
+            .get(format!("{}/v1/models", base_url.trim_end_matches('/')))
+            .header("Authorization", format!("Bearer {api_key}"))),
+        "claude" => Ok(client
+            .get(format!("{}/v1/models", base_url.trim_end_matches('/')))
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01")),
+        "gemini" => Ok(client
+            .get(format!("{}/v1beta/models", base_url.trim_end_matches('/')))
+            .header("x-goog-api-key", api_key)),
+        _ => Err(format!("Unsupported provider_type: {provider_type}")),
+    }
+}
+
+fn extract_model_ids(provider_type: &str, body: &serde_json::Value) -> Vec<String> {
+    match provider_type {
+        "openai" | "openai-compat" | "openai_compat" | "claude" => body
+            .get("data")
+            .and_then(|d| d.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.get("id").and_then(|v| v.as_str()).map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        "gemini" => body
+            .get("models")
+            .and_then(|m| m.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| {
+                        item.get("name")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.strip_prefix("models/").unwrap_or(s).to_string())
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        _ => vec![],
+    }
+}
+
+/// POST /api/dashboard/providers/fetch-models
+pub async fn fetch_models(
+    State(state): State<AppState>,
+    Json(body): Json<FetchModelsRequest>,
+) -> impl IntoResponse {
+    let provider_type = body.provider_type.as_str();
+
+    // Validate provider type
+    if !matches!(
+        provider_type,
+        "openai" | "claude" | "gemini" | "openai-compat" | "openai_compat"
+    ) {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(
+                json!({"error": "validation_failed", "message": "Invalid provider_type. Must be one of: claude, openai, gemini, openai-compat"}),
+            ),
+        );
+    }
+
+    // Resolve base URL
+    let base_url = match body.base_url.as_deref().filter(|s| !s.is_empty()) {
+        Some(url) => url.to_string(),
+        None => match default_base_url(provider_type) {
+            Some(url) => url.to_string(),
+            None => {
+                return (
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(
+                        json!({"error": "validation_failed", "message": "base_url is required for openai-compat provider"}),
+                    ),
+                );
+            }
+        },
+    };
+
+    let global_proxy = state.config.load().proxy_url.clone();
+    let client = match build_reqwest_client(global_proxy.as_deref(), 15) {
+        Ok(c) => c,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "client_error", "message": e})),
+            );
+        }
+    };
+
+    let request = match build_models_request(&client, provider_type, &body.api_key, &base_url) {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({"error": "validation_failed", "message": e})),
+            );
+        }
+    };
+
+    let response: reqwest::Response = match request.send().await {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(
+                    json!({"error": "upstream_error", "message": format!("Failed to reach upstream: {e}")}),
+                ),
+            );
+        }
+    };
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body_text = response.text().await.unwrap_or_default();
+        return (
+            StatusCode::BAD_GATEWAY,
+            Json(
+                json!({"error": "upstream_error", "message": format!("Upstream returned {status}: {body_text}")}),
+            ),
+        );
+    }
+
+    let body_json: serde_json::Value = match response.json().await {
+        Ok(v) => v,
+        Err(e) => {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(
+                    json!({"error": "upstream_error", "message": format!("Failed to parse upstream response: {e}")}),
+                ),
+            );
+        }
+    };
+
+    let models = extract_model_ids(provider_type, &body_json);
+    (StatusCode::OK, Json(json!({"models": models})))
+}
+
+/// POST /api/dashboard/providers/{id}/health
+pub async fn health_check(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let config = state.config.load();
+
+    let (ptype, idx) = match parse_provider_id(&id) {
+        Some(v) => v,
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({"status": "error", "message": "Provider not found"})),
+            );
+        }
+    };
+
+    let entries = get_entries_by_type(&config, ptype);
+    let entry = match entries.get(idx) {
+        Some(e) => e,
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({"status": "error", "message": "Provider not found"})),
+            );
+        }
+    };
+
+    // Resolve base URL: entry-level, then default
+    let base_url = entry
+        .base_url
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .or_else(|| default_base_url(ptype))
+        .unwrap_or("")
+        .to_string();
+
+    if base_url.is_empty() {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({"status": "error", "message": "No base_url configured for this provider"})),
+        );
+    }
+
+    // Use entry-level proxy, fall back to global proxy
+    let proxy_url = entry.proxy_url.as_deref().or(config.proxy_url.as_deref());
+
+    let client = match build_reqwest_client(proxy_url, 10) {
+        Ok(c) => c,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"status": "error", "message": e})),
+            );
+        }
+    };
+
+    let request = match build_models_request(&client, ptype, &entry.api_key, &base_url) {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({"status": "error", "message": e})),
+            );
+        }
+    };
+
+    let start = Instant::now();
+    let response: reqwest::Response = match request.send().await {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                StatusCode::OK,
+                Json(
+                    json!({"status": "error", "message": format!("Failed to reach upstream: {e}")}),
+                ),
+            );
+        }
+    };
+    let latency_ms = start.elapsed().as_millis() as u64;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body_text = response.text().await.unwrap_or_default();
+        return (
+            StatusCode::OK,
+            Json(
+                json!({"status": "error", "message": format!("Upstream returned {status}: {body_text}")}),
+            ),
+        );
+    }
+
+    (
+        StatusCode::OK,
+        Json(json!({"status": "ok", "latency_ms": latency_ms})),
+    )
 }
