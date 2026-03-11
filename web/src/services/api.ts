@@ -144,7 +144,7 @@ export const providersApi = {
   fetchModels: (data: { provider_type: string; api_key: string; base_url?: string }) =>
     api.post<{ models: string[] }>('/providers/fetch-models', {
       ...data,
-      provider_type: data.provider_type === 'openai_compat' ? 'openai-compat' : data.provider_type,
+      provider_type: providerTypeToBackend(data.provider_type),
     }).then((res) => res.data.models),
 
   healthCheck: (id: string) =>
@@ -319,9 +319,9 @@ export const systemApi = {
         data: {
           data: logs,
           total,
-          total_pages: Math.ceil(total / 50),
+          total_pages: Math.ceil(total / (raw.page_size || 50)),
           page: raw.page || 1,
-          page_size: 50,
+          page_size: raw.page_size || 50,
         },
       };
     }) as Promise<{ data: PaginatedResponse<SystemLog> } & Record<string, unknown>>;

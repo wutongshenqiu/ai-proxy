@@ -14,41 +14,18 @@ function JsonNode({ name, value, depth, defaultExpanded }: {
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded && depth < 2);
 
-  if (value === null) {
-    return (
-      <div className="json-line" style={{ paddingLeft: depth * 16 }}>
-        {name != null && <span className="json-key">{name}: </span>}
-        <span className="json-null">null</span>
-      </div>
-    );
-  }
+  // Leaf types: null, boolean, number, string
+  const leaf = (className: string, display: string) => (
+    <div className="json-line" style={{ paddingLeft: depth * 16 }}>
+      {name != null && <span className="json-key">{name}: </span>}
+      <span className={className}>{display}</span>
+    </div>
+  );
 
-  if (typeof value === 'boolean') {
-    return (
-      <div className="json-line" style={{ paddingLeft: depth * 16 }}>
-        {name != null && <span className="json-key">{name}: </span>}
-        <span className="json-boolean">{String(value)}</span>
-      </div>
-    );
-  }
-
-  if (typeof value === 'number') {
-    return (
-      <div className="json-line" style={{ paddingLeft: depth * 16 }}>
-        {name != null && <span className="json-key">{name}: </span>}
-        <span className="json-number">{value}</span>
-      </div>
-    );
-  }
-
-  if (typeof value === 'string') {
-    return (
-      <div className="json-line" style={{ paddingLeft: depth * 16 }}>
-        {name != null && <span className="json-key">{name}: </span>}
-        <span className="json-string">"{value}"</span>
-      </div>
-    );
-  }
+  if (value === null) return leaf('json-null', 'null');
+  if (typeof value === 'boolean') return leaf('json-boolean', String(value));
+  if (typeof value === 'number') return leaf('json-number', String(value));
+  if (typeof value === 'string') return leaf('json-string', `"${value}"`);
 
   if (Array.isArray(value)) {
     if (value.length === 0) {

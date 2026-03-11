@@ -198,20 +198,22 @@ impl LogStore for InMemoryLogStore {
         let keyword_lower = q.keyword.as_ref().map(|kw| kw.to_lowercase());
         let keyword_ref = keyword_lower.as_deref();
 
-        // Snapshot under lock, then release immediately
-        let snapshot: Vec<RequestRecord> = {
-            let entries = self.entries.read().unwrap();
-            entries
-                .iter()
-                .rev()
-                .filter(|e| Self::matches(e, q, keyword_ref))
-                .cloned()
-                .collect()
-        };
+        let has_custom_sort = q.sort_by.is_some();
+        let start = (page - 1) * page_size;
 
-        // Sort (on owned data, lock released)
-        let mut filtered = snapshot;
-        if let Some(ref sort_by) = q.sort_by {
+        if has_custom_sort {
+            // Custom sort requires collecting all matches, sorting, then paginating.
+            let mut filtered: Vec<RequestRecord> = {
+                let entries = self.entries.read().unwrap();
+                entries
+                    .iter()
+                    .rev()
+                    .filter(|e| Self::matches(e, q, keyword_ref))
+                    .cloned()
+                    .collect()
+            };
+
+            let sort_by = q.sort_by.as_ref().unwrap();
             let desc = !matches!(q.sort_order, Some(SortOrder::Asc));
             filtered.sort_by(|a, b| {
                 let cmp = match sort_by {
@@ -225,16 +227,48 @@ impl LogStore for InMemoryLogStore {
                 };
                 if desc { cmp.reverse() } else { cmp }
             });
+
+            let total = filtered.len();
+            let total_pages = if total == 0 {
+                0
+            } else {
+                total.div_ceil(page_size)
+            };
+            let data: Vec<RequestRecord> =
+                filtered.into_iter().skip(start).take(page_size).collect();
+
+            return LogPage {
+                data,
+                total,
+                page,
+                page_size,
+                total_pages,
+            };
         }
 
-        let total = filtered.len();
+        // Default order (newest first) — count total, then clone only the page slice.
+        let (total, data) = {
+            let entries = self.entries.read().unwrap();
+            let matching: Vec<&RequestRecord> = entries
+                .iter()
+                .rev()
+                .filter(|e| Self::matches(e, q, keyword_ref))
+                .collect();
+            let total = matching.len();
+            let data: Vec<RequestRecord> = matching
+                .into_iter()
+                .skip(start)
+                .take(page_size)
+                .cloned()
+                .collect();
+            (total, data)
+        };
+
         let total_pages = if total == 0 {
             0
         } else {
             total.div_ceil(page_size)
         };
-        let start = (page - 1) * page_size;
-        let data: Vec<RequestRecord> = filtered.into_iter().skip(start).take(page_size).collect();
 
         LogPage {
             data,
@@ -255,23 +289,16 @@ impl LogStore for InMemoryLogStore {
             ..Default::default()
         };
 
-        // Snapshot under lock, then release immediately
-        let snapshot: Vec<RequestRecord> = {
-            let entries = self.entries.read().unwrap();
-            entries
-                .iter()
-                .filter(|e| Self::matches(e, &lq, None))
-                .cloned()
-                .collect()
-        };
-
-        let total = snapshot.len();
         let bucket_secs = Self::bucket_interval_secs(q.from, q.to);
 
-        // Single-pass aggregation
+        // Single-pass aggregation under read lock — no cloning needed.
+        // All &str keys borrow from entries held by the read guard.
+        let entries = self.entries.read().unwrap();
+
+        let mut total = 0usize;
         let mut errors = 0u64;
         let mut latency_sum = 0u64;
-        let mut latencies: Vec<u64> = Vec::with_capacity(total);
+        let mut latencies: Vec<u64> = Vec::new();
         let mut total_cost = 0.0f64;
         let mut total_tokens = 0u64;
         let mut buckets: BTreeMap<i64, TimeBucket> = BTreeMap::new();
@@ -280,7 +307,8 @@ impl LogStore for InMemoryLogStore {
         let mut prov_map: HashMap<&str, u64> = HashMap::new();
         let mut status_dist = StatusDistribution::default();
 
-        for e in &snapshot {
+        for e in entries.iter().filter(|e| Self::matches(e, &lq, None)) {
+            total += 1;
             // Latency
             latencies.push(e.latency_ms);
             latency_sum += e.latency_ms;
@@ -424,6 +452,9 @@ impl LogStore for InMemoryLogStore {
             })
             .collect();
         provider_distribution.sort_by(|a, b| b.requests.cmp(&a.requests));
+
+        // All &str borrows from entries have been consumed; release the read lock.
+        drop(entries);
 
         LogStats {
             total_entries: total,

@@ -100,6 +100,12 @@ export const useLogsStore = create<LogsState>((set, get) => ({
   },
 
   openDrawer: async (id: string) => {
+    // Use cached record from current page if available, avoiding a network round-trip
+    const cached = get().logs.find((l) => l.request_id === id);
+    if (cached) {
+      set({ selectedLogId: id, isDrawerOpen: true, isLoadingDetail: false, selectedLog: cached });
+      return;
+    }
     set({ selectedLogId: id, isDrawerOpen: true, isLoadingDetail: true, selectedLog: null });
     try {
       const response = await logsApi.getById(id);
