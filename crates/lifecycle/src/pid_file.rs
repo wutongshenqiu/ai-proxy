@@ -108,6 +108,49 @@ impl PidFile {
     }
 }
 
+/// Stop a running daemon by PID file path.
+pub fn cmd_stop(pid_file: &str, timeout_secs: u64) -> anyhow::Result<()> {
+    let pid = PidFile::read_pid(pid_file)?;
+    if !PidFile::is_alive(pid) {
+        println!("Process {pid} is not running.");
+        return Ok(());
+    }
+
+    println!("Stopping PID {pid} (timeout {timeout_secs}s)...");
+    PidFile::stop(pid, std::time::Duration::from_secs(timeout_secs))?;
+    println!("Stopped.");
+    Ok(())
+}
+
+/// Check the status of a daemon by PID file path.
+pub fn cmd_status(pid_file: &str) -> anyhow::Result<()> {
+    match PidFile::read_pid(pid_file) {
+        Ok(pid) => {
+            if PidFile::is_alive(pid) {
+                println!("prism is running (PID {pid})");
+            } else {
+                println!("prism is NOT running (stale PID file, PID {pid})");
+            }
+        }
+        Err(_) => {
+            println!("prism is NOT running (no PID file at {pid_file})");
+        }
+    }
+    Ok(())
+}
+
+/// Send SIGHUP to reload configuration of a running daemon.
+pub fn cmd_reload(pid_file: &str) -> anyhow::Result<()> {
+    let pid = PidFile::read_pid(pid_file)?;
+    if !PidFile::is_alive(pid) {
+        anyhow::bail!("Process {pid} is not running");
+    }
+
+    PidFile::send_signal(pid, libc::SIGHUP)?;
+    println!("Sent SIGHUP to PID {pid}");
+    Ok(())
+}
+
 impl Drop for PidFile {
     fn drop(&mut self) {
         // flock is released when fd is closed

@@ -27,6 +27,12 @@ rand = { workspace = true }
 jsonwebtoken = { workspace = true }
 bcrypt = { workspace = true }
 reqwest = { workspace = true }
+prism-lifecycle = { workspace = true }
+rustls = { workspace = true }
+rustls-pki-types = { workspace = true }
+tokio-rustls = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
