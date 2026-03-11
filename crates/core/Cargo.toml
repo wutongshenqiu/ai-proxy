@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+prism-types = { workspace = true, features = ["reqwest", "axum"] }
 tokio = { workspace = true }
-axum = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

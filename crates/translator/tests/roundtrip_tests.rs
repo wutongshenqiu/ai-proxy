@@ -1,8 +1,8 @@
 use assert_json_diff::assert_json_eq;
+use prism_translator::{TranslateState, build_registry};
 /// Roundtrip integration tests: verify that translating a request to a target format
 /// and then translating a corresponding response back produces valid OpenAI-format output.
-use prism_core::provider::Format;
-use prism_translator::{TranslateState, build_registry};
+use prism_types::format::Format;
 use serde_json::{Value, json};
 
 #[test]

@@ -1836,7 +1836,6 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "async-trait",
- "axum",
  "bytes",
  "chrono",
  "fork",
@@ -1844,6 +1843,7 @@ dependencies = [
  "libc",
  "moka",
  "notify",
+ "prism-types",
  "rand 0.10.0",
  "regex",
  "reqwest",
@@ -1920,11 +1920,22 @@ dependencies = [
  "anyhow",
  "assert-json-diff",
  "chrono",
- "prism-core",
+ "prism-types",
  "serde",
  "serde_json",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "prism-types"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
