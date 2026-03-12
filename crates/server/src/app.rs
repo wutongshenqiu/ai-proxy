@@ -43,16 +43,10 @@ impl Application {
     /// is built).
     pub fn build(
         args: &RunConfig,
+        preloaded_config: Config,
         log_store: Arc<dyn prism_core::request_log::LogStore>,
     ) -> anyhow::Result<Self> {
-        // Load config
-        let mut config = Config::load(&args.config_path).unwrap_or_else(|e| {
-            tracing::warn!(
-                "Failed to load config from '{}': {e}, using defaults",
-                args.config_path
-            );
-            Config::default()
-        });
+        let mut config = preloaded_config;
 
         // CLI overrides
         if let Some(ref host) = args.host {
@@ -252,7 +246,7 @@ pub fn run(args: RunConfig) -> anyhow::Result<()> {
         prism_lifecycle::daemon::daemonize()?;
     }
 
-    // Load config early for logging decisions
+    // Load config once — used for logging decisions and passed to Application::build
     let config = Config::load(&args.config_path).unwrap_or_default();
 
     // Init logging — force file logging when running as daemon
@@ -298,7 +292,7 @@ pub fn run(args: RunConfig) -> anyhow::Result<()> {
                 config.log_store.file_audit.retention_days,
             );
         }
-        let application = Application::build(&args, log_store)?;
+        let application = Application::build(&args, config, log_store)?;
         application.serve().await
     })
 }

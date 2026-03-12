@@ -153,10 +153,12 @@ impl Config {
         Ok(config)
     }
 
-    /// Deserialize config from a YAML string without sanitization or validation.
-    /// Used by dashboard config editing where the caller handles sanitization.
+    /// Deserialize config from a YAML string with sanitization (but no validation).
+    /// Used by dashboard config editing where the caller may mutate before writing back.
     pub fn from_yaml(yaml: &str) -> Result<Self, anyhow::Error> {
-        Ok(serde_yaml_ng::from_str(yaml)?)
+        let mut config: Config = serde_yaml_ng::from_str(yaml)?;
+        config.sanitize();
+        Ok(config)
     }
 
     /// Serialize config to a YAML string.
