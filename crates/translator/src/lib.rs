@@ -4,8 +4,8 @@ pub mod gemini_to_openai;
 pub mod openai_to_claude;
 pub mod openai_to_gemini;
 
-use prism_core::error::ProxyError;
-use prism_core::provider::Format;
+use prism_types::error::ProxyError;
+use prism_types::format::Format;
 use std::collections::HashMap;
 
 /// State accumulated during stream translation.

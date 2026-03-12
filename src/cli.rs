@@ -66,6 +66,20 @@ impl Default for RunArgs {
     }
 }
 
+impl From<RunArgs> for prism_server::app::RunConfig {
+    fn from(args: RunArgs) -> Self {
+        Self {
+            config_path: args.config,
+            host: args.host,
+            port: args.port,
+            log_level: args.log_level,
+            daemon: args.daemon,
+            pid_file: args.pid_file,
+            shutdown_timeout: args.shutdown_timeout,
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
 pub struct PidArgs {
     /// Path to PID file

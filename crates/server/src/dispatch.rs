@@ -397,6 +397,8 @@ pub async fn dispatch(state: &AppState, req: DispatchRequest) -> Result<Response
                                     api_key: req.api_key.clone(),
                                 },
                                 request_span,
+                                detail_level,
+                                max_body_bytes,
                             );
 
                             if !need_translate {
@@ -684,7 +686,7 @@ pub async fn dispatch(state: &AppState, req: DispatchRequest) -> Result<Response
 
     // Record error on request span
     request_span.record("total_attempts", total_attempts as u64);
-    request_span.record("status", err.status_code().as_u16() as u64);
+    request_span.record("status", err.status_code_u16() as u64);
     request_span.record("latency_ms", start.elapsed().as_millis() as u64);
     request_span.record("error", err.to_string());
     request_span.record("error_type", classify_error(&err));
