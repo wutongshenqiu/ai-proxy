@@ -200,13 +200,13 @@ export default function Dashboard() {
           <div className="card-body">
             {statusPieData.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
+                <PieChart margin={{ left: 40, right: 40 }}>
                   <Pie
                     data={statusPieData}
                     cx="50%"
                     cy="50%"
                     innerRadius={60}
-                    outerRadius={85}
+                    outerRadius={80}
                     dataKey="value"
                     nameKey="name"
                     label={(props: any) => renderPieLabel(props, (p) => `${p.name} (${formatNumber(p.value)})`)}
@@ -239,12 +239,12 @@ export default function Dashboard() {
           <div className="card-body">
             {stats && stats.provider_distribution.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
+                <PieChart margin={{ left: 40, right: 40 }}>
                   <Pie
                     data={stats.provider_distribution}
                     cx="50%"
                     cy="50%"
-                    outerRadius={85}
+                    outerRadius={80}
                     dataKey="requests"
                     nameKey="provider"
                     label={(props: any) => renderPieLabel(props, (p) => `${p.provider} (${p.percentage.toFixed(1)}%)`)}
