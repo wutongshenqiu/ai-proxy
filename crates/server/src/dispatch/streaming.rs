@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use prism_core::error::ProxyError;
 use prism_core::provider::{Format, ProviderResponse, StreamChunk};
-use prism_core::request_record::TokenUsage;
+use prism_core::request_record::{LogDetailLevel, TokenUsage, truncate_body};
 use prism_translator::TranslateState;
 use std::sync::Arc;
 use std::time::Duration;
@@ -162,6 +162,8 @@ pub(super) fn with_usage_capture(
     >,
     ctx: StreamDoneContext,
     request_span: tracing::Span,
+    detail_level: LogDetailLevel,
+    max_body_bytes: usize,
 ) -> std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<StreamChunk, ProxyError>> + Send>> {
     struct State {
         inner: std::pin::Pin<
@@ -171,6 +173,10 @@ pub(super) fn with_usage_capture(
         ctx: Option<StreamDoneContext>,
         request_span: tracing::Span,
         content_preview: String,
+        /// Accumulated raw SSE data for full response body logging.
+        /// `None` when detail_level < Full.
+        response_body: Option<String>,
+        max_body_bytes: usize,
     }
 
     impl Drop for State {
@@ -200,17 +206,33 @@ pub(super) fn with_usage_capture(
                     self.request_span
                         .record("stream_content_preview", self.content_preview.as_str());
                 }
+                // Record full response body for streaming when detail level is Full
+                if let Some(ref body) = self.response_body
+                    && !body.is_empty()
+                {
+                    self.request_span.record(
+                        "response_body",
+                        truncate_body(body, self.max_body_bytes).as_ref(),
+                    );
+                }
                 // Span drops here → GatewayLogLayer::on_close fires
             }
         }
     }
 
+    let capture_body = detail_level >= LogDetailLevel::Full;
     let state = State {
         inner: stream,
         usage: None,
         ctx: Some(ctx),
         request_span,
         content_preview: String::with_capacity(STREAM_PREVIEW_MAX_CHARS),
+        response_body: if capture_body {
+            Some(String::new())
+        } else {
+            None
+        },
+        max_body_bytes,
     };
 
     Box::pin(futures::stream::unfold(state, |mut state| async move {
@@ -229,8 +251,24 @@ pub(super) fn with_usage_capture(
                         && let Some(text) = extract_content_text(&chunk.data)
                     {
                         let remaining = STREAM_PREVIEW_MAX_CHARS - state.content_preview.len();
-                        let truncated = prism_core::request_record::truncate_body(&text, remaining);
+                        let truncated = truncate_body(&text, remaining);
                         state.content_preview.push_str(&truncated);
+                    }
+                    // Accumulate raw SSE data for full response body logging
+                    // Cap at max_body_bytes to avoid unbounded memory growth
+                    if let Some(ref mut body) = state.response_body
+                        && body.len() < state.max_body_bytes
+                    {
+                        if !body.is_empty() {
+                            body.push('\n');
+                        }
+                        let remaining = state.max_body_bytes.saturating_sub(body.len());
+                        if chunk.data.len() <= remaining {
+                            body.push_str(&chunk.data);
+                        } else {
+                            let end = truncate_body(&chunk.data, remaining);
+                            body.push_str(&end);
+                        }
                     }
                 }
                 Some((result, state))

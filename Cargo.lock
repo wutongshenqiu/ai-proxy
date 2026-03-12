@@ -1809,24 +1809,15 @@ dependencies = [
  "axum",
  "clap",
  "dotenvy",
- "hyper",
- "hyper-util",
- "libc",
  "prism-core",
+ "prism-lifecycle",
  "prism-provider",
  "prism-server",
  "prism-translator",
  "reqwest",
- "rustls",
- "rustls-pki-types",
  "serde",
  "serde_json",
  "tokio",
- "tokio-rustls",
- "tower",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -1836,20 +1827,16 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "async-trait",
- "axum",
- "bcrypt",
  "bytes",
  "chrono",
- "fork",
  "futures",
- "jsonwebtoken",
- "libc",
  "moka",
  "notify",
+ "prism-lifecycle",
+ "prism-types",
  "rand 0.10.0",
  "regex",
  "reqwest",
- "sd-notify",
  "serde",
  "serde_json",
  "serde_yaml_ng",
@@ -1859,10 +1846,23 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
- "tracing-appender",
- "tracing-subscriber",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "prism-lifecycle"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "fork",
+ "libc",
+ "sd-notify",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -1897,17 +1897,22 @@ dependencies = [
  "bytes",
  "chrono",
  "futures",
+ "hyper",
+ "hyper-util",
  "jsonwebtoken",
  "prism-core",
+ "prism-lifecycle",
  "prism-provider",
  "prism-translator",
  "rand 0.10.0",
  "reqwest",
+ "rustls",
+ "rustls-pki-types",
  "serde",
  "serde_json",
- "serde_yaml_ng",
  "tempfile",
  "tokio",
+ "tokio-rustls",
  "tokio-stream",
  "tower",
  "tower-http",
@@ -1923,11 +1928,22 @@ dependencies = [
  "anyhow",
  "assert-json-diff",
  "chrono",
- "prism-core",
+ "prism-types",
  "serde",
  "serde_json",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "prism-types"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

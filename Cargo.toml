@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/types",
+    "crates/lifecycle",
     "crates/core",
     "crates/provider",
     "crates/translator",
@@ -13,26 +15,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-prism-core = { workspace = true }
-prism-provider = { workspace = true }
-prism-translator = { workspace = true }
 prism-server = { workspace = true }
-tokio = { workspace = true }
+prism-lifecycle = { workspace = true }
 clap = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 dotenvy = { workspace = true }
-rustls = { workspace = true }
-rustls-pki-types = { workspace = true }
-tokio-rustls = { workspace = true }
-axum = { workspace = true }
-arc-swap = { workspace = true }
-hyper = { workspace = true }
-hyper-util = { workspace = true }
-tower = { workspace = true }
-tracing-appender = { workspace = true }
-libc = { workspace = true }
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -74,6 +61,8 @@ bcrypt = "0.19"
 moka = { version = "0.12", features = ["future"] }
 
 # workspace internal
+prism-types = { path = "crates/types", default-features = false }
+prism-lifecycle = { path = "crates/lifecycle" }
 prism-core = { path = "crates/core" }
 prism-provider = { path = "crates/provider" }
 prism-translator = { path = "crates/translator" }
@@ -89,6 +78,7 @@ prism-provider = { workspace = true }
 prism-translator = { workspace = true }
 prism-server = { workspace = true }
 arc-swap = { workspace = true }
+axum = { workspace = true }
 
 [[test]]
 name = "e2e"

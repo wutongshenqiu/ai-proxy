@@ -1,4 +1,3 @@
-mod app;
 mod cli;
 
 use clap::Parser;
@@ -11,131 +10,22 @@ fn main() -> anyhow::Result<()> {
     let command = cli.command.unwrap_or(Command::Run(RunArgs::default()));
 
     match command {
-        Command::Run(args) => cmd_run(args),
-        Command::Stop(args) => cmd_stop(args),
-        Command::Status(args) => cmd_status(args),
-        Command::Reload(args) => cmd_reload(args),
-    }
-}
-
-fn cmd_run(args: RunArgs) -> anyhow::Result<()> {
-    // Daemonize before creating tokio runtime (unix only)
-    #[cfg(unix)]
-    if args.daemon {
-        prism_core::lifecycle::daemon::daemonize()?;
-    }
-
-    // Load config early for logging decisions and pre-building shared deps
-    let config = prism_core::config::Config::load(&args.config).unwrap_or_default();
-
-    // Init logging — force file logging when running as daemon
-    let to_file = args.daemon || config.logging_to_file;
-    let log_dir = config.log_dir.clone();
-
-    // Create log store before logging init so it can be shared with both
-    // the GatewayLogLayer and the Application.
-    let file_writer = if config.log_store.file_audit.enabled {
-        match prism_core::file_audit::FileAuditWriter::new(&config.log_store.file_audit) {
-            Ok(w) => Some(w),
-            Err(e) => {
-                eprintln!("Failed to initialize file audit writer: {e}, file audit disabled");
-                None
-            }
+        Command::Run(args) => prism_server::app::run(args.into()),
+        #[cfg(unix)]
+        Command::Stop(args) => prism_lifecycle::pid_file::cmd_stop(&args.pid_file, args.timeout),
+        #[cfg(not(unix))]
+        Command::Stop(_) => anyhow::bail!("The 'stop' command is only supported on Unix systems"),
+        #[cfg(unix)]
+        Command::Status(args) => prism_lifecycle::pid_file::cmd_status(&args.pid_file),
+        #[cfg(not(unix))]
+        Command::Status(_) => {
+            anyhow::bail!("The 'status' command is only supported on Unix systems")
         }
-    } else {
-        None
-    };
-    let log_store: std::sync::Arc<dyn prism_core::request_log::LogStore> = std::sync::Arc::new(
-        prism_core::memory_log_store::InMemoryLogStore::new(config.log_store.capacity, file_writer),
-    );
-
-    let gateway_layer = prism_server::telemetry::GatewayLogLayer::new(log_store.clone());
-
-    let _guard = prism_core::lifecycle::logging::init_logging_with_layer(
-        &args.log_level,
-        to_file,
-        log_dir.as_deref(),
-        Box::new(gateway_layer),
-    );
-
-    // Build and run on a multi-thread runtime
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?;
-
-    runtime.block_on(async {
-        // Spawn file audit cleanup task inside the tokio runtime
-        if config.log_store.file_audit.enabled {
-            prism_core::file_audit::FileAuditWriter::spawn_cleanup_static(
-                config.log_store.file_audit.dir.clone(),
-                config.log_store.file_audit.retention_days,
-            );
-        }
-        let application = app::Application::build(&args, log_store)?;
-        application.serve().await
-    })
-}
-
-#[cfg(unix)]
-fn cmd_stop(args: cli::PidArgs) -> anyhow::Result<()> {
-    use prism_core::lifecycle::pid_file::PidFile;
-
-    let pid = PidFile::read_pid(&args.pid_file)?;
-    if !PidFile::is_alive(pid) {
-        println!("Process {pid} is not running.");
-        return Ok(());
-    }
-
-    println!("Stopping PID {pid} (timeout {}s)...", args.timeout);
-    PidFile::stop(pid, std::time::Duration::from_secs(args.timeout))?;
-    println!("Stopped.");
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn cmd_stop(_args: cli::PidArgs) -> anyhow::Result<()> {
-    anyhow::bail!("The 'stop' command is only supported on Unix systems");
-}
-
-#[cfg(unix)]
-fn cmd_status(args: cli::PidArgs) -> anyhow::Result<()> {
-    use prism_core::lifecycle::pid_file::PidFile;
-
-    match PidFile::read_pid(&args.pid_file) {
-        Ok(pid) => {
-            if PidFile::is_alive(pid) {
-                println!("prism is running (PID {pid})");
-            } else {
-                println!("prism is NOT running (stale PID file, PID {pid})");
-            }
-        }
-        Err(_) => {
-            println!("prism is NOT running (no PID file at {})", args.pid_file);
+        #[cfg(unix)]
+        Command::Reload(args) => prism_lifecycle::pid_file::cmd_reload(&args.pid_file),
+        #[cfg(not(unix))]
+        Command::Reload(_) => {
+            anyhow::bail!("The 'reload' command is only supported on Unix systems")
         }
     }
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn cmd_status(_args: cli::PidArgs) -> anyhow::Result<()> {
-    anyhow::bail!("The 'status' command is only supported on Unix systems");
-}
-
-#[cfg(unix)]
-fn cmd_reload(args: cli::PidArgs) -> anyhow::Result<()> {
-    use prism_core::lifecycle::pid_file::PidFile;
-
-    let pid = PidFile::read_pid(&args.pid_file)?;
-    if !PidFile::is_alive(pid) {
-        anyhow::bail!("Process {pid} is not running");
-    }
-
-    PidFile::send_signal(pid, libc::SIGHUP)?;
-    println!("Sent SIGHUP to PID {pid}");
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn cmd_reload(_args: cli::PidArgs) -> anyhow::Result<()> {
-    anyhow::bail!("The 'reload' command is only supported on Unix systems");
 }

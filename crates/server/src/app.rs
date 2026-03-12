@@ -1,15 +1,25 @@
 //! Application struct that encapsulates server assembly and serving logic.
 
-use crate::cli::RunArgs;
 use arc_swap::ArcSwap;
 use prism_core::cache::{MokaCache, ResponseCacheBackend};
 use prism_core::config::{Config, ConfigWatcher};
-use prism_core::lifecycle::signal::SignalHandler;
-use prism_core::lifecycle::{self, Lifecycle};
 use prism_core::rate_limit::CompositeRateLimiter;
+use prism_lifecycle::signal::SignalHandler;
+use prism_lifecycle::{self, Lifecycle};
 use prism_provider::routing::CredentialRouter;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+/// Configuration for running the server, decoupled from CLI parsing.
+pub struct RunConfig {
+    pub config_path: String,
+    pub host: Option<String>,
+    pub port: Option<u16>,
+    pub log_level: String,
+    pub daemon: bool,
+    pub pid_file: Option<String>,
+    pub shutdown_timeout: Option<u64>,
+}
 
 pub struct Application {
     config: Arc<ArcSwap<Config>>,
@@ -21,28 +31,22 @@ pub struct Application {
     lifecycle: Box<dyn Lifecycle>,
     shutdown_timeout: u64,
     #[cfg(unix)]
-    _pid_file: Option<prism_core::lifecycle::pid_file::PidFile>,
+    _pid_file: Option<prism_lifecycle::pid_file::PidFile>,
 }
 
 impl Application {
-    /// Build the application from CLI args: load config, build executors,
+    /// Build the application from a `RunConfig`: load config, build executors,
     /// router, translators, metrics, and acquire PID file.
     ///
     /// `log_store` is created externally so it can be shared with the
     /// `GatewayLogLayer` (which must be registered before the application
     /// is built).
     pub fn build(
-        args: &RunArgs,
+        args: &RunConfig,
+        preloaded_config: Config,
         log_store: Arc<dyn prism_core::request_log::LogStore>,
     ) -> anyhow::Result<Self> {
-        // Load config
-        let mut config = Config::load(&args.config).unwrap_or_else(|e| {
-            tracing::warn!(
-                "Failed to load config from '{}': {e}, using defaults",
-                args.config
-            );
-            Config::default()
-        });
+        let mut config = preloaded_config;
 
         // CLI overrides
         if let Some(ref host) = args.host {
@@ -63,7 +67,7 @@ impl Application {
         // Acquire PID file (unix only)
         #[cfg(unix)]
         let _pid_file = if args.daemon {
-            Some(prism_core::lifecycle::pid_file::PidFile::acquire(
+            Some(prism_lifecycle::pid_file::PidFile::acquire(
                 &config.daemon.pid_file,
             )?)
         } else {
@@ -104,28 +108,28 @@ impl Application {
         let metrics = Arc::new(prism_core::metrics::Metrics::new());
 
         // Build AppState and router
-        let state = prism_server::AppState {
+        let state = crate::AppState {
             config: config.clone(),
             router: credential_router.clone(),
             executors,
             translators,
             metrics,
             log_store,
-            config_path: Arc::new(Mutex::new(args.config.clone())),
+            config_path: Arc::new(Mutex::new(args.config_path.clone())),
             rate_limiter: rate_limiter.clone(),
             cost_calculator: cost_calculator.clone(),
             response_cache,
             start_time: Instant::now(),
         };
-        let app_router = prism_server::build_router(state);
+        let app_router = crate::build_router(state);
 
         // Detect lifecycle
-        let lc = lifecycle::detect_lifecycle();
+        let lc = prism_lifecycle::detect_lifecycle();
 
         Ok(Self {
             config,
             app_router,
-            config_path: args.config.clone(),
+            config_path: args.config_path.clone(),
             credential_router,
             rate_limiter,
             cost_calculator,
@@ -177,7 +181,7 @@ impl Application {
         let reload_rate_limiter = rate_limiter.clone();
         let reload_cost_calculator = cost_calculator.clone();
         let reload_path = config_path.clone();
-        let reload_lifecycle: Arc<dyn Lifecycle> = Arc::from(lifecycle::detect_lifecycle());
+        let reload_lifecycle: Arc<dyn Lifecycle> = Arc::from(prism_lifecycle::detect_lifecycle());
         let reload_fn = move || {
             reload_lifecycle.on_reloading();
             match Config::load(&reload_path) {
@@ -232,6 +236,65 @@ impl Application {
         tracing::info!("Server shut down.");
         Ok(())
     }
+}
+
+/// Top-level entry point: daemonize, init logging, build & serve.
+pub fn run(args: RunConfig) -> anyhow::Result<()> {
+    // Daemonize before creating tokio runtime (unix only)
+    #[cfg(unix)]
+    if args.daemon {
+        prism_lifecycle::daemon::daemonize()?;
+    }
+
+    // Load config once — used for logging decisions and passed to Application::build
+    let config = Config::load(&args.config_path).unwrap_or_default();
+
+    // Init logging — force file logging when running as daemon
+    let to_file = args.daemon || config.logging_to_file;
+    let log_dir = config.log_dir.clone();
+
+    // Create log store before logging init so it can be shared with both
+    // the GatewayLogLayer and the Application.
+    let file_writer = if config.log_store.file_audit.enabled {
+        match prism_core::file_audit::FileAuditWriter::new(&config.log_store.file_audit) {
+            Ok(w) => Some(w),
+            Err(e) => {
+                eprintln!("Failed to initialize file audit writer: {e}, file audit disabled");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let log_store: Arc<dyn prism_core::request_log::LogStore> = Arc::new(
+        prism_core::memory_log_store::InMemoryLogStore::new(config.log_store.capacity, file_writer),
+    );
+
+    let gateway_layer = crate::telemetry::GatewayLogLayer::new(log_store.clone());
+
+    let _guard = prism_lifecycle::logging::init_logging_with_layer(
+        &args.log_level,
+        to_file,
+        log_dir.as_deref(),
+        Box::new(gateway_layer),
+    );
+
+    // Build and run on a multi-thread runtime
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+
+    runtime.block_on(async {
+        // Spawn file audit cleanup task inside the tokio runtime
+        if config.log_store.file_audit.enabled {
+            prism_core::file_audit::FileAuditWriter::spawn_cleanup_static(
+                config.log_store.file_audit.dir.clone(),
+                config.log_store.file_audit.retention_days,
+            );
+        }
+        let application = Application::build(&args, config, log_store)?;
+        application.serve().await
+    })
 }
 
 async fn serve_http(
