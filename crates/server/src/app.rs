@@ -6,6 +6,8 @@ use prism_core::config::{Config, ConfigWatcher};
 use prism_core::rate_limit::CompositeRateLimiter;
 use prism_lifecycle::signal::SignalHandler;
 use prism_lifecycle::{self, Lifecycle};
+use prism_provider::catalog::ProviderCatalog;
+use prism_provider::health::HealthManager;
 use prism_provider::routing::CredentialRouter;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -26,6 +28,8 @@ pub struct Application {
     app_router: axum::Router,
     config_path: String,
     credential_router: Arc<CredentialRouter>,
+    catalog: Arc<ProviderCatalog>,
+    health_manager: Arc<HealthManager>,
     rate_limiter: Arc<CompositeRateLimiter>,
     cost_calculator: Arc<prism_core::cost::CostCalculator>,
     http_client_pool: Arc<prism_core::proxy::HttpClientPool>,
@@ -87,6 +91,15 @@ impl Application {
             .unwrap_or_default();
         let credential_router = Arc::new(CredentialRouter::new(default_cred_strategy));
         credential_router.update_from_config(&config);
+
+        // Build catalog and health manager (from same credential data as router)
+        let catalog = Arc::new(ProviderCatalog::new());
+        let health_manager = Arc::new(HealthManager::new(Default::default()));
+        {
+            let cred_map = credential_router.credential_map();
+            catalog.update_from_credentials(&cred_map);
+        }
+
         let translators = Arc::new(prism_translator::build_registry());
         let executors = Arc::new(executors);
 
@@ -131,6 +144,8 @@ impl Application {
             http_client_pool: http_client_pool.clone(),
             start_time: Instant::now(),
             login_limiter: Arc::new(crate::handler::dashboard::auth::LoginRateLimiter::new()),
+            catalog: catalog.clone(),
+            health_manager: health_manager.clone(),
         };
         let app_router = crate::build_router(state);
 
@@ -142,6 +157,8 @@ impl Application {
             app_router,
             config_path: args.config_path.clone(),
             credential_router,
+            catalog,
+            health_manager,
             rate_limiter,
             cost_calculator,
             http_client_pool,
@@ -159,6 +176,8 @@ impl Application {
             app_router,
             config_path,
             credential_router,
+            catalog,
+            health_manager: _health_manager,
             rate_limiter,
             cost_calculator,
             http_client_pool,
@@ -170,11 +189,13 @@ impl Application {
 
         // Start config file watcher
         let watcher_router = credential_router.clone();
+        let watcher_catalog = catalog.clone();
         let watcher_rate_limiter = rate_limiter.clone();
         let watcher_cost_calculator = cost_calculator.clone();
         let watcher_pool = http_client_pool.clone();
         let _watcher = ConfigWatcher::start(config_path.clone(), config.clone(), move |new_cfg| {
             watcher_router.update_from_config(new_cfg);
+            watcher_catalog.update_from_credentials(&watcher_router.credential_map());
             watcher_rate_limiter.update_config(&new_cfg.rate_limit);
             watcher_cost_calculator.update_prices(&new_cfg.model_prices);
             watcher_pool.clear();
@@ -193,6 +214,7 @@ impl Application {
         // SIGHUP reload function
         let reload_config = config.clone();
         let reload_router = credential_router.clone();
+        let reload_catalog = catalog.clone();
         let reload_rate_limiter = rate_limiter.clone();
         let reload_cost_calculator = cost_calculator.clone();
         let reload_pool = http_client_pool;
@@ -203,6 +225,7 @@ impl Application {
             match Config::load(&reload_path) {
                 Ok(new_cfg) => {
                     reload_router.update_from_config(&new_cfg);
+                    reload_catalog.update_from_credentials(&reload_router.credential_map());
                     reload_rate_limiter.update_config(&new_cfg.rate_limit);
                     reload_cost_calculator.update_prices(&new_cfg.model_prices);
                     reload_pool.clear();

@@ -432,6 +432,9 @@ async fn update_config_file(
 
     // Update all derived runtime state (same as watcher/SIGHUP paths)
     state.router.update_from_config(&runtime_config);
+    state
+        .catalog
+        .update_from_credentials(&state.router.credential_map());
     state.rate_limiter.update_config(&runtime_config.rate_limit);
     state
         .cost_calculator
