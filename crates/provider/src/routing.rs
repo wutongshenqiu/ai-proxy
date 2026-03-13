@@ -182,7 +182,7 @@ impl CredentialRouter {
     }
 
     /// O(1) credential lookup by ID using the index.
-    fn find_credential(&self, auth_id: &str) -> Option<AuthRecord> {
+    pub fn find_credential(&self, auth_id: &str) -> Option<AuthRecord> {
         let index = self.credential_index.read().ok()?;
         let &(format, idx) = index.get(auth_id)?;
         let creds = self.credentials.read().ok()?;
@@ -336,6 +336,15 @@ impl CredentialRouter {
             }
         }
         formats
+    }
+
+    /// Get a snapshot of all credentials grouped by format.
+    /// Used by ProviderCatalog to build inventory snapshots.
+    pub fn credential_map(&self) -> HashMap<Format, Vec<AuthRecord>> {
+        self.credentials
+            .read()
+            .map(|c| c.clone())
+            .unwrap_or_default()
     }
 }
 

@@ -5,6 +5,8 @@ use prism_core::memory_log_store::InMemoryLogStore;
 use prism_core::metrics::Metrics;
 use prism_core::rate_limit::CompositeRateLimiter;
 use prism_core::request_log::LogStore;
+use prism_provider::catalog::ProviderCatalog;
+use prism_provider::health::HealthManager;
 use prism_provider::routing::CredentialRouter;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -74,6 +76,8 @@ impl TestServer {
             login_limiter: Arc::new(
                 prism_server::handler::dashboard::auth::LoginRateLimiter::new(),
             ),
+            catalog: Arc::new(ProviderCatalog::new()),
+            health_manager: Arc::new(HealthManager::new(Default::default())),
         };
 
         let app_router = prism_server::build_router(state);

@@ -3,8 +3,6 @@ use bytes::Bytes;
 use prism_core::error::ProxyError;
 use prism_core::request_record::TokenUsage;
 
-use super::DispatchDebug;
-
 /// Extract token usage from a response payload (any format), including cache tokens.
 pub(super) fn extract_usage(payload: &str) -> Option<TokenUsage> {
     // Quick string check to avoid JSON parsing on chunks without usage data
@@ -105,24 +103,39 @@ pub(super) fn build_json_response(
         .map(IntoResponse::into_response)
 }
 
-/// Inject debug headers into a response if debug mode is enabled.
-pub(super) fn inject_debug_headers(response: &mut Response, debug: &DispatchDebug) {
+/// Inject route debug headers into a response (x-prism-route-* format).
+pub(super) fn inject_route_headers(
+    response: &mut Response,
+    profile: &str,
+    provider: Option<&str>,
+    credential_name: Option<&str>,
+    model: Option<&str>,
+    attempts: u32,
+) {
     let headers = response.headers_mut();
-    if let Some(ref provider) = debug.provider {
-        headers.insert("x-debug-provider", provider.parse().unwrap());
+
+    // x-prism-route-id: unique route identifier
+    let route_id = uuid::Uuid::new_v4().to_string();
+    headers.insert("x-prism-route-id", route_id.parse().unwrap());
+
+    // x-prism-route-summary: human-readable summary
+    let mut summary = format!("profile={profile}");
+    if let Some(p) = provider {
+        summary.push_str(&format!(" provider={p}"));
     }
-    if let Some(ref model) = debug.model {
-        headers.insert("x-debug-model", model.parse().unwrap());
+    if let Some(c) = credential_name {
+        summary.push_str(&format!(" credential={c}"));
     }
-    if let Some(ref name) = debug.credential_name {
-        headers.insert("x-debug-credential", name.parse().unwrap());
+    if let Some(m) = model {
+        summary.push_str(&format!(" model={m}"));
     }
-    if !debug.attempts.is_empty() {
-        headers.insert(
-            "x-debug-attempts",
-            debug.attempts.join(", ").parse().unwrap(),
-        );
-    }
+    headers.insert("x-prism-route-summary", summary.parse().unwrap());
+
+    // x-prism-route-attempts: total attempt count
+    headers.insert(
+        "x-prism-route-attempts",
+        attempts.to_string().parse().unwrap(),
+    );
 }
 
 /// Inject `stream_options.include_usage = true` into an OpenAI-format streaming request

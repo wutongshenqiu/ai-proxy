@@ -8,6 +8,8 @@ use prism_core::metrics::Metrics;
 use prism_core::rate_limit::CompositeRateLimiter;
 use prism_core::request_log::LogStore;
 use prism_provider::build_registry;
+use prism_provider::catalog::ProviderCatalog;
+use prism_provider::health::HealthManager;
 use prism_provider::routing::CredentialRouter;
 use prism_server::{AppState, build_router};
 use serde_json::{Value, json};
@@ -70,6 +72,8 @@ fn create_test_harness() -> TestHarness {
         http_client_pool,
         start_time: Instant::now(),
         login_limiter: Arc::new(prism_server::handler::dashboard::auth::LoginRateLimiter::new()),
+        catalog: Arc::new(ProviderCatalog::new()),
+        health_manager: Arc::new(HealthManager::new(Default::default())),
     };
 
     TestHarness {
