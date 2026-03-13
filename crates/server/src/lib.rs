@@ -35,6 +35,7 @@ pub struct AppState {
     pub rate_limiter: Arc<CompositeRateLimiter>,
     pub cost_calculator: Arc<CostCalculator>,
     pub response_cache: Option<Arc<dyn ResponseCacheBackend>>,
+    pub http_client_pool: Arc<prism_core::proxy::HttpClientPool>,
     pub start_time: Instant,
     pub login_limiter: Arc<handler::dashboard::auth::LoginRateLimiter>,
 }
@@ -161,6 +162,10 @@ pub fn build_router(state: AppState) -> Router {
             axum::routing::post(handler::dashboard::config_ops::reload_config),
         )
         .route(
+            "/api/dashboard/config/apply",
+            axum::routing::put(handler::dashboard::config_ops::apply_config),
+        )
+        .route(
             "/api/dashboard/config/current",
             axum::routing::get(handler::dashboard::config_ops::get_config),
         )
@@ -206,7 +211,9 @@ pub fn build_router(state: AppState) -> Router {
         .layer(axum_mw::from_fn_with_state(
             state.clone(),
             middleware::dashboard_auth::dashboard_auth_middleware,
-        ));
+        ))
+        // Dashboard body size limit (1 MB) to reject oversized payloads
+        .layer(RequestBodyLimitLayer::new(1024 * 1024));
 
     // WebSocket routes (auth via query param)
     let ws_routes = Router::new().route(
@@ -215,13 +222,20 @@ pub fn build_router(state: AppState) -> Router {
     );
 
     // Compose: public + admin + api + dashboard, then global middleware layers (outer → inner)
-    Router::new()
+    let mut router = Router::new()
         .merge(public_routes)
         .merge(admin_routes)
-        .merge(api_routes)
-        .merge(dashboard_auth_routes)
-        .merge(dashboard_protected_routes)
-        .merge(ws_routes)
+        .merge(api_routes);
+
+    // Only register dashboard routes when dashboard is enabled
+    if state.config.load().dashboard.enabled {
+        router = router
+            .merge(dashboard_auth_routes)
+            .merge(dashboard_protected_routes)
+            .merge(ws_routes);
+    }
+
+    router
         .layer(axum_mw::from_fn(
             middleware::request_logging::request_logging_middleware,
         ))

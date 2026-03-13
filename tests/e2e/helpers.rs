@@ -38,7 +38,11 @@ impl TestServer {
         let credential_router = Arc::new(CredentialRouter::new(config.routing.strategy));
         credential_router.update_from_config(&config);
 
-        let executors = Arc::new(prism_provider::build_registry(config.proxy_url.clone()));
+        let http_client_pool = Arc::new(prism_core::proxy::HttpClientPool::new());
+        let executors = Arc::new(prism_provider::build_registry(
+            config.proxy_url.clone(),
+            http_client_pool.clone(),
+        ));
         let translators = Arc::new(prism_translator::build_registry());
         let rate_limiter = Arc::new(CompositeRateLimiter::new(&config.rate_limit));
         let cost_calculator = Arc::new(CostCalculator::new(&config.model_prices));
@@ -59,6 +63,7 @@ impl TestServer {
             rate_limiter,
             cost_calculator,
             response_cache: None,
+            http_client_pool,
             start_time: Instant::now(),
             login_limiter: Arc::new(
                 prism_server::handler::dashboard::auth::LoginRateLimiter::new(),
@@ -77,10 +82,13 @@ impl TestServer {
             let shutdown = async move {
                 let _ = rx.wait_for(|v| *v).await;
             };
-            axum::serve(listener, app_router)
-                .with_graceful_shutdown(shutdown)
-                .await
-                .unwrap();
+            axum::serve(
+                listener,
+                app_router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .with_graceful_shutdown(shutdown)
+            .await
+            .unwrap();
         });
 
         Self {

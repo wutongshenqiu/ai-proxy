@@ -40,5 +40,5 @@ _To be filled in during technical design phase._
 ## References
 
 - GitHub Issue #155
-- `docs/analysis/cliproxyapi-gap-backlog.md`
+- GitHub Epic #157
 - `config.example.yaml` from CLIProxyAPI

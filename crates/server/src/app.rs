@@ -28,6 +28,7 @@ pub struct Application {
     credential_router: Arc<CredentialRouter>,
     rate_limiter: Arc<CompositeRateLimiter>,
     cost_calculator: Arc<prism_core::cost::CostCalculator>,
+    http_client_pool: Arc<prism_core::proxy::HttpClientPool>,
     lifecycle: Box<dyn Lifecycle>,
     shutdown_timeout: u64,
     #[cfg(unix)]
@@ -74,8 +75,10 @@ impl Application {
             None
         };
 
-        // Build provider components
-        let executors = prism_provider::build_registry(config.proxy_url.clone());
+        // Build shared HTTP client pool and provider components
+        let http_client_pool = Arc::new(prism_core::proxy::HttpClientPool::new());
+        let executors =
+            prism_provider::build_registry(config.proxy_url.clone(), http_client_pool.clone());
         let credential_router = Arc::new(CredentialRouter::new(config.routing.strategy));
         credential_router.update_from_config(&config);
         let translators = Arc::new(prism_translator::build_registry());
@@ -119,6 +122,7 @@ impl Application {
             rate_limiter: rate_limiter.clone(),
             cost_calculator: cost_calculator.clone(),
             response_cache,
+            http_client_pool: http_client_pool.clone(),
             start_time: Instant::now(),
             login_limiter: Arc::new(crate::handler::dashboard::auth::LoginRateLimiter::new()),
         };
@@ -134,6 +138,7 @@ impl Application {
             credential_router,
             rate_limiter,
             cost_calculator,
+            http_client_pool,
             lifecycle: lc,
             shutdown_timeout,
             #[cfg(unix)]
@@ -150,6 +155,7 @@ impl Application {
             credential_router,
             rate_limiter,
             cost_calculator,
+            http_client_pool,
             lifecycle,
             shutdown_timeout,
             #[cfg(unix)]
@@ -160,10 +166,12 @@ impl Application {
         let watcher_router = credential_router.clone();
         let watcher_rate_limiter = rate_limiter.clone();
         let watcher_cost_calculator = cost_calculator.clone();
+        let watcher_pool = http_client_pool.clone();
         let _watcher = ConfigWatcher::start(config_path.clone(), config.clone(), move |new_cfg| {
             watcher_router.update_from_config(new_cfg);
             watcher_rate_limiter.update_config(&new_cfg.rate_limit);
             watcher_cost_calculator.update_prices(&new_cfg.model_prices);
+            watcher_pool.clear();
             tracing::info!(
                 "Config reloaded: {} claude keys, {} openai keys, {} gemini keys, {} compat keys",
                 new_cfg.claude_api_key.len(),
@@ -181,6 +189,7 @@ impl Application {
         let reload_router = credential_router.clone();
         let reload_rate_limiter = rate_limiter.clone();
         let reload_cost_calculator = cost_calculator.clone();
+        let reload_pool = http_client_pool;
         let reload_path = config_path.clone();
         let reload_lifecycle: Arc<dyn Lifecycle> = Arc::from(prism_lifecycle::detect_lifecycle());
         let reload_fn = move || {
@@ -190,6 +199,7 @@ impl Application {
                     reload_router.update_from_config(&new_cfg);
                     reload_rate_limiter.update_config(&new_cfg.rate_limit);
                     reload_cost_calculator.update_prices(&new_cfg.model_prices);
+                    reload_pool.clear();
                     tracing::info!(
                         "SIGHUP reload: {} claude keys, {} openai keys, {} gemini keys, {} compat keys",
                         new_cfg.claude_api_key.len(),
@@ -247,8 +257,8 @@ pub fn run(args: RunConfig) -> anyhow::Result<()> {
         prism_lifecycle::daemon::daemonize()?;
     }
 
-    // Load config once — used for logging decisions and passed to Application::build
-    let config = Config::load(&args.config_path).unwrap_or_default();
+    // Load config once — fail fast if invalid (never fall back to defaults)
+    let config = Config::load(&args.config_path)?;
 
     // Init logging — force file logging when running as daemon
     let to_file = args.daemon || config.logging_to_file;
@@ -313,9 +323,12 @@ async fn serve_http(
         let _ = shutdown_rx.wait_for(|v| *v).await;
     };
 
-    axum::serve(listener, app_router)
-        .with_graceful_shutdown(shutdown)
-        .await?;
+    axum::serve(
+        listener,
+        app_router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown)
+    .await?;
 
     lifecycle.on_stopping();
     tokio::time::sleep(Duration::from_secs(shutdown_timeout.min(1))).await;
@@ -362,8 +375,10 @@ async fn serve_tls(
                                 move |req: hyper::Request<hyper::body::Incoming>| {
                                     let router = router.clone();
                                     async move {
-                                        let (parts, body) = req.into_parts();
+                                        let (mut parts, body) = req.into_parts();
                                         let body = axum::body::Body::new(body);
+                                        // Inject ConnectInfo so middleware can read the peer address
+                                        parts.extensions.insert(axum::extract::ConnectInfo(peer_addr));
                                         let req = axum::http::Request::from_parts(parts, body);
                                         Ok::<_, std::convert::Infallible>(
                                             tower::ServiceExt::oneshot(router, req)

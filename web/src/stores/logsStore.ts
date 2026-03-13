@@ -10,6 +10,7 @@ interface LogsState {
   totalPages: number;
   filters: RequestLogFilter;
   isLoading: boolean;
+  error: string | null;
 
   // Filter options from backend
   filterOptions: FilterOptions | null;
@@ -19,6 +20,7 @@ interface LogsState {
   selectedLog: RequestLog | null;
   isDrawerOpen: boolean;
   isLoadingDetail: boolean;
+  detailError: string | null;
 
   // Live toggle
   isLive: boolean;
@@ -41,6 +43,7 @@ export const useLogsStore = create<LogsState>((set, get) => ({
   totalPages: 0,
   filters: {},
   isLoading: false,
+  error: null,
 
   filterOptions: null,
 
@@ -48,6 +51,7 @@ export const useLogsStore = create<LogsState>((set, get) => ({
   selectedLog: null,
   isDrawerOpen: false,
   isLoadingDetail: false,
+  detailError: null,
 
   isLive: true,
 
@@ -63,7 +67,7 @@ export const useLogsStore = create<LogsState>((set, get) => ({
 
   fetchLogs: async () => {
     const { page, pageSize, filters } = get();
-    set({ isLoading: true });
+    set({ isLoading: true, error: null });
     try {
       const response = await logsApi.list(page, pageSize, filters);
       const data = response.data;
@@ -74,8 +78,8 @@ export const useLogsStore = create<LogsState>((set, get) => ({
         isLoading: false,
       });
     } catch (err) {
-      console.error('Failed to fetch logs:', err);
-      set({ isLoading: false });
+      const message = err instanceof Error ? err.message : 'Failed to fetch logs';
+      set({ isLoading: false, error: message });
     }
   },
 
@@ -106,18 +110,18 @@ export const useLogsStore = create<LogsState>((set, get) => ({
       set({ selectedLogId: id, isDrawerOpen: true, isLoadingDetail: false, selectedLog: cached });
       return;
     }
-    set({ selectedLogId: id, isDrawerOpen: true, isLoadingDetail: true, selectedLog: null });
+    set({ selectedLogId: id, isDrawerOpen: true, isLoadingDetail: true, selectedLog: null, detailError: null });
     try {
       const response = await logsApi.getById(id);
       set({ selectedLog: response.data, isLoadingDetail: false });
     } catch (err) {
-      console.error('Failed to fetch log detail:', err);
-      set({ isLoadingDetail: false });
+      const message = err instanceof Error ? err.message : 'Failed to fetch log detail';
+      set({ isLoadingDetail: false, detailError: message });
     }
   },
 
   closeDrawer: () => {
-    set({ isDrawerOpen: false, selectedLogId: null, selectedLog: null });
+    set({ isDrawerOpen: false, selectedLogId: null, selectedLog: null, detailError: null });
   },
 
   toggleLive: () => {

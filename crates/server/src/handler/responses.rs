@@ -23,6 +23,16 @@ pub async fn responses(
         .ok_or_else(|| ProxyError::BadRequest("missing model field".into()))?
         .to_string();
 
+    // Enforce model ACL (same as main dispatch path)
+    if let Some(ref auth_key) = ctx.auth_key
+        && !prism_core::auth_key::AuthKeyStore::check_model_access(auth_key, &model)
+    {
+        return Err(ProxyError::ModelNotAllowed(format!(
+            "model '{}' not allowed for this API key",
+            model
+        )));
+    }
+
     // Resolve provider - only OpenAI(-compatible) providers support this
     let providers = state.router.resolve_providers(&model);
     let target_format = providers
@@ -55,11 +65,13 @@ pub async fn responses(
     let base_url = auth.base_url_or_default("https://api.openai.com");
     let url = format!("{base_url}/v1/responses");
 
-    let client = prism_core::proxy::build_http_client(
-        auth.effective_proxy(state.config.load().proxy_url.as_deref()),
-        state.config.load().proxy_url.as_deref(),
-    )
-    .map_err(|e| ProxyError::Internal(format!("failed to build HTTP client: {e}")))?;
+    let client = state
+        .http_client_pool
+        .get_or_create_default(
+            auth.effective_proxy(state.config.load().proxy_url.as_deref()),
+            state.config.load().proxy_url.as_deref(),
+        )
+        .map_err(|e| ProxyError::Internal(format!("failed to build HTTP client: {e}")))?;
 
     let mut req = client
         .post(&url)
