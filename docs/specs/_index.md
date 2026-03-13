@@ -22,6 +22,10 @@ All specifications for the AI Proxy Gateway project.
 | SPEC-039 | Routing & Auth Key Enhancement                 | Completed | [completed/SPEC-039/](completed/SPEC-039/) |
 | SPEC-040 | Request Log & Full-Chain Tracing              | Completed | [completed/SPEC-040/](completed/SPEC-040/) |
 | SPEC-041 | LogStore Abstraction & Dashboard UI Overhaul  | Completed | [completed/SPEC-041/](completed/SPEC-041/) |
+| SPEC-043 | Dashboard Config Workspace                     | Completed | [completed/SPEC-043/](completed/SPEC-043/) |
+| SPEC-044 | Coding Agent Compatibility Endpoints            | Completed | [completed/SPEC-044/](completed/SPEC-044/) |
+| SPEC-045 | Model Rewrite Rules                              | Completed | [completed/SPEC-045/](completed/SPEC-045/) |
+| SPEC-046 | Dashboard Auth & Security Hardening               | Completed | [completed/SPEC-046/](completed/SPEC-046/) |
 
 ## Active
 
@@ -30,10 +34,6 @@ All specifications for the AI Proxy Gateway project.
 | SPEC-030 | Provider & Dispatch Unit Tests                 | Active    | [active/SPEC-030/](active/SPEC-030/) |
 | SPEC-036 | Add RequestContext to ProviderExecutor          | Draft     | [active/SPEC-036/](active/SPEC-036/) |
 | SPEC-042 | Crate Structure Refactoring                    | Draft     | [active/SPEC-042/](active/SPEC-042/) |
-| SPEC-043 | Dashboard Config Workspace                     | Active    | [active/SPEC-043/](active/SPEC-043/) |
-| SPEC-044 | Coding Agent Compatibility Endpoints            | Active    | [active/SPEC-044/](active/SPEC-044/) |
-| SPEC-045 | Model Rewrite Rules                              | Active    | [active/SPEC-045/](active/SPEC-045/) |
-| SPEC-046 | Dashboard Auth & Security Hardening               | Active    | [active/SPEC-046/](active/SPEC-046/) |
 | SPEC-047 | OAuth & Auth-File Upstream Onboarding             | Draft     | [active/SPEC-047/](active/SPEC-047/) |
 
 ## Retroactively Completed
