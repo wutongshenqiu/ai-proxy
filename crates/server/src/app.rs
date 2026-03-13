@@ -79,7 +79,13 @@ impl Application {
         let http_client_pool = Arc::new(prism_core::proxy::HttpClientPool::new());
         let executors =
             prism_provider::build_registry(config.proxy_url.clone(), http_client_pool.clone());
-        let credential_router = Arc::new(CredentialRouter::new(config.routing.strategy));
+        let default_cred_strategy = config
+            .routing
+            .profiles
+            .get(&config.routing.default_profile)
+            .map(|p| p.credential_policy.strategy)
+            .unwrap_or_default();
+        let credential_router = Arc::new(CredentialRouter::new(default_cred_strategy));
         credential_router.update_from_config(&config);
         let translators = Arc::new(prism_translator::build_registry());
         let executors = Arc::new(executors);

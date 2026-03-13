@@ -43,61 +43,29 @@ describe('API service', () => {
 });
 
 describe('routingApi', () => {
-  it('sends strategy directly to backend', async () => {
+  it('sends default-profile to backend', async () => {
     const mod = await import('../../services/api');
     const instance = vi.mocked(axios.create).mock.results[0]?.value;
     vi.mocked(instance.patch).mockResolvedValueOnce({ data: {} });
 
-    await mod.routingApi.update({ strategy: 'round-robin' });
+    await mod.routingApi.update({ 'default-profile': 'balanced' });
 
     expect(instance.patch).toHaveBeenCalledWith(
       '/routing',
-      expect.objectContaining({ strategy: 'round-robin' })
+      expect.objectContaining({ 'default-profile': 'balanced' })
     );
   });
 
-  it('sends fill-first strategy', async () => {
+  it('sends profile update', async () => {
     const mod = await import('../../services/api');
     const instance = vi.mocked(axios.create).mock.results[0]?.value;
     vi.mocked(instance.patch).mockResolvedValueOnce({ data: {} });
 
-    await mod.routingApi.update({ strategy: 'fill-first' });
+    await mod.routingApi.update({ 'default-profile': 'lowest-latency' });
 
     expect(instance.patch).toHaveBeenCalledWith(
       '/routing',
-      expect.objectContaining({ strategy: 'fill-first' })
-    );
-  });
-
-  it('sends request_retry and max_retry_interval directly', async () => {
-    const mod = await import('../../services/api');
-    const instance = vi.mocked(axios.create).mock.results[0]?.value;
-    vi.mocked(instance.patch).mockResolvedValueOnce({ data: {} });
-
-    await mod.routingApi.update({ request_retry: 5, max_retry_interval: 30 });
-
-    expect(instance.patch).toHaveBeenCalledWith(
-      '/routing',
-      expect.objectContaining({ request_retry: 5, max_retry_interval: 30 })
-    );
-  });
-
-  it('sends model_strategies and model_fallbacks', async () => {
-    const mod = await import('../../services/api');
-    const instance = vi.mocked(axios.create).mock.results[0]?.value;
-    vi.mocked(instance.patch).mockResolvedValueOnce({ data: {} });
-
-    await mod.routingApi.update({
-      model_strategies: { 'claude-*': 'latency-aware' },
-      model_fallbacks: { 'gpt-4o': ['gpt-4o-mini'] },
-    });
-
-    expect(instance.patch).toHaveBeenCalledWith(
-      '/routing',
-      expect.objectContaining({
-        model_strategies: { 'claude-*': 'latency-aware' },
-        model_fallbacks: { 'gpt-4o': ['gpt-4o-mini'] },
-      })
+      expect.objectContaining({ 'default-profile': 'lowest-latency' })
     );
   });
 });

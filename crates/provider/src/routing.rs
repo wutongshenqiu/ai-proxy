@@ -2,8 +2,9 @@ use prism_core::circuit_breaker::{
     CircuitBreakerConfig, CircuitBreakerPolicy, CircuitState, NoopCircuitBreaker,
     ThreeStateCircuitBreaker,
 };
-use prism_core::config::{Config, RoutingStrategy};
+use prism_core::config::Config;
 use prism_core::provider::{AuthRecord, Format, ModelEntry, ModelInfo};
+use prism_core::routing::config::CredentialStrategy;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -29,9 +30,7 @@ pub struct CredentialRouter {
     /// Index: credential_id → (Format, index in Vec) for O(1) lookup.
     credential_index: RwLock<HashMap<String, (Format, usize)>>,
     counters: RwLock<HashMap<String, AtomicUsize>>,
-    strategy: RwLock<RoutingStrategy>,
-    /// Per-model routing strategy overrides.
-    model_strategies: RwLock<HashMap<String, RoutingStrategy>>,
+    strategy: RwLock<CredentialStrategy>,
     /// EWMA latency per credential_id (ms).
     latency_ewma: RwLock<HashMap<String, f64>>,
     /// EWMA smoothing factor (0.0-1.0).
@@ -41,13 +40,12 @@ pub struct CredentialRouter {
 }
 
 impl CredentialRouter {
-    pub fn new(strategy: RoutingStrategy) -> Self {
+    pub fn new(strategy: CredentialStrategy) -> Self {
         Self {
             credentials: RwLock::new(HashMap::new()),
             credential_index: RwLock::new(HashMap::new()),
             counters: RwLock::new(HashMap::new()),
             strategy: RwLock::new(strategy),
-            model_strategies: RwLock::new(HashMap::new()),
             latency_ewma: RwLock::new(HashMap::new()),
             ewma_alpha: RwLock::new(0.3),
             cb_config: RwLock::new(CircuitBreakerConfig::default()),
@@ -63,7 +61,7 @@ impl CredentialRouter {
         provider: Format,
         model: &str,
         tried: &[String],
-        client_region: Option<&str>,
+        _client_region: Option<&str>,
         allowed_credentials: &[String],
     ) -> Option<AuthRecord> {
         let creds = self.credentials.read().ok()?;
@@ -84,26 +82,21 @@ impl CredentialRouter {
             return None;
         }
 
-        let strategy = self.resolve_strategy_for_model(model)?;
+        let strategy = self.strategy.read().ok().map(|s| *s)?;
         match strategy {
-            RoutingStrategy::FillFirst => {
-                // Always pick the first available credential
-                candidates.first().cloned().cloned()
+            CredentialStrategy::FillFirst => candidates.first().cloned().cloned(),
+            CredentialStrategy::PriorityWeightedRR => {
+                self.pick_round_robin(provider, model, &candidates)
             }
-            RoutingStrategy::RoundRobin => self.pick_round_robin(provider, model, &candidates),
-            RoutingStrategy::LatencyAware => self.pick_latency_aware(&candidates),
-            RoutingStrategy::GeoAware => self.pick_geo_aware(&candidates, client_region),
+            CredentialStrategy::EwmaLatency => self.pick_latency_aware(&candidates),
+            CredentialStrategy::LeastInflight
+            | CredentialStrategy::StickyHash
+            | CredentialStrategy::RandomTwoChoices => {
+                // These strategies will be fully implemented in SPEC-050.
+                // For now, fall back to round-robin behavior.
+                self.pick_round_robin(provider, model, &candidates)
+            }
         }
-    }
-
-    /// Resolve routing strategy for a model: per-model override → default.
-    fn resolve_strategy_for_model(&self, model: &str) -> Option<RoutingStrategy> {
-        if let Ok(ms) = self.model_strategies.read()
-            && let Some(s) = prism_core::glob::glob_lookup(&ms, model)
-        {
-            return Some(*s);
-        }
-        self.strategy.read().ok().map(|s| *s)
     }
 
     fn pick_round_robin(
@@ -158,27 +151,6 @@ impl CredentialRouter {
         }
 
         best.cloned()
-    }
-
-    fn pick_geo_aware(
-        &self,
-        candidates: &[&AuthRecord],
-        client_region: Option<&str>,
-    ) -> Option<AuthRecord> {
-        if let Some(region) = client_region {
-            // Prefer same-region credentials
-            let same_region: Vec<&&AuthRecord> = candidates
-                .iter()
-                .filter(|c| c.region.as_deref() == Some(region))
-                .collect();
-
-            if !same_region.is_empty() {
-                return same_region.first().cloned().cloned().cloned();
-            }
-        }
-
-        // Fallback to first available
-        candidates.first().cloned().cloned()
     }
 
     /// Record a credential's request latency for EWMA tracking.
@@ -236,12 +208,9 @@ impl CredentialRouter {
 
     /// Rebuild credentials from config, preserving circuit breaker state.
     pub fn update_from_config(&self, config: &Config) {
-        // Update CB config and EWMA alpha
+        // Update CB config
         if let Ok(mut cb) = self.cb_config.write() {
             *cb = config.circuit_breaker.clone();
-        }
-        if let Ok(mut alpha) = self.ewma_alpha.write() {
-            *alpha = config.routing.ewma_alpha;
         }
 
         let cb_config = config.circuit_breaker.clone();
@@ -280,7 +249,6 @@ impl CredentialRouter {
                         if let Some(old_auth) =
                             old_entries.iter().find(|o| o.api_key == new_auth.api_key)
                         {
-                            // Preserve CB state by reusing the old Arc
                             new_auth.circuit_breaker = old_auth.circuit_breaker.clone();
                         }
                     }
@@ -299,17 +267,12 @@ impl CredentialRouter {
             }
         }
 
-        // Preserve latency EWMA data (keyed by credential id changes, so
-        // we can't perfectly preserve — but it's ephemeral data anyway)
-
-        // Update strategy
+        // Update credential strategy from default profile
         if let Ok(mut strategy) = self.strategy.write() {
-            *strategy = config.routing.strategy;
-        }
-
-        // Update per-model strategies
-        if let Ok(mut ms) = self.model_strategies.write() {
-            *ms = config.routing.model_strategies.clone();
+            let profile_name = &config.routing.default_profile;
+            if let Some(profile) = config.routing.profiles.get(profile_name) {
+                *strategy = profile.credential_policy.strategy;
+            }
         }
     }
 
@@ -423,7 +386,7 @@ fn build_auth_record(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use prism_core::config::RoutingStrategy;
+    use prism_core::routing::config::CredentialStrategy;
 
     /// Build a test AuthRecord with sensible defaults.
     fn make_auth(id: &str, format: Format, models: Vec<&str>) -> AuthRecord {
@@ -453,7 +416,7 @@ mod tests {
         }
     }
 
-    fn setup_router(strategy: RoutingStrategy, creds: Vec<AuthRecord>) -> CredentialRouter {
+    fn setup_router(strategy: CredentialStrategy, creds: Vec<AuthRecord>) -> CredentialRouter {
         let router = CredentialRouter::new(strategy);
         let mut map: HashMap<Format, Vec<AuthRecord>> = HashMap::new();
         for auth in creds {
@@ -468,7 +431,7 @@ mod tests {
     #[test]
     fn test_fill_first_picks_first() {
         let router = setup_router(
-            RoutingStrategy::FillFirst,
+            CredentialStrategy::FillFirst,
             vec![
                 make_auth("a", Format::OpenAI, vec!["gpt-4"]),
                 make_auth("b", Format::OpenAI, vec!["gpt-4"]),
@@ -483,7 +446,7 @@ mod tests {
     #[test]
     fn test_fill_first_skips_tried() {
         let router = setup_router(
-            RoutingStrategy::FillFirst,
+            CredentialStrategy::FillFirst,
             vec![
                 make_auth("a", Format::OpenAI, vec!["gpt-4"]),
                 make_auth("b", Format::OpenAI, vec!["gpt-4"]),
@@ -498,7 +461,7 @@ mod tests {
     #[test]
     fn test_fill_first_no_available() {
         let router = setup_router(
-            RoutingStrategy::FillFirst,
+            CredentialStrategy::FillFirst,
             vec![make_auth("a", Format::OpenAI, vec!["gpt-4"])],
         );
         let picked = router.pick(Format::OpenAI, "gpt-4", &["a".to_string()], None, &[]);
@@ -508,7 +471,7 @@ mod tests {
     #[test]
     fn test_fill_first_wrong_model() {
         let router = setup_router(
-            RoutingStrategy::FillFirst,
+            CredentialStrategy::FillFirst,
             vec![make_auth("a", Format::OpenAI, vec!["gpt-4"])],
         );
         let picked = router.pick(Format::OpenAI, "gpt-3.5", &[], None, &[]);
@@ -518,7 +481,7 @@ mod tests {
     #[test]
     fn test_fill_first_wrong_provider() {
         let router = setup_router(
-            RoutingStrategy::FillFirst,
+            CredentialStrategy::FillFirst,
             vec![make_auth("a", Format::OpenAI, vec!["gpt-4"])],
         );
         let picked = router.pick(Format::Claude, "gpt-4", &[], None, &[]);
@@ -530,7 +493,7 @@ mod tests {
     #[test]
     fn test_round_robin_cycles() {
         let router = setup_router(
-            RoutingStrategy::RoundRobin,
+            CredentialStrategy::PriorityWeightedRR,
             vec![
                 make_auth("a", Format::OpenAI, vec!["gpt-4"]),
                 make_auth("b", Format::OpenAI, vec!["gpt-4"]),
@@ -563,7 +526,7 @@ mod tests {
         auth_a.weight = 2;
         let auth_b = make_auth("b", Format::OpenAI, vec!["gpt-4"]);
 
-        let router = setup_router(RoutingStrategy::RoundRobin, vec![auth_a, auth_b]);
+        let router = setup_router(CredentialStrategy::PriorityWeightedRR, vec![auth_a, auth_b]);
 
         // With weights 2:1, total weight = 3
         // slots: a(0), a(1), b(2)
@@ -583,7 +546,7 @@ mod tests {
     #[test]
     fn test_latency_aware_picks_lowest() {
         let router = setup_router(
-            RoutingStrategy::LatencyAware,
+            CredentialStrategy::EwmaLatency,
             vec![
                 make_auth("slow", Format::OpenAI, vec!["gpt-4"]),
                 make_auth("fast", Format::OpenAI, vec!["gpt-4"]),
@@ -602,7 +565,7 @@ mod tests {
     #[test]
     fn test_latency_aware_unrecorded_defaults_to_zero() {
         let router = setup_router(
-            RoutingStrategy::LatencyAware,
+            CredentialStrategy::EwmaLatency,
             vec![
                 make_auth("recorded", Format::OpenAI, vec!["gpt-4"]),
                 make_auth("unrecorded", Format::OpenAI, vec!["gpt-4"]),
@@ -617,49 +580,6 @@ mod tests {
         assert_eq!(picked.id, "unrecorded");
     }
 
-    // === GeoAware Strategy ===
-
-    #[test]
-    fn test_geo_aware_prefers_same_region() {
-        let mut auth_us = make_auth("us", Format::OpenAI, vec!["gpt-4"]);
-        auth_us.region = Some("US".to_string());
-        let mut auth_eu = make_auth("eu", Format::OpenAI, vec!["gpt-4"]);
-        auth_eu.region = Some("EU".to_string());
-
-        let router = setup_router(RoutingStrategy::GeoAware, vec![auth_us, auth_eu]);
-
-        let picked = router
-            .pick(Format::OpenAI, "gpt-4", &[], Some("EU"), &[])
-            .unwrap();
-        assert_eq!(picked.id, "eu");
-    }
-
-    #[test]
-    fn test_geo_aware_fallback_no_matching_region() {
-        let mut auth_us = make_auth("us", Format::OpenAI, vec!["gpt-4"]);
-        auth_us.region = Some("US".to_string());
-
-        let router = setup_router(RoutingStrategy::GeoAware, vec![auth_us]);
-
-        let picked = router
-            .pick(Format::OpenAI, "gpt-4", &[], Some("JP"), &[])
-            .unwrap();
-        assert_eq!(picked.id, "us"); // Falls back to first available
-    }
-
-    #[test]
-    fn test_geo_aware_no_client_region() {
-        let mut auth = make_auth("a", Format::OpenAI, vec!["gpt-4"]);
-        auth.region = Some("US".to_string());
-
-        let router = setup_router(RoutingStrategy::GeoAware, vec![auth]);
-
-        let picked = router
-            .pick(Format::OpenAI, "gpt-4", &[], None, &[])
-            .unwrap();
-        assert_eq!(picked.id, "a");
-    }
-
     // === Disabled credentials ===
 
     #[test]
@@ -668,7 +588,7 @@ mod tests {
         disabled.disabled = true;
         let enabled = make_auth("enabled", Format::OpenAI, vec!["gpt-4"]);
 
-        let router = setup_router(RoutingStrategy::FillFirst, vec![disabled, enabled]);
+        let router = setup_router(CredentialStrategy::FillFirst, vec![disabled, enabled]);
 
         let picked = router
             .pick(Format::OpenAI, "gpt-4", &[], None, &[])
@@ -680,7 +600,7 @@ mod tests {
 
     #[test]
     fn test_record_latency_ewma() {
-        let router = CredentialRouter::new(RoutingStrategy::LatencyAware);
+        let router = CredentialRouter::new(CredentialStrategy::EwmaLatency);
         // alpha = 0.3 by default
 
         router.record_latency("cred1", 100.0);
@@ -699,7 +619,7 @@ mod tests {
     #[test]
     fn test_resolve_providers() {
         let router = setup_router(
-            RoutingStrategy::FillFirst,
+            CredentialStrategy::FillFirst,
             vec![
                 make_auth("oai", Format::OpenAI, vec!["gpt-4"]),
                 make_auth("ds", Format::OpenAICompat, vec!["gpt-4"]),
@@ -716,7 +636,7 @@ mod tests {
     #[test]
     fn test_resolve_providers_no_match() {
         let router = setup_router(
-            RoutingStrategy::FillFirst,
+            CredentialStrategy::FillFirst,
             vec![make_auth("a", Format::OpenAI, vec!["gpt-4"])],
         );
         let providers = router.resolve_providers("nonexistent-model");
@@ -731,7 +651,7 @@ mod tests {
         auth_with_alias.models[0].alias = Some("my-gpt4".to_string());
 
         let router = setup_router(
-            RoutingStrategy::FillFirst,
+            CredentialStrategy::FillFirst,
             vec![
                 auth_with_alias,
                 make_auth("b", Format::Claude, vec!["claude-3"]),
@@ -748,7 +668,7 @@ mod tests {
     #[test]
     fn test_all_models_dedup() {
         let router = setup_router(
-            RoutingStrategy::FillFirst,
+            CredentialStrategy::FillFirst,
             vec![
                 make_auth("a", Format::OpenAI, vec!["gpt-4"]),
                 make_auth("b", Format::OpenAI, vec!["gpt-4"]),
@@ -766,7 +686,7 @@ mod tests {
         let mut auth = make_auth("a", Format::OpenAI, vec!["gpt-4"]);
         auth.prefix = Some("myprefix".to_string());
 
-        let router = setup_router(RoutingStrategy::FillFirst, vec![auth]);
+        let router = setup_router(CredentialStrategy::FillFirst, vec![auth]);
 
         assert!(router.model_has_prefix("gpt-4"));
         assert!(!router.model_has_prefix("nonexistent"));
@@ -805,7 +725,7 @@ mod tests {
     #[test]
     fn test_pick_with_allowed_credentials() {
         let router = setup_router(
-            RoutingStrategy::FillFirst,
+            CredentialStrategy::FillFirst,
             vec![
                 make_auth("a", Format::OpenAI, vec!["gpt-4"]),
                 make_auth("b", Format::OpenAI, vec!["gpt-4"]),
@@ -827,34 +747,5 @@ mod tests {
             &["nonexistent".to_string()],
         );
         assert!(picked.is_none());
-    }
-
-    // === per-model routing strategy ===
-
-    #[test]
-    fn test_per_model_strategy() {
-        let router = setup_router(
-            RoutingStrategy::FillFirst,
-            vec![
-                make_auth("a", Format::OpenAI, vec!["gpt-4"]),
-                make_auth("b", Format::OpenAI, vec!["gpt-4"]),
-                make_auth("c", Format::OpenAI, vec!["gpt-4"]),
-            ],
-        );
-
-        // Set per-model strategy for gpt-4 to round-robin
-        {
-            let mut ms = router.model_strategies.write().unwrap();
-            ms.insert("gpt-4".to_string(), RoutingStrategy::RoundRobin);
-        }
-
-        // Should use round-robin for gpt-4
-        let first = router
-            .pick(Format::OpenAI, "gpt-4", &[], None, &[])
-            .unwrap();
-        let second = router
-            .pick(Format::OpenAI, "gpt-4", &[], None, &[])
-            .unwrap();
-        assert_ne!(first.id, second.id);
     }
 }

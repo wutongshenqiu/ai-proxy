@@ -122,24 +122,89 @@ export interface AuthKeyCreateResponse {
 
 // ── Routing ──
 
-export type RoutingStrategy = 'round-robin' | 'fill-first' | 'latency-aware' | 'geo-aware';
+export type ProviderStrategy =
+  | 'ordered-fallback'
+  | 'weighted-round-robin'
+  | 'ewma-latency'
+  | 'lowest-estimated-cost'
+  | 'sticky-hash';
+
+export type CredentialStrategy =
+  | 'priority-weighted-rr'
+  | 'fill-first'
+  | 'least-inflight'
+  | 'ewma-latency'
+  | 'sticky-hash'
+  | 'random-two-choices';
+
+export interface RouteProfile {
+  'provider-policy': {
+    strategy: ProviderStrategy;
+    'sticky-key'?: string;
+    weights?: Record<string, number>;
+    order?: string[];
+  };
+  'credential-policy': {
+    strategy: CredentialStrategy;
+  };
+  health: {
+    'circuit-breaker': {
+      enabled: boolean;
+      'failure-threshold': number;
+      'cooldown-seconds': number;
+    };
+    'outlier-detection': {
+      'consecutive-5xx': number;
+      'consecutive-local-failures': number;
+      'base-eject-seconds': number;
+      'max-eject-seconds': number;
+    };
+  };
+  failover: {
+    'credential-attempts': number;
+    'provider-attempts': number;
+    'model-attempts': number;
+    'retry-budget': {
+      ratio: number;
+      'min-retries-per-second': number;
+    };
+    'retry-on': string[];
+  };
+}
+
+export interface RouteRule {
+  name: string;
+  priority?: number;
+  match: {
+    models?: string[];
+    tenants?: string[];
+    endpoints?: string[];
+    regions?: string[];
+    stream?: boolean;
+    headers?: Record<string, string[]>;
+  };
+  'use-profile': string;
+}
+
+export interface ModelResolution {
+  aliases?: { from: string; to: string }[];
+  rewrites?: { pattern: string; to: string }[];
+  fallbacks?: { pattern: string; to: string[] }[];
+  'provider-pins'?: { pattern: string; providers: string[] }[];
+}
 
 export interface RoutingConfig {
-  strategy: RoutingStrategy;
-  fallback_enabled: boolean;
-  request_retry: number;
-  max_retry_interval: number;
-  model_strategies: Record<string, RoutingStrategy>;
-  model_fallbacks: Record<string, string[]>;
+  'default-profile': string;
+  profiles: Record<string, RouteProfile>;
+  rules: RouteRule[];
+  'model-resolution': ModelResolution;
 }
 
 export interface RoutingUpdateRequest {
-  strategy?: RoutingStrategy;
-  fallback_enabled?: boolean;
-  request_retry?: number;
-  max_retry_interval?: number;
-  model_strategies?: Record<string, RoutingStrategy>;
-  model_fallbacks?: Record<string, string[]>;
+  'default-profile'?: string;
+  profiles?: Record<string, RouteProfile>;
+  rules?: RouteRule[];
+  'model-resolution'?: ModelResolution;
 }
 
 // ── Metrics (real-time WebSocket snapshot) ──

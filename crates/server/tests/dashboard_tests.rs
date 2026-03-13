@@ -1,7 +1,7 @@
 use arc_swap::ArcSwap;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use prism_core::config::{Config, DashboardConfig, RoutingStrategy};
+use prism_core::config::{Config, DashboardConfig};
 use prism_core::cost::CostCalculator;
 use prism_core::memory_log_store::InMemoryLogStore;
 use prism_core::metrics::Metrics;
@@ -47,7 +47,7 @@ fn create_test_harness() -> TestHarness {
     std::fs::write(&config_path, &yaml).expect("failed to write config");
 
     let config_arc = Arc::new(ArcSwap::new(Arc::new(config.clone())));
-    let credential_router = Arc::new(CredentialRouter::new(RoutingStrategy::RoundRobin));
+    let credential_router = Arc::new(CredentialRouter::new(Default::default()));
     credential_router.update_from_config(&config);
 
     let http_client_pool = Arc::new(prism_core::proxy::HttpClientPool::new());
@@ -679,20 +679,21 @@ async fn test_get_routing() {
     let req = authed_get("/api/dashboard/routing", &token);
     let (status, body) = send_request(&harness, req).await;
     assert_eq!(status, StatusCode::OK);
-    // Default strategy is round-robin
-    assert_eq!(body["strategy"], "round-robin");
+    // Default profile is balanced
+    assert_eq!(body["default-profile"], "balanced");
+    assert!(body["profiles"]["balanced"].is_object());
 }
 
 #[tokio::test]
-async fn test_update_routing_strategy() {
+async fn test_update_routing_default_profile() {
     let harness = create_test_harness();
     let token = login_and_get_token(&harness).await;
 
-    // Update to fill-first
+    // Update default-profile to stable
     let req = authed_patch(
         "/api/dashboard/routing",
         &token,
-        json!({"strategy": "fill-first"}),
+        json!({"default-profile": "stable"}),
     );
     let (status, body) = send_request(&harness, req).await;
     assert_eq!(status, StatusCode::OK, "update routing failed: {body:?}");
@@ -705,19 +706,19 @@ async fn test_update_routing_strategy() {
     let req = authed_get("/api/dashboard/routing", &token);
     let (status, body) = send_request(&harness, req).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["strategy"], "fill-first");
+    assert_eq!(body["default-profile"], "stable");
 }
 
 #[tokio::test]
-async fn test_update_routing_round_robin() {
+async fn test_update_routing_switch_profile() {
     let harness = create_test_harness();
     let token = login_and_get_token(&harness).await;
 
-    // Set to fill-first first
+    // Set to lowest-latency
     let req = authed_patch(
         "/api/dashboard/routing",
         &token,
-        json!({"strategy": "fill-first"}),
+        json!({"default-profile": "lowest-latency"}),
     );
     let (status, _) = send_request(&harness, req).await;
     assert_eq!(status, StatusCode::OK);
@@ -727,11 +728,11 @@ async fn test_update_routing_round_robin() {
     let new_config = Config::load(&config_path).expect("failed to reload config");
     harness.state.config.store(Arc::new(new_config));
 
-    // Set back to round-robin
+    // Switch back to balanced
     let req = authed_patch(
         "/api/dashboard/routing",
         &token,
-        json!({"strategy": "round-robin"}),
+        json!({"default-profile": "balanced"}),
     );
     let (status, body) = send_request(&harness, req).await;
     assert_eq!(status, StatusCode::OK, "update routing failed: {body:?}");
@@ -744,22 +745,22 @@ async fn test_update_routing_round_robin() {
     let req = authed_get("/api/dashboard/routing", &token);
     let (status, body) = send_request(&harness, req).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["strategy"], "round-robin");
+    assert_eq!(body["default-profile"], "balanced");
 }
 
 #[tokio::test]
-async fn test_update_routing_invalid_strategy() {
+async fn test_update_routing_unknown_fields_ignored() {
     let harness = create_test_harness();
     let token = login_and_get_token(&harness).await;
 
+    // Unknown fields are silently ignored by serde (deny_unknown_fields not set)
     let req = authed_patch(
         "/api/dashboard/routing",
         &token,
-        json!({"strategy": "random"}),
+        json!({"unknown-field": "value"}),
     );
     let (status, _body) = send_request(&harness, req).await;
-    // Serde rejects unknown strategy variants at deserialization time
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(status, StatusCode::OK);
 }
 
 // ===========================================================================

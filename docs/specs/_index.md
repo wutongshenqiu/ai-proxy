@@ -35,6 +35,11 @@ All specifications for the AI Proxy Gateway project.
 | SPEC-036 | Add RequestContext to ProviderExecutor          | Draft     | [active/SPEC-036/](active/SPEC-036/) |
 | SPEC-042 | Crate Structure Refactoring                    | Draft     | [active/SPEC-042/](active/SPEC-042/) |
 | SPEC-047 | OAuth & Auth-File Upstream Onboarding             | Draft     | [active/SPEC-047/](active/SPEC-047/) |
+| SPEC-048 | Routing Config & Core Types                      | Draft     | [active/SPEC-048/](active/SPEC-048/) |
+| SPEC-049 | Route Planner & Match Engine                     | Draft     | [active/SPEC-049/](active/SPEC-049/) |
+| SPEC-050 | Health State & Selection Strategies              | Draft     | [active/SPEC-050/](active/SPEC-050/) |
+| SPEC-051 | Execution Controller & Dispatch Cutover          | Draft     | [active/SPEC-051/](active/SPEC-051/) |
+| SPEC-052 | Preview API & Dashboard UX                       | Draft     | [active/SPEC-052/](active/SPEC-052/) |
 
 ## Retroactively Completed
 
