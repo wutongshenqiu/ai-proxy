@@ -1,5 +1,5 @@
 interface StatusBadgeProps {
-  status: 'healthy' | 'degraded' | 'unhealthy' | 'up' | 'down' | 'active' | 'inactive';
+  status: 'healthy' | 'degraded' | 'unhealthy' | 'unconfigured' | 'up' | 'down' | 'active' | 'inactive';
   label?: string;
 }
 
@@ -11,6 +11,7 @@ const statusConfig: Record<string, { className: string; defaultLabel: string }> 
   unhealthy: { className: 'status-badge--red', defaultLabel: 'Unhealthy' },
   down: { className: 'status-badge--red', defaultLabel: 'Down' },
   inactive: { className: 'status-badge--gray', defaultLabel: 'Inactive' },
+  unconfigured: { className: 'status-badge--gray', defaultLabel: 'Unconfigured' },
 };
 
 export default function StatusBadge({ status, label }: StatusBadgeProps) {

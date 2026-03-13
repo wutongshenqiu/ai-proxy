@@ -282,16 +282,17 @@ export interface SystemHealth {
   status: 'healthy' | 'degraded' | 'unhealthy';
   uptime_seconds: number;
   version: string;
+  host: string;
+  port: number;
+  tls_enabled: boolean;
   providers: ProviderHealth[];
-  memory_usage_mb: number;
-  cpu_usage_percent: number;
 }
 
 export interface ProviderHealth {
   name: string;
-  status: 'up' | 'down' | 'degraded';
-  latency_ms: number;
-  last_check: string;
+  status: 'healthy' | 'degraded' | 'unhealthy' | 'unconfigured';
+  active_keys: number;
+  total_keys: number;
 }
 
 export interface SystemLog {

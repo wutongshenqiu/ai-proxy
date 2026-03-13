@@ -283,31 +283,7 @@ export const logsApi = {
 // ── System ──
 
 export const systemApi = {
-  health: () =>
-    api.get('/system/health').then((res) => {
-      // Normalize backend format to frontend SystemHealth
-      const raw = res.data;
-      const providerObj = raw.providers || {};
-      const providersList = Array.isArray(providerObj)
-        ? providerObj
-        : Object.entries(providerObj).map(([name, count]) => ({
-            name,
-            status: (count as number) > 0 ? 'healthy' : 'unhealthy',
-            latency_ms: 0,
-            last_error: null,
-          }));
-      return {
-        ...res,
-        data: {
-          status: raw.status || 'healthy',
-          uptime_seconds: raw.uptime_secs ?? raw.uptime_seconds ?? 0,
-          version: raw.version || '0.0.0',
-          providers: providersList,
-          memory_usage_mb: raw.memory_usage_mb ?? 0,
-          cpu_usage_percent: raw.cpu_usage_percent ?? 0,
-        },
-      };
-    }) as Promise<{ data: SystemHealth } & Record<string, unknown>>,
+  health: () => api.get<SystemHealth>('/system/health'),
 
   logs: (page: number = 1, level?: string) => {
     const params = new URLSearchParams();
@@ -315,14 +291,12 @@ export const systemApi = {
     if (level) params.set('level', level);
     return api.get(`/system/logs?${params.toString()}`).then((res) => {
       const raw = res.data;
-      const logs = raw.logs || raw.data || [];
-      const total = raw.total || 0;
       return {
         ...res,
         data: {
-          data: logs,
-          total,
-          total_pages: Math.ceil(total / (raw.page_size || 50)),
+          data: raw.logs || [],
+          total: raw.total || 0,
+          total_pages: Math.ceil((raw.total || 0) / (raw.page_size || 50)),
           page: raw.page || 1,
           page_size: raw.page_size || 50,
         },

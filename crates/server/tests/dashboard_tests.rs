@@ -935,11 +935,11 @@ async fn test_system_health() {
     let req = authed_get("/api/dashboard/system/health", &token);
     let (status, body) = send_request(&harness, req).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["status"], "ok");
-    assert!(body["uptime_secs"].is_number());
+    assert!(["healthy", "degraded", "unhealthy"].contains(&body["status"].as_str().unwrap()));
+    assert!(body["uptime_seconds"].is_number());
     assert!(body["host"].is_string());
     assert!(body["port"].is_number());
-    assert!(body["providers"].is_object());
+    assert!(body["providers"].is_array());
 }
 
 #[tokio::test]
@@ -1022,7 +1022,8 @@ async fn test_validate_config_invalid() {
     let (status, body) = send_request(&harness, req).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(body["valid"], false);
-    assert_eq!(body["error"], "validation_failed");
+    assert!(body["errors"].is_array());
+    assert!(!body["errors"].as_array().unwrap().is_empty());
 }
 
 // ===========================================================================

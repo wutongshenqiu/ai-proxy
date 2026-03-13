@@ -13,16 +13,12 @@ pub async fn validate_config(
     // Attempt to deserialize as Config
     let result: Result<prism_core::config::Config, _> = serde_json::from_value(body);
     match result {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(json!({"valid": true, "message": "Configuration is valid"})),
-        ),
+        Ok(_) => (StatusCode::OK, Json(json!({"valid": true, "errors": []}))),
         Err(e) => (
             StatusCode::UNPROCESSABLE_ENTITY,
             Json(json!({
                 "valid": false,
-                "error": "validation_failed",
-                "message": e.to_string(),
+                "errors": [e.to_string()],
             })),
         ),
     }

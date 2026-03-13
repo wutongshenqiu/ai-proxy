@@ -9,8 +9,6 @@ import {
   RefreshCw,
   Power,
   Clock,
-  Cpu,
-  HardDrive,
   Server,
 } from 'lucide-react';
 
@@ -128,18 +126,11 @@ export default function System() {
               color="green"
             />
             <MetricCard
-              title="Memory"
-              value={`${health.memory_usage_mb.toFixed(0)} MB`}
-              subtitle="usage"
-              icon={<HardDrive size={20} />}
+              title="Host"
+              value={`${health.host}:${health.port}`}
+              subtitle={health.tls_enabled ? 'TLS enabled' : 'TLS disabled'}
+              icon={<Server size={20} />}
               color="purple"
-            />
-            <MetricCard
-              title="CPU"
-              value={`${health.cpu_usage_percent.toFixed(1)}%`}
-              subtitle="usage"
-              icon={<Cpu size={20} />}
-              color="orange"
             />
           </div>
 
@@ -154,12 +145,12 @@ export default function System() {
                   <tr>
                     <th>Provider</th>
                     <th>Status</th>
-                    <th>Latency</th>
-                    <th>Last Check</th>
+                    <th>Active Keys</th>
+                    <th>Total Keys</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {health.providers.length === 0 ? (
+                  {health.providers.filter(p => p.status !== 'unconfigured').length === 0 ? (
                     <tr>
                       <td colSpan={4} className="table-empty">
                         <div className="empty-state">
@@ -169,18 +160,16 @@ export default function System() {
                       </td>
                     </tr>
                   ) : (
-                    health.providers.map((provider) => (
+                    health.providers
+                      .filter(p => p.status !== 'unconfigured')
+                      .map((provider) => (
                       <tr key={provider.name}>
                         <td className="text-bold">{provider.name}</td>
                         <td>
                           <StatusBadge status={provider.status} />
                         </td>
-                        <td>{provider.latency_ms > 0 ? `${provider.latency_ms}ms` : '-'}</td>
-                        <td className="text-muted">
-                          {provider.last_check
-                            ? new Date(provider.last_check).toLocaleString()
-                            : 'No checks yet'}
-                        </td>
+                        <td>{provider.active_keys}</td>
+                        <td>{provider.total_keys}</td>
                       </tr>
                     ))
                   )}

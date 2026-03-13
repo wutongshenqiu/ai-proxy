@@ -120,7 +120,7 @@ export default function Logs() {
               {filteredLogs.map((log, index) => (
                 <div key={index} className="log-entry">
                   <span className="log-timestamp">
-                    {new Date(log.timestamp).toLocaleString()}
+                    {log.timestamp ? new Date(log.timestamp).toLocaleString() : ''}
                   </span>
                   <span className={`log-level ${getLevelClass(log.level)}`}>
                     {log.level}

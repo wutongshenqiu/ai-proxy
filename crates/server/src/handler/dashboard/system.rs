@@ -36,23 +36,60 @@ fn read_file_tail(path: &std::path::Path, max_bytes: u64) -> std::io::Result<Str
 /// GET /api/dashboard/system/health
 pub async fn system_health(State(state): State<AppState>) -> impl IntoResponse {
     let config = state.config.load();
-    let uptime_secs = state.start_time.elapsed().as_secs();
+    let uptime_seconds = state.start_time.elapsed().as_secs();
+
+    let providers: Vec<serde_json::Value> = [
+        ("claude", &config.claude_api_key),
+        ("openai", &config.openai_api_key),
+        ("gemini", &config.gemini_api_key),
+        ("openai_compat", &config.openai_compatibility),
+    ]
+    .into_iter()
+    .map(|(name, keys)| {
+        let active = keys.iter().filter(|k| !k.disabled).count();
+        let total = keys.len();
+        let status = if total == 0 {
+            "unconfigured"
+        } else if active == 0 {
+            "unhealthy"
+        } else if active < total {
+            "degraded"
+        } else {
+            "healthy"
+        };
+        json!({
+            "name": name,
+            "status": status,
+            "active_keys": active,
+            "total_keys": total,
+        })
+    })
+    .collect();
+
+    // Determine overall status from provider statuses
+    let has_any_provider = providers.iter().any(|p| p["status"] != "unconfigured");
+    let all_healthy = providers
+        .iter()
+        .filter(|p| p["status"] != "unconfigured")
+        .all(|p| p["status"] == "healthy");
+    let status = if !has_any_provider {
+        "unhealthy"
+    } else if all_healthy {
+        "healthy"
+    } else {
+        "degraded"
+    };
 
     (
         StatusCode::OK,
         Json(json!({
-            "status": "ok",
+            "status": status,
             "version": env!("CARGO_PKG_VERSION"),
-            "uptime_secs": uptime_secs,
+            "uptime_seconds": uptime_seconds,
             "host": config.host,
             "port": config.port,
             "tls_enabled": config.tls.enable,
-            "providers": {
-                "claude": config.claude_api_key.iter().filter(|k| !k.disabled).count(),
-                "openai": config.openai_api_key.iter().filter(|k| !k.disabled).count(),
-                "gemini": config.gemini_api_key.iter().filter(|k| !k.disabled).count(),
-                "openai_compat": config.openai_compatibility.iter().filter(|k| !k.disabled).count(),
-            },
+            "providers": providers,
         })),
     )
 }
@@ -131,22 +168,67 @@ pub async fn system_logs(
         }
     };
 
-    let mut lines: Vec<&str> = contents.lines().rev().collect();
+    // Parse log lines into structured entries
+    let parsed: Vec<serde_json::Value> = contents
+        .lines()
+        .rev()
+        .map(|line| {
+            // Try to parse as JSON structured log (tracing-subscriber JSON format)
+            if let Ok(obj) = serde_json::from_str::<serde_json::Value>(line) {
+                json!({
+                    "timestamp": obj.get("timestamp").or_else(|| obj.get("ts")).and_then(|v| v.as_str()).unwrap_or(""),
+                    "level": obj.get("level").and_then(|v| v.as_str()).unwrap_or("INFO").to_uppercase(),
+                    "target": obj.get("target").or_else(|| obj.get("module")).and_then(|v| v.as_str()).unwrap_or(""),
+                    "message": obj.get("fields").and_then(|f| f.get("message")).or_else(|| obj.get("message")).and_then(|v| v.as_str()).unwrap_or(line),
+                })
+            } else {
+                // Fallback: try to extract level from raw log line
+                let level = if line.contains("ERROR") {
+                    "ERROR"
+                } else if line.contains("WARN") {
+                    "WARN"
+                } else if line.contains("DEBUG") {
+                    "DEBUG"
+                } else if line.contains("TRACE") {
+                    "TRACE"
+                } else {
+                    "INFO"
+                };
+                json!({
+                    "timestamp": "",
+                    "level": level,
+                    "target": "",
+                    "message": line,
+                })
+            }
+        })
+        .collect();
 
     // Filter by level
-    if let Some(ref level) = query.level {
-        let level_upper = level.to_uppercase();
-        lines.retain(|l| l.to_uppercase().contains(&level_upper));
-    }
+    let filtered: Vec<&serde_json::Value> = parsed
+        .iter()
+        .filter(|entry| {
+            if let Some(ref level) = query.level {
+                let level_upper = level.to_uppercase();
+                entry["level"].as_str().is_some_and(|l| l == level_upper)
+            } else {
+                true
+            }
+        })
+        .filter(|entry| {
+            if let Some(ref search) = query.search {
+                let msg = entry["message"].as_str().unwrap_or("");
+                let target = entry["target"].as_str().unwrap_or("");
+                msg.contains(search.as_str()) || target.contains(search.as_str())
+            } else {
+                true
+            }
+        })
+        .collect();
 
-    // Filter by search
-    if let Some(ref search) = query.search {
-        lines.retain(|l| l.contains(search.as_str()));
-    }
-
-    let total = lines.len();
+    let total = filtered.len();
     let start = (query.page - 1) * query.page_size;
-    let page_lines: Vec<&str> = lines
+    let page_entries: Vec<&serde_json::Value> = filtered
         .into_iter()
         .skip(start)
         .take(query.page_size)
@@ -155,7 +237,7 @@ pub async fn system_logs(
     (
         StatusCode::OK,
         Json(json!({
-            "logs": page_lines,
+            "logs": page_entries,
             "total": total,
             "page": query.page,
             "page_size": query.page_size,
