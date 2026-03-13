@@ -196,6 +196,23 @@ impl Config {
         resolve_provider_secrets(&mut self.gemini_api_key);
         resolve_provider_secrets(&mut self.openai_compatibility);
 
+        // Resolve secrets in auth keys
+        for entry in &mut self.auth_keys {
+            if let Ok(resolved) = crate::secret::resolve(&entry.key) {
+                entry.key = resolved;
+            }
+        }
+
+        // Resolve secrets in dashboard config
+        if let Ok(resolved) = crate::secret::resolve(&self.dashboard.password_hash) {
+            self.dashboard.password_hash = resolved;
+        }
+        if let Some(ref secret) = self.dashboard.jwt_secret
+            && let Ok(resolved) = crate::secret::resolve(secret)
+        {
+            self.dashboard.jwt_secret = Some(resolved);
+        }
+
         // Build AuthKeyStore for O(1) auth key lookups
         self.auth_key_store = AuthKeyStore::new(self.auth_keys.clone());
     }
@@ -834,5 +851,55 @@ auth-keys:
         let config: Config = serde_yaml_ng::from_str(yaml).unwrap();
         assert_eq!(config.auth_keys[0].allowed_credentials.len(), 2);
         assert_eq!(config.auth_keys[0].allowed_credentials[0], "my-claude-*");
+    }
+
+    #[test]
+    fn test_env_secret_resolution_auth_keys() {
+        unsafe { std::env::set_var("TEST_PRISM_AUTH_KEY", "sk-resolved-key") };
+        let yaml = r#"
+auth-keys:
+  - key: "env://TEST_PRISM_AUTH_KEY"
+    name: "env-test"
+"#;
+        let config = Config::load_from_str(yaml).unwrap();
+        assert_eq!(config.auth_keys[0].key, "sk-resolved-key");
+        assert_eq!(
+            config
+                .auth_key_store
+                .lookup("sk-resolved-key")
+                .unwrap()
+                .name
+                .as_deref(),
+            Some("env-test")
+        );
+        unsafe { std::env::remove_var("TEST_PRISM_AUTH_KEY") };
+    }
+
+    #[test]
+    fn test_env_secret_resolution_dashboard() {
+        unsafe {
+            std::env::set_var(
+                "TEST_PRISM_DASH_HASH",
+                "$2y$12$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ012345",
+            )
+        };
+        unsafe { std::env::set_var("TEST_PRISM_JWT_SECRET", "my-jwt-secret") };
+        let yaml = r#"
+dashboard:
+  enabled: true
+  password-hash: "env://TEST_PRISM_DASH_HASH"
+  jwt-secret: "env://TEST_PRISM_JWT_SECRET"
+"#;
+        let config = Config::load_from_str(yaml).unwrap();
+        assert_eq!(
+            config.dashboard.password_hash,
+            "$2y$12$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ012345"
+        );
+        assert_eq!(
+            config.dashboard.jwt_secret.as_deref(),
+            Some("my-jwt-secret")
+        );
+        unsafe { std::env::remove_var("TEST_PRISM_DASH_HASH") };
+        unsafe { std::env::remove_var("TEST_PRISM_JWT_SECRET") };
     }
 }
