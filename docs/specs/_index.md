@@ -32,6 +32,7 @@ All specifications for the AI Proxy Gateway project.
 | SPEC-042 | Crate Structure Refactoring                    | Draft     | [active/SPEC-042/](active/SPEC-042/) |
 | SPEC-043 | Dashboard Config Workspace                     | Active    | [active/SPEC-043/](active/SPEC-043/) |
 | SPEC-044 | Coding Agent Compatibility Endpoints            | Active    | [active/SPEC-044/](active/SPEC-044/) |
+| SPEC-045 | Model Rewrite Rules                              | Active    | [active/SPEC-045/](active/SPEC-045/) |
 
 ## Retroactively Completed
 

@@ -66,7 +66,7 @@ struct DispatchDebug {
 /// Supports model fallback chains via `req.models` and debug mode via `req.debug`.
 /// The retry loop iterates across all provider formats on each attempt, ensuring that
 /// quota exhaustion (429) on one provider automatically falls through to the next (5B).
-pub async fn dispatch(state: &AppState, req: DispatchRequest) -> Result<Response, ProxyError> {
+pub async fn dispatch(state: &AppState, mut req: DispatchRequest) -> Result<Response, ProxyError> {
     let start = Instant::now();
     let config = state.config.load();
     let detail_level = config.log_store.detail_level;
@@ -126,6 +126,13 @@ pub async fn dispatch(state: &AppState, req: DispatchRequest) -> Result<Response
             "model '{}' not allowed for this API key",
             req.model
         )));
+    }
+
+    // ── Model rewrite ──
+    if let Some(rewritten) = config.routing.resolve_model_rewrite(&req.model) {
+        let rewritten = rewritten.to_string();
+        req.body = rewrite_model_in_body(&req.body, &rewritten);
+        req.model = rewritten;
     }
 
     // ── Cache lookup (non-stream, temperature=0) ──

@@ -414,6 +414,9 @@ pub struct RoutingConfig {
     /// Server-side model fallback chains.
     #[serde(default)]
     pub model_fallbacks: HashMap<String, Vec<String>>,
+    /// Model rewrite rules: remap incoming model names before routing.
+    #[serde(default)]
+    pub model_rewrites: Vec<ModelRewriteRule>,
 }
 
 impl Default for RoutingConfig {
@@ -425,6 +428,7 @@ impl Default for RoutingConfig {
             default_region: None,
             model_strategies: HashMap::new(),
             model_fallbacks: HashMap::new(),
+            model_rewrites: Vec::new(),
         }
     }
 }
@@ -445,6 +449,24 @@ impl RoutingConfig {
             .cloned()
             .unwrap_or_default()
     }
+
+    /// Apply model rewrite rules. Returns the target model name if a rule matches,
+    /// or `None` if no rule matches (model name unchanged).
+    pub fn resolve_model_rewrite(&self, model: &str) -> Option<&str> {
+        self.model_rewrites
+            .iter()
+            .find(|rule| crate::glob::glob_match(&rule.pattern, model))
+            .map(|rule| rule.target.as_str())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct ModelRewriteRule {
+    /// Glob pattern to match incoming model names.
+    pub pattern: String,
+    /// Target model name to rewrite to.
+    pub target: String,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -901,5 +923,34 @@ dashboard:
         );
         unsafe { std::env::remove_var("TEST_PRISM_DASH_HASH") };
         unsafe { std::env::remove_var("TEST_PRISM_JWT_SECRET") };
+    }
+
+    #[test]
+    fn test_model_rewrites() {
+        let yaml = r#"
+routing:
+  strategy: round-robin
+  model-rewrites:
+    - pattern: "gpt-4"
+      target: "gpt-4-turbo"
+    - pattern: "claude-*"
+      target: "claude-sonnet-4-20250514"
+"#;
+        let config: Config = serde_yaml_ng::from_str(yaml).unwrap();
+
+        // Exact match
+        assert_eq!(
+            config.routing.resolve_model_rewrite("gpt-4"),
+            Some("gpt-4-turbo")
+        );
+
+        // Glob match
+        assert_eq!(
+            config.routing.resolve_model_rewrite("claude-3-opus"),
+            Some("claude-sonnet-4-20250514")
+        );
+
+        // No match
+        assert_eq!(config.routing.resolve_model_rewrite("gemini-pro"), None);
     }
 }

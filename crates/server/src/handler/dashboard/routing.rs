@@ -3,7 +3,7 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use prism_core::config::RoutingStrategy;
+use prism_core::config::{ModelRewriteRule, RoutingStrategy};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -15,6 +15,7 @@ pub struct UpdateRoutingRequest {
     pub fallback_enabled: Option<bool>,
     pub model_strategies: Option<std::collections::HashMap<String, RoutingStrategy>>,
     pub model_fallbacks: Option<std::collections::HashMap<String, Vec<String>>>,
+    pub model_rewrites: Option<Vec<ModelRewriteRule>>,
 }
 
 /// GET /api/dashboard/routing
@@ -29,6 +30,7 @@ pub async fn get_routing(State(state): State<AppState>) -> impl IntoResponse {
             "max_retry_interval": config.max_retry_interval,
             "model_strategies": config.routing.model_strategies,
             "model_fallbacks": config.routing.model_fallbacks,
+            "model_rewrites": config.routing.model_rewrites,
         })),
     )
 }
@@ -56,6 +58,9 @@ pub async fn update_routing(
         }
         if let Some(mf) = body.model_fallbacks {
             config.routing.model_fallbacks = mf;
+        }
+        if let Some(mr) = body.model_rewrites {
+            config.routing.model_rewrites = mr;
         }
     })
     .await
