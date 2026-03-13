@@ -4,6 +4,7 @@ use crate::circuit_breaker::CircuitBreakerConfig;
 use crate::file_audit::FileAuditConfig;
 use crate::payload::PayloadConfig;
 use crate::request_record::LogDetailLevel;
+pub use crate::routing::config::RoutingConfig;
 use arc_swap::ArcSwap;
 use notify::{RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -189,6 +190,9 @@ impl Config {
         if let Some(ref proxy) = self.proxy_url {
             crate::proxy::validate_proxy_url(proxy)?;
         }
+        self.routing
+            .validate()
+            .map_err(|e| anyhow::anyhow!("routing: {e}"))?;
         Ok(())
     }
 
@@ -430,85 +434,6 @@ pub struct TlsConfig {
     pub enable: bool,
     pub cert: Option<String>,
     pub key: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case", default)]
-pub struct RoutingConfig {
-    pub strategy: RoutingStrategy,
-    pub fallback_enabled: bool,
-    /// EWMA smoothing factor for latency-aware routing (0.0-1.0, default 0.3).
-    pub ewma_alpha: f64,
-    /// Default region for geo-aware routing.
-    pub default_region: Option<String>,
-    /// Per-model routing strategy overrides (glob patterns supported).
-    #[serde(default)]
-    pub model_strategies: HashMap<String, RoutingStrategy>,
-    /// Server-side model fallback chains.
-    #[serde(default)]
-    pub model_fallbacks: HashMap<String, Vec<String>>,
-    /// Model rewrite rules: remap incoming model names before routing.
-    #[serde(default)]
-    pub model_rewrites: Vec<ModelRewriteRule>,
-}
-
-impl Default for RoutingConfig {
-    fn default() -> Self {
-        Self {
-            strategy: RoutingStrategy::RoundRobin,
-            fallback_enabled: true,
-            ewma_alpha: 0.3,
-            default_region: None,
-            model_strategies: HashMap::new(),
-            model_fallbacks: HashMap::new(),
-            model_rewrites: Vec::new(),
-        }
-    }
-}
-
-impl RoutingConfig {
-    /// Resolve the routing strategy for a given model.
-    /// Priority: exact match → glob match → default strategy.
-    pub fn resolve_strategy(&self, model: &str) -> RoutingStrategy {
-        crate::glob::glob_lookup(&self.model_strategies, model)
-            .copied()
-            .unwrap_or(self.strategy)
-    }
-
-    /// Resolve server-side fallback models for a given model.
-    /// Priority: exact match → glob match. Returns empty vec if none.
-    pub fn resolve_fallbacks(&self, model: &str) -> Vec<String> {
-        crate::glob::glob_lookup(&self.model_fallbacks, model)
-            .cloned()
-            .unwrap_or_default()
-    }
-
-    /// Apply model rewrite rules. Returns the target model name if a rule matches,
-    /// or `None` if no rule matches (model name unchanged).
-    pub fn resolve_model_rewrite(&self, model: &str) -> Option<&str> {
-        self.model_rewrites
-            .iter()
-            .find(|rule| crate::glob::glob_match(&rule.pattern, model))
-            .map(|rule| rule.target.as_str())
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub struct ModelRewriteRule {
-    /// Glob pattern to match incoming model names.
-    pub pattern: String,
-    /// Target model name to rewrite to.
-    pub target: String,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
-pub enum RoutingStrategy {
-    RoundRobin,
-    FillFirst,
-    LatencyAware,
-    GeoAware,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -770,7 +695,7 @@ auth-keys:
     tenant-id: "t1"
     allowed-models: ["claude-*"]
 routing:
-  strategy: fill-first
+  default-profile: balanced
 claude-api-key:
   - api-key: "sk-ant-xxx"
     base-url: "https://api.anthropic.com"
@@ -784,7 +709,7 @@ claude-api-key:
         assert_eq!(config.auth_keys.len(), 1);
         assert_eq!(config.auth_keys[0].key, "test-key");
         assert_eq!(config.auth_keys[0].tenant_id.as_deref(), Some("t1"));
-        assert_eq!(config.routing.strategy, RoutingStrategy::FillFirst);
+        assert_eq!(config.routing.default_profile, "balanced");
         assert_eq!(config.claude_api_key.len(), 1);
         assert_eq!(config.claude_api_key[0].models.len(), 1);
     }
@@ -833,67 +758,10 @@ rate-limit:
     }
 
     #[test]
-    fn test_routing_strategy_variants() {
-        let yaml = r#"routing: { strategy: latency-aware }"#;
-        let config: Config = serde_yaml_ng::from_str(yaml).unwrap();
-        assert_eq!(config.routing.strategy, RoutingStrategy::LatencyAware);
-
-        let yaml = r#"routing: { strategy: geo-aware }"#;
-        let config: Config = serde_yaml_ng::from_str(yaml).unwrap();
-        assert_eq!(config.routing.strategy, RoutingStrategy::GeoAware);
-    }
-
-    #[test]
-    fn test_per_model_strategies() {
-        let yaml = r#"
-routing:
-  strategy: round-robin
-  model-strategies:
-    "claude-*": latency-aware
-    "gpt-4o": fill-first
-"#;
-        let config: Config = serde_yaml_ng::from_str(yaml).unwrap();
-        assert_eq!(config.routing.model_strategies.len(), 2);
-
-        // Exact match
-        assert_eq!(
-            config.routing.resolve_strategy("gpt-4o"),
-            RoutingStrategy::FillFirst
-        );
-        // Glob match
-        assert_eq!(
-            config.routing.resolve_strategy("claude-sonnet-4-6"),
-            RoutingStrategy::LatencyAware
-        );
-        // Default fallback
-        assert_eq!(
-            config.routing.resolve_strategy("gemini-pro"),
-            RoutingStrategy::RoundRobin
-        );
-    }
-
-    #[test]
-    fn test_model_fallbacks() {
-        let yaml = r#"
-routing:
-  strategy: round-robin
-  model-fallbacks:
-    gpt-4o: [gpt-4o-mini, gpt-3.5-turbo]
-    "claude-*": [claude-haiku-4-5-20251001]
-"#;
-        let config: Config = serde_yaml_ng::from_str(yaml).unwrap();
-
-        // Exact match
-        let fb = config.routing.resolve_fallbacks("gpt-4o");
-        assert_eq!(fb, vec!["gpt-4o-mini", "gpt-3.5-turbo"]);
-
-        // Glob match
-        let fb = config.routing.resolve_fallbacks("claude-sonnet-4-6");
-        assert_eq!(fb, vec!["claude-haiku-4-5-20251001"]);
-
-        // No match
-        let fb = config.routing.resolve_fallbacks("gemini-pro");
-        assert!(fb.is_empty());
+    fn test_routing_config_defaults_in_config() {
+        let config = Config::default();
+        assert_eq!(config.routing.default_profile, "balanced");
+        assert_eq!(config.routing.profiles.len(), 4);
     }
 
     #[test]
@@ -1024,31 +892,25 @@ claude-api-key:
     }
 
     #[test]
-    fn test_model_rewrites() {
+    fn test_model_rewrites_in_config() {
         let yaml = r#"
 routing:
-  strategy: round-robin
-  model-rewrites:
-    - pattern: "gpt-4"
-      target: "gpt-4-turbo"
-    - pattern: "claude-*"
-      target: "claude-sonnet-4-20250514"
+  model-resolution:
+    rewrites:
+      - pattern: "gpt-4"
+        to: "gpt-4-turbo"
+      - pattern: "claude-*"
+        to: "claude-sonnet-4-20250514"
 "#;
         let config: Config = serde_yaml_ng::from_str(yaml).unwrap();
-
-        // Exact match
         assert_eq!(
             config.routing.resolve_model_rewrite("gpt-4"),
             Some("gpt-4-turbo")
         );
-
-        // Glob match
         assert_eq!(
             config.routing.resolve_model_rewrite("claude-3-opus"),
             Some("claude-sonnet-4-20250514")
         );
-
-        // No match
         assert_eq!(config.routing.resolve_model_rewrite("gemini-pro"), None);
     }
 }

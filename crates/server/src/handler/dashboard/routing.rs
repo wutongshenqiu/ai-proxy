@@ -3,36 +3,24 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use prism_core::config::{ModelRewriteRule, RoutingStrategy};
+use prism_core::routing::config::{ModelResolution, RouteProfile, RouteRule};
 use serde::Deserialize;
 use serde_json::json;
+use std::collections::HashMap;
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct UpdateRoutingRequest {
-    pub strategy: Option<RoutingStrategy>,
-    pub request_retry: Option<u32>,
-    pub max_retry_interval: Option<u64>,
-    pub fallback_enabled: Option<bool>,
-    pub model_strategies: Option<std::collections::HashMap<String, RoutingStrategy>>,
-    pub model_fallbacks: Option<std::collections::HashMap<String, Vec<String>>>,
-    pub model_rewrites: Option<Vec<ModelRewriteRule>>,
+    pub default_profile: Option<String>,
+    pub profiles: Option<HashMap<String, RouteProfile>>,
+    pub rules: Option<Vec<RouteRule>>,
+    pub model_resolution: Option<ModelResolution>,
 }
 
 /// GET /api/dashboard/routing
 pub async fn get_routing(State(state): State<AppState>) -> impl IntoResponse {
     let config = state.config.load();
-    (
-        StatusCode::OK,
-        Json(json!({
-            "strategy": config.routing.strategy,
-            "fallback_enabled": config.routing.fallback_enabled,
-            "request_retry": config.request_retry,
-            "max_retry_interval": config.max_retry_interval,
-            "model_strategies": config.routing.model_strategies,
-            "model_fallbacks": config.routing.model_fallbacks,
-            "model_rewrites": config.routing.model_rewrites,
-        })),
-    )
+    (StatusCode::OK, Json(json!(&config.routing)))
 }
 
 /// PATCH /api/dashboard/routing
@@ -41,26 +29,17 @@ pub async fn update_routing(
     Json(body): Json<UpdateRoutingRequest>,
 ) -> impl IntoResponse {
     match super::providers::update_config_file_public(&state, move |config| {
-        if let Some(s) = body.strategy {
-            config.routing.strategy = s;
+        if let Some(dp) = body.default_profile {
+            config.routing.default_profile = dp;
         }
-        if let Some(fb) = body.fallback_enabled {
-            config.routing.fallback_enabled = fb;
+        if let Some(p) = body.profiles {
+            config.routing.profiles = p;
         }
-        if let Some(rr) = body.request_retry {
-            config.request_retry = rr;
+        if let Some(r) = body.rules {
+            config.routing.rules = r;
         }
-        if let Some(mri) = body.max_retry_interval {
-            config.max_retry_interval = mri;
-        }
-        if let Some(ms) = body.model_strategies {
-            config.routing.model_strategies = ms;
-        }
-        if let Some(mf) = body.model_fallbacks {
-            config.routing.model_fallbacks = mf;
-        }
-        if let Some(mr) = body.model_rewrites {
-            config.routing.model_rewrites = mr;
+        if let Some(mr) = body.model_resolution {
+            config.routing.model_resolution = mr;
         }
     })
     .await

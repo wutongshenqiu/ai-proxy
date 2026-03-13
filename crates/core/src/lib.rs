@@ -19,5 +19,6 @@ pub mod proxy;
 pub mod rate_limit;
 pub mod request_log;
 pub mod request_record;
+pub mod routing;
 pub mod secret;
 pub mod types;

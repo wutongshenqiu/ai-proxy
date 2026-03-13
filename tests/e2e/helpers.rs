@@ -35,7 +35,13 @@ pub struct TestServer {
 impl TestServer {
     /// Start a new test server with the given config.
     pub async fn start(config: Config) -> Self {
-        let credential_router = Arc::new(CredentialRouter::new(config.routing.strategy));
+        let default_cred_strategy = config
+            .routing
+            .profiles
+            .get(&config.routing.default_profile)
+            .map(|p| p.credential_policy.strategy)
+            .unwrap_or_default();
+        let credential_router = Arc::new(CredentialRouter::new(default_cred_strategy));
         credential_router.update_from_config(&config);
 
         let http_client_pool = Arc::new(prism_core::proxy::HttpClientPool::new());

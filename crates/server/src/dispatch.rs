@@ -176,13 +176,11 @@ pub async fn dispatch(state: &AppState, mut req: DispatchRequest) -> Result<Resp
         vec![req.model.clone()]
     };
 
-    // Append server-side fallbacks (if enabled and configured), deduplicated
-    if config.routing.fallback_enabled {
-        let server_fallbacks = config.routing.resolve_fallbacks(&req.model);
-        for fb in server_fallbacks {
-            if !model_chain.contains(&fb) {
-                model_chain.push(fb);
-            }
+    // Append server-side fallbacks (from model-resolution config), deduplicated
+    let server_fallbacks = config.routing.resolve_fallbacks(&req.model);
+    for fb in server_fallbacks {
+        if !model_chain.contains(&fb) {
+            model_chain.push(fb);
         }
     }
 

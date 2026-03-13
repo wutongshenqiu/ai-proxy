@@ -169,17 +169,9 @@ export const authKeysApi = {
 export const routingApi = {
   get: () =>
     api.get('/routing').then((res) => {
-      const raw = res.data;
       return {
         ...res,
-        data: {
-          strategy: raw.strategy ?? 'round-robin',
-          fallback_enabled: raw.fallback_enabled ?? false,
-          request_retry: raw.request_retry ?? 3,
-          max_retry_interval: raw.max_retry_interval ?? 30,
-          model_strategies: raw.model_strategies ?? {},
-          model_fallbacks: raw.model_fallbacks ?? {},
-        } as RoutingConfig,
+        data: res.data as RoutingConfig,
       };
     }) as Promise<{ data: RoutingConfig } & Record<string, unknown>>,
 
