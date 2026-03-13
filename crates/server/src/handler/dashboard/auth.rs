@@ -6,6 +6,62 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use serde::Deserialize;
 use serde_json::json;
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::Instant;
+
+/// Tracks login attempts per IP for brute-force protection.
+pub struct LoginRateLimiter {
+    /// Map of IP → list of attempt timestamps within the lockout window.
+    attempts: Mutex<HashMap<String, Vec<Instant>>>,
+}
+
+impl Default for LoginRateLimiter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LoginRateLimiter {
+    pub fn new() -> Self {
+        Self {
+            attempts: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Record a failed login attempt. Returns true if the IP is now locked out.
+    pub fn record_failure(&self, ip: &str, max_attempts: u32, window_secs: u64) -> bool {
+        let mut map = self.attempts.lock().unwrap();
+        let now = Instant::now();
+        let cutoff = now - std::time::Duration::from_secs(window_secs);
+
+        let attempts = map.entry(ip.to_string()).or_default();
+        attempts.retain(|t| *t > cutoff);
+        attempts.push(now);
+
+        attempts.len() as u32 >= max_attempts
+    }
+
+    /// Check if an IP is currently locked out (without recording).
+    pub fn is_locked_out(&self, ip: &str, max_attempts: u32, window_secs: u64) -> bool {
+        let mut map = self.attempts.lock().unwrap();
+        let now = Instant::now();
+        let cutoff = now - std::time::Duration::from_secs(window_secs);
+
+        if let Some(attempts) = map.get_mut(ip) {
+            attempts.retain(|t| *t > cutoff);
+            attempts.len() as u32 >= max_attempts
+        } else {
+            false
+        }
+    }
+
+    /// Clear attempts for an IP (on successful login).
+    pub fn clear(&self, ip: &str) {
+        let mut map = self.attempts.lock().unwrap();
+        map.remove(ip);
+    }
+}
 
 #[derive(Deserialize)]
 pub struct LoginRequest {
@@ -16,6 +72,7 @@ pub struct LoginRequest {
 /// POST /api/dashboard/auth/login
 pub async fn login(
     State(state): State<AppState>,
+    axum::Extension(ctx): axum::Extension<prism_core::context::RequestContext>,
     Json(body): Json<LoginRequest>,
 ) -> impl IntoResponse {
     let config = state.config.load();
@@ -28,8 +85,48 @@ pub async fn login(
         );
     }
 
+    let client_ip = ctx.client_ip.clone().unwrap_or_default();
+
+    // Enforce localhost-only access
+    if dashboard.localhost_only {
+        let is_local = client_ip == "127.0.0.1" || client_ip == "::1" || client_ip == "localhost";
+        if !is_local {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({
+                    "error": "access_denied",
+                    "message": "Dashboard access restricted to localhost",
+                })),
+            );
+        }
+    }
+
+    // Check login rate limit
+    if dashboard.max_login_attempts > 0
+        && state.login_limiter.is_locked_out(
+            &client_ip,
+            dashboard.max_login_attempts,
+            dashboard.login_lockout_secs,
+        )
+    {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(json!({
+                "error": "too_many_attempts",
+                "message": format!("Too many login attempts. Try again in {} seconds.", dashboard.login_lockout_secs),
+            })),
+        );
+    }
+
     // Verify username
     if body.username != dashboard.username {
+        if dashboard.max_login_attempts > 0 {
+            state.login_limiter.record_failure(
+                &client_ip,
+                dashboard.max_login_attempts,
+                dashboard.login_lockout_secs,
+            );
+        }
         return (
             StatusCode::UNAUTHORIZED,
             Json(
@@ -54,6 +151,13 @@ pub async fn login(
         }
     };
     if !password_valid {
+        if dashboard.max_login_attempts > 0 {
+            state.login_limiter.record_failure(
+                &client_ip,
+                dashboard.max_login_attempts,
+                dashboard.login_lockout_secs,
+            );
+        }
         return (
             StatusCode::UNAUTHORIZED,
             Json(
@@ -61,6 +165,9 @@ pub async fn login(
             ),
         );
     }
+
+    // Successful login — clear rate limit attempts
+    state.login_limiter.clear(&client_ip);
 
     let secret = match dashboard.resolve_jwt_secret() {
         Some(s) => s,

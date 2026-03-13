@@ -120,6 +120,7 @@ impl Application {
             cost_calculator: cost_calculator.clone(),
             response_cache,
             start_time: Instant::now(),
+            login_limiter: Arc::new(crate::handler::dashboard::auth::LoginRateLimiter::new()),
         };
         let app_router = crate::build_router(state);
 

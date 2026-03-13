@@ -36,6 +36,7 @@ pub struct AppState {
     pub cost_calculator: Arc<CostCalculator>,
     pub response_cache: Option<Arc<dyn ResponseCacheBackend>>,
     pub start_time: Instant,
+    pub login_limiter: Arc<handler::dashboard::auth::LoginRateLimiter>,
 }
 
 pub fn build_router(state: AppState) -> Router {

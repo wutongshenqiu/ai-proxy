@@ -346,6 +346,12 @@ pub struct DashboardConfig {
     pub jwt_secret: Option<String>,
     /// JWT token TTL in seconds.
     pub jwt_ttl_secs: u64,
+    /// Max login attempts per IP within the lockout window before lockout.
+    pub max_login_attempts: u32,
+    /// Lockout window in seconds. After max_login_attempts within this window, reject login.
+    pub login_lockout_secs: u64,
+    /// Restrict dashboard access to localhost only.
+    pub localhost_only: bool,
 }
 
 impl Default for DashboardConfig {
@@ -356,6 +362,9 @@ impl Default for DashboardConfig {
             password_hash: String::new(),
             jwt_secret: None,
             jwt_ttl_secs: 3600,
+            max_login_attempts: 5,
+            login_lockout_secs: 300,
+            localhost_only: false,
         }
     }
 }

@@ -37,6 +37,7 @@ fn create_test_harness() -> TestHarness {
             password_hash,
             jwt_secret: Some("test-secret".to_string()),
             jwt_ttl_secs: 3600,
+            ..DashboardConfig::default()
         },
         ..Config::default()
     };
@@ -66,6 +67,7 @@ fn create_test_harness() -> TestHarness {
         cost_calculator: Arc::new(CostCalculator::new(&config.model_prices)),
         response_cache: None,
         start_time: Instant::now(),
+        login_limiter: Arc::new(prism_server::handler::dashboard::auth::LoginRateLimiter::new()),
     };
 
     TestHarness {

@@ -60,6 +60,9 @@ impl TestServer {
             cost_calculator,
             response_cache: None,
             start_time: Instant::now(),
+            login_limiter: Arc::new(
+                prism_server::handler::dashboard::auth::LoginRateLimiter::new(),
+            ),
         };
 
         let app_router = prism_server::build_router(state);

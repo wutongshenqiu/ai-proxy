@@ -20,6 +20,23 @@ pub async fn dashboard_auth_middleware(
     next: Next,
 ) -> Result<Response, Response> {
     let config = state.config.load();
+
+    // Enforce localhost-only access
+    if config.dashboard.localhost_only {
+        let is_local = request
+            .extensions()
+            .get::<prism_core::context::RequestContext>()
+            .and_then(|ctx| ctx.client_ip.as_deref())
+            .is_some_and(|ip| ip == "127.0.0.1" || ip == "::1" || ip == "localhost");
+        if !is_local {
+            return Err(error_response(
+                StatusCode::FORBIDDEN,
+                "access_denied",
+                "Dashboard access restricted to localhost",
+            ));
+        }
+    }
+
     let secret = config.dashboard.resolve_jwt_secret().ok_or_else(|| {
         error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
