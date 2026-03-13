@@ -18,6 +18,7 @@ export default function RequestLogs() {
   const setFilters = useLogsStore((s) => s.setFilters);
   const filterOptions = useLogsStore((s) => s.filterOptions);
   const fetchFilterOptions = useLogsStore((s) => s.fetchFilterOptions);
+  const error = useLogsStore((s) => s.error);
   const openDrawer = useLogsStore((s) => s.openDrawer);
   const isLive = useLogsStore((s) => s.isLive);
   const toggleLive = useLogsStore((s) => s.toggleLive);
@@ -49,8 +50,12 @@ export default function RequestLogs() {
     if (searchParams.get('stream')) initialFilters.stream = searchParams.get('stream') === 'true';
     if (searchParams.get('latency_min')) initialFilters.latency_min = Number(searchParams.get('latency_min'));
     if (searchParams.get('latency_max')) initialFilters.latency_max = Number(searchParams.get('latency_max'));
-    if (Object.keys(initialFilters).length > 0) setFilters(initialFilters);
-    fetchLogs();
+    if (Object.keys(initialFilters).length > 0) {
+      // setFilters already calls fetchLogs internally
+      setFilters(initialFilters);
+    } else {
+      fetchLogs();
+    }
     fetchFilterOptions();
   }, [fetchLogs, fetchFilterOptions]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -64,7 +69,19 @@ export default function RequestLogs() {
 
   const handleOpenDrawer = (id: string) => {
     openDrawer(id);
-    setSearchParams({ id });
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('id', id);
+      return next;
+    }, { replace: true });
+  };
+
+  const handleCloseDrawer = () => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('id');
+      return next;
+    }, { replace: true });
   };
 
   const handleApplyFilters = () => {
@@ -234,6 +251,12 @@ export default function RequestLogs() {
         </div>
       </div>
 
+      {error && (
+        <div className="alert alert-error" style={{ marginBottom: '1.5rem' }}>
+          {error}
+        </div>
+      )}
+
       {/* Table */}
       <div className="card">
         <div className="table-wrapper">
@@ -325,7 +348,7 @@ export default function RequestLogs() {
         )}
       </div>
 
-      <LogDrawer />
+      <LogDrawer onClose={handleCloseDrawer} />
     </div>
   );
 }

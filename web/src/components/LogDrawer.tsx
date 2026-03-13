@@ -4,15 +4,25 @@ import { X, Copy, RotateCcw, MessageSquare, Code } from 'lucide-react';
 import JsonViewer from './JsonViewer';
 import { formatNumber, getStatusClass, formatCost } from '../utils/format';
 
-export default function LogDrawer() {
+interface LogDrawerProps {
+  onClose?: () => void;
+}
+
+export default function LogDrawer({ onClose }: LogDrawerProps) {
   const isOpen = useLogsStore((s) => s.isDrawerOpen);
   const log = useLogsStore((s) => s.selectedLog);
   const isLoading = useLogsStore((s) => s.isLoadingDetail);
+  const detailError = useLogsStore((s) => s.detailError);
   const closeDrawer = useLogsStore((s) => s.closeDrawer);
+
+  const handleClose = () => {
+    closeDrawer();
+    onClose?.();
+  };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) closeDrawer();
+      if (e.key === 'Escape' && isOpen) handleClose();
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
@@ -20,17 +30,18 @@ export default function LogDrawer() {
 
   return (
     <>
-      {isOpen && <div className="drawer-overlay" onClick={closeDrawer} />}
+      {isOpen && <div className="drawer-overlay" onClick={handleClose} />}
       <div className={`drawer ${isOpen ? 'drawer--open' : ''}`}>
         <div className="drawer-header">
           <h3>Request Detail</h3>
-          <button className="btn btn-ghost" onClick={closeDrawer}>
+          <button className="btn btn-ghost" onClick={handleClose}>
             <X size={18} />
           </button>
         </div>
         <div className="drawer-body">
           {isLoading && <div className="drawer-loading">Loading...</div>}
-          {!isLoading && !log && <div className="drawer-loading">Not found</div>}
+          {!isLoading && detailError && <div className="drawer-loading" style={{ color: 'var(--error)' }}>{detailError}</div>}
+          {!isLoading && !detailError && !log && <div className="drawer-loading">Not found</div>}
           {!isLoading && log && (
             <>
               {/* Overview */}
