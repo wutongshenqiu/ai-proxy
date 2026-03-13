@@ -1,6 +1,8 @@
+pub mod catalog;
 pub mod claude;
 pub mod common;
 pub mod gemini;
+pub mod health;
 pub mod openai;
 pub mod openai_compat;
 pub mod routing;
