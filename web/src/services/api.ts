@@ -18,6 +18,8 @@ import type {
   SystemHealth,
   SystemLog,
   ConfigValidateResponse,
+  TenantSummary,
+  TenantMetricsResponse,
 } from '../types';
 
 const api = axios.create({
@@ -259,6 +261,19 @@ export const systemApi = {
       };
     }) as Promise<{ data: PaginatedResponse<SystemLog> } & Record<string, unknown>>;
   },
+};
+
+// ── Tenants ──
+
+export const tenantsApi = {
+  list: () =>
+    api.get('/tenants').then((res) => {
+      const data = res.data.tenants || [];
+      return { ...res, data };
+    }) as Promise<{ data: TenantSummary[] } & Record<string, unknown>>,
+
+  metrics: (id: string) =>
+    api.get<TenantMetricsResponse>(`/tenants/${encodeURIComponent(id)}/metrics`),
 };
 
 // ── Config ──

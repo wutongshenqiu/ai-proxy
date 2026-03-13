@@ -323,6 +323,24 @@ export interface SystemLog {
   message: string;
 }
 
+// ── Tenants ──
+
+export interface TenantSummary {
+  id: string;
+  requests: number;
+  tokens: number;
+  cost_usd: number;
+}
+
+export interface TenantMetricsResponse {
+  tenant_id: string;
+  metrics: {
+    requests: number;
+    tokens: number;
+    cost_usd: number;
+  } | null;
+}
+
 // ── WebSocket ──
 
 export interface WsMessage {

@@ -12,6 +12,7 @@ import Routing from './pages/Routing';
 import System from './pages/System';
 import Logs from './pages/Logs';
 import Config from './pages/Config';
+import Tenants from './pages/Tenants';
 import './App.css';
 
 export default function App() {
@@ -38,6 +39,7 @@ export default function App() {
           <Route path="providers" element={<Providers />} />
           <Route path="auth-keys" element={<AuthKeys />} />
           <Route path="routing" element={<Routing />} />
+          <Route path="tenants" element={<Tenants />} />
           <Route path="config" element={<Config />} />
           <Route path="system" element={<System />} />
           <Route path="logs" element={<Logs />} />
