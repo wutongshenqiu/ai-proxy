@@ -34,6 +34,7 @@ All specifications for the AI Proxy Gateway project.
 | SPEC-044 | Coding Agent Compatibility Endpoints            | Active    | [active/SPEC-044/](active/SPEC-044/) |
 | SPEC-045 | Model Rewrite Rules                              | Active    | [active/SPEC-045/](active/SPEC-045/) |
 | SPEC-046 | Dashboard Auth & Security Hardening               | Active    | [active/SPEC-046/](active/SPEC-046/) |
+| SPEC-047 | OAuth & Auth-File Upstream Onboarding             | Draft     | [active/SPEC-047/](active/SPEC-047/) |
 
 ## Retroactively Completed
 
