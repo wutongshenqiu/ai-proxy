@@ -46,6 +46,12 @@ impl TestServer {
         let credential_router = Arc::new(CredentialRouter::new(default_cred_strategy));
         credential_router.update_from_config(&config);
 
+        let catalog = Arc::new(ProviderCatalog::new());
+        {
+            let cred_map = credential_router.credential_map();
+            catalog.update_from_credentials(&cred_map);
+        }
+
         let http_client_pool = Arc::new(prism_core::proxy::HttpClientPool::new());
         let executors = Arc::new(prism_provider::build_registry(
             config.proxy_url.clone(),
@@ -77,7 +83,7 @@ impl TestServer {
             login_limiter: Arc::new(
                 prism_server::handler::dashboard::auth::LoginRateLimiter::new(),
             ),
-            catalog: Arc::new(ProviderCatalog::new()),
+            catalog,
             health_manager: Arc::new(HealthManager::new(Default::default())),
         };
 
