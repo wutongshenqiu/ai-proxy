@@ -99,6 +99,15 @@ pub fn build_router(state: AppState) -> Router {
             "/v1/messages/count_tokens",
             axum::routing::post(handler::count_tokens::count_tokens),
         )
+        // Gemini native routes
+        .route(
+            "/v1beta/models",
+            axum::routing::get(handler::gemini::list_models),
+        )
+        .route(
+            "/v1beta/models/{model_action}",
+            axum::routing::post(handler::gemini::gemini_model_action),
+        )
         // Provider-scoped routes
         .route(
             "/api/provider/{provider}/v1/chat/completions",

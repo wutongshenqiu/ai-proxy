@@ -60,6 +60,28 @@ pub fn translate_non_stream(
         }
     }
 
+    // Check if original request had json_schema response_format
+    let original: Value = serde_json::from_slice(_original_req).unwrap_or(json!({}));
+    let has_json_schema = original
+        .get("response_format")
+        .and_then(|rf| rf.get("type"))
+        .and_then(|t| t.as_str())
+        == Some("json_schema");
+
+    // If json_schema mode and we got tool_use results, unwrap as content
+    if has_json_schema && !tool_calls.is_empty() && text_parts.is_empty() {
+        if let Some(content) = resp.get("content").and_then(|c| c.as_array()) {
+            for block in content {
+                if block.get("type").and_then(|t| t.as_str()) == Some("tool_use")
+                    && let Some(input) = block.get("input")
+                {
+                    text_parts.push(serde_json::to_string(input).unwrap_or_default());
+                }
+            }
+        }
+        tool_calls.clear();
+    }
+
     let finish_reason = map_claude_finish_reason(resp.get("stop_reason").and_then(|v| v.as_str()));
 
     let content_str = text_parts.join("");
@@ -715,6 +737,83 @@ mod tests {
                 .get("reasoning_content")
                 .is_none()
         );
+    }
+
+    // ==================
+    // Structured output (json_schema unwrap) tests
+    // ==================
+
+    #[test]
+    fn test_json_schema_tool_use_unwrapped() {
+        let original_req = json!({
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "What is 2+2?"}],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "math_response",
+                    "schema": {"type": "object", "properties": {"answer": {"type": "number"}}}
+                }
+            }
+        });
+        let original_bytes = serde_json::to_vec(&original_req).unwrap();
+
+        let claude_resp = json!({
+            "id": "msg_schema",
+            "model": "claude-3-5-sonnet-20241022",
+            "content": [{
+                "type": "tool_use",
+                "id": "toolu_schema",
+                "name": "math_response",
+                "input": {"answer": 4}
+            }],
+            "stop_reason": "tool_use",
+            "usage": {"input_tokens": 10, "output_tokens": 20}
+        });
+        let data = serde_json::to_vec(&claude_resp).unwrap();
+
+        let result: Value =
+            serde_json::from_str(&translate_non_stream("model", &original_bytes, &data).unwrap())
+                .unwrap();
+
+        // Content should be the unwrapped tool input as JSON string
+        let content = result["choices"][0]["message"]["content"].as_str().unwrap();
+        let parsed: Value = serde_json::from_str(content).unwrap();
+        assert_eq!(parsed["answer"], 4);
+
+        // Should NOT have tool_calls
+        assert!(result["choices"][0]["message"].get("tool_calls").is_none());
+    }
+
+    #[test]
+    fn test_non_json_schema_tool_use_not_unwrapped() {
+        let original_req = json!({
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "Weather?"}]
+        });
+        let original_bytes = serde_json::to_vec(&original_req).unwrap();
+
+        let claude_resp = json!({
+            "id": "msg_normal",
+            "model": "claude-3-5-sonnet-20241022",
+            "content": [{
+                "type": "tool_use",
+                "id": "toolu_123",
+                "name": "get_weather",
+                "input": {"city": "SF"}
+            }],
+            "stop_reason": "tool_use",
+            "usage": {"input_tokens": 10, "output_tokens": 20}
+        });
+        let data = serde_json::to_vec(&claude_resp).unwrap();
+
+        let result: Value =
+            serde_json::from_str(&translate_non_stream("model", &original_bytes, &data).unwrap())
+                .unwrap();
+
+        // Should still have tool_calls (not unwrapped)
+        assert!(result["choices"][0]["message"]["tool_calls"].is_array());
+        assert_eq!(result["choices"][0]["message"]["content"], Value::Null);
     }
 
     #[test]

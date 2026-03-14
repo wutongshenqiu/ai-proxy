@@ -85,6 +85,53 @@ pub fn translate_request(
         claude_req["tool_choice"] = convert_tool_choice(tc);
     }
 
+    // Handle response_format translation
+    if let Some(rf) = req.get("response_format") {
+        let rf_type = rf.get("type").and_then(|t| t.as_str()).unwrap_or("");
+        match rf_type {
+            "json_schema" => {
+                if let Some(schema_obj) = rf.get("json_schema") {
+                    let name = schema_obj
+                        .get("name")
+                        .and_then(|n| n.as_str())
+                        .unwrap_or("structured_output");
+                    let schema = schema_obj
+                        .get("schema")
+                        .cloned()
+                        .unwrap_or(json!({"type": "object"}));
+
+                    let synthetic_tool = json!({
+                        "name": name,
+                        "description": format!("Respond with structured output matching the {} schema", name),
+                        "input_schema": schema,
+                    });
+
+                    if let Some(tools) = claude_req.get_mut("tools").and_then(|t| t.as_array_mut())
+                    {
+                        tools.push(synthetic_tool);
+                    } else {
+                        claude_req["tools"] = json!([synthetic_tool]);
+                    }
+
+                    claude_req["tool_choice"] = json!({"type": "tool", "name": name});
+                }
+            }
+            "json_object" => {
+                let json_instruction = "\n\nYou must respond with valid JSON only. Do not include any text outside the JSON object.";
+                if let Some(system) = claude_req
+                    .get("system")
+                    .and_then(|s| s.as_str())
+                    .map(|s| s.to_string())
+                {
+                    claude_req["system"] = Value::String(format!("{}{}", system, json_instruction));
+                } else {
+                    claude_req["system"] = Value::String(json_instruction.trim_start().to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+
     serde_json::to_vec(&claude_req).map_err(|e| ProxyError::Translation(e.to_string()))
 }
 
@@ -852,6 +899,111 @@ mod tests {
         assert_eq!(result["thinking"]["type"], "enabled");
         // high = max_tokens.max(8192) * 0.8 = 16384 * 0.8 = 13107
         assert_eq!(result["thinking"]["budget_tokens"], 13107);
+    }
+
+    // === Structured output (response_format) translation ===
+
+    #[test]
+    fn test_json_schema_response_format_to_tool() {
+        let req = json!({
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "What is 2+2?"}],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "math_response",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "answer": {"type": "number"}
+                        },
+                        "required": ["answer"]
+                    }
+                }
+            }
+        });
+        let result = translate(req, false);
+
+        // Should have a synthetic tool
+        let tools = result["tools"].as_array().unwrap();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0]["name"], "math_response");
+        assert_eq!(
+            tools[0]["input_schema"]["properties"]["answer"]["type"],
+            "number"
+        );
+
+        // Should force tool choice
+        assert_json_eq!(
+            result["tool_choice"],
+            json!({"type": "tool", "name": "math_response"})
+        );
+    }
+
+    #[test]
+    fn test_json_schema_with_existing_tools() {
+        let req = json!({
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "tools": [{
+                "type": "function",
+                "function": {
+                    "name": "get_weather",
+                    "description": "Get weather",
+                    "parameters": {"type": "object", "properties": {}}
+                }
+            }],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "output",
+                    "schema": {"type": "object"}
+                }
+            }
+        });
+        let result = translate(req, false);
+
+        // Should have both the original tool and the synthetic tool
+        let tools = result["tools"].as_array().unwrap();
+        assert_eq!(tools.len(), 2);
+        assert_eq!(tools[0]["name"], "get_weather");
+        assert_eq!(tools[1]["name"], "output");
+
+        // tool_choice should be overridden to the synthetic tool
+        assert_json_eq!(
+            result["tool_choice"],
+            json!({"type": "tool", "name": "output"})
+        );
+    }
+
+    #[test]
+    fn test_json_object_response_format_to_system_prompt() {
+        let req = json!({
+            "model": "gpt-4",
+            "messages": [
+                {"role": "system", "content": "You are helpful."},
+                {"role": "user", "content": "Give me JSON"}
+            ],
+            "response_format": {"type": "json_object"}
+        });
+        let result = translate(req, false);
+
+        let system = result["system"].as_str().unwrap();
+        assert!(system.starts_with("You are helpful."));
+        assert!(system.contains("You must respond with valid JSON only"));
+    }
+
+    #[test]
+    fn test_json_object_response_format_no_existing_system() {
+        let req = json!({
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "Give me JSON"}],
+            "response_format": {"type": "json_object"}
+        });
+        let result = translate(req, false);
+
+        let system = result["system"].as_str().unwrap();
+        assert!(system.contains("You must respond with valid JSON only"));
     }
 
     #[test]

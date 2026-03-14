@@ -336,6 +336,27 @@ fn build_generation_config(req: &Value) -> Option<Value> {
         has_any = true;
     }
 
+    // Handle response_format translation
+    if let Some(rf) = req.get("response_format") {
+        let rf_type = rf.get("type").and_then(|t| t.as_str()).unwrap_or("");
+        match rf_type {
+            "json_schema" => {
+                if let Some(schema_obj) = rf.get("json_schema") {
+                    config["responseMimeType"] = json!("application/json");
+                    if let Some(schema) = schema_obj.get("schema") {
+                        config["responseSchema"] = schema.clone();
+                    }
+                    has_any = true;
+                }
+            }
+            "json_object" => {
+                config["responseMimeType"] = json!("application/json");
+                has_any = true;
+            }
+            _ => {}
+        }
+    }
+
     if has_any { Some(config) } else { None }
 }
 
@@ -648,6 +669,49 @@ mod tests {
             result["generationConfig"]["thinkingConfig"]["thinkingBudget"],
             10000
         );
+    }
+
+    // === Structured output (response_format) translation ===
+
+    #[test]
+    fn test_json_schema_to_response_schema() {
+        let req = json!({
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "What is 2+2?"}],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "math_response",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "answer": {"type": "number"}
+                        }
+                    }
+                }
+            }
+        });
+        let result = translate(req);
+        let gc = &result["generationConfig"];
+        assert_eq!(gc["responseMimeType"], "application/json");
+        assert_eq!(gc["responseSchema"]["type"], "object");
+        assert_eq!(
+            gc["responseSchema"]["properties"]["answer"]["type"],
+            "number"
+        );
+    }
+
+    #[test]
+    fn test_json_object_to_response_mime_type() {
+        let req = json!({
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "Give me JSON"}],
+            "response_format": {"type": "json_object"}
+        });
+        let result = translate(req);
+        let gc = &result["generationConfig"];
+        assert_eq!(gc["responseMimeType"], "application/json");
+        assert!(gc.get("responseSchema").is_none());
     }
 
     #[test]
