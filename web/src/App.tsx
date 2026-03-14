@@ -7,12 +7,14 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import RequestLogs from './pages/RequestLogs';
 import Providers from './pages/Providers';
-import AuthKeys from './pages/AuthKeys';
 import Routing from './pages/Routing';
 import System from './pages/System';
 import Logs from './pages/Logs';
 import Config from './pages/Config';
 import Tenants from './pages/Tenants';
+import Protocols from './pages/Protocols';
+import ModelsCapabilities from './pages/ModelsCapabilities';
+import Replay from './pages/Replay';
 import './App.css';
 
 export default function App() {
@@ -35,14 +37,19 @@ export default function App() {
           }
         >
           <Route index element={<Dashboard />} />
-          <Route path="request-logs" element={<RequestLogs />} />
+          <Route path="requests" element={<RequestLogs />} />
+          <Route path="protocols" element={<Protocols />} />
           <Route path="providers" element={<Providers />} />
-          <Route path="auth-keys" element={<AuthKeys />} />
+          <Route path="models" element={<ModelsCapabilities />} />
           <Route path="routing" element={<Routing />} />
+          <Route path="replay" element={<Replay />} />
           <Route path="tenants" element={<Tenants />} />
           <Route path="config" element={<Config />} />
           <Route path="system" element={<System />} />
           <Route path="logs" element={<Logs />} />
+          {/* Legacy redirects */}
+          <Route path="request-logs" element={<Navigate to="/requests" replace />} />
+          <Route path="auth-keys" element={<Navigate to="/tenants" replace />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

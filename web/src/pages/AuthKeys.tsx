@@ -65,7 +65,7 @@ function buildBudget(form: FormState): BudgetConfig | undefined {
   return { total_usd: parseFloat(form.budget_total_usd), period: form.budget_period };
 }
 
-export default function AuthKeys() {
+export default function AuthKeys({ embedded }: { embedded?: boolean } = {}) {
   const [keys, setKeys] = useState<AuthKey[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -216,17 +216,27 @@ export default function AuthKeys() {
   };
 
   return (
-    <div className="page">
-      <div className="page-header">
-        <div>
-          <h2>API Keys</h2>
-          <p className="page-subtitle">Manage authentication keys for API access</p>
+    <div className={embedded ? '' : 'page'}>
+      {!embedded && (
+        <div className="page-header">
+          <div>
+            <h2>API Keys</h2>
+            <p className="page-subtitle">Manage authentication keys for API access</p>
+          </div>
+          <button className="btn btn-primary" onClick={openCreate}>
+            <Plus size={16} />
+            Create Key
+          </button>
         </div>
-        <button className="btn btn-primary" onClick={openCreate}>
-          <Plus size={16} />
-          Create Key
-        </button>
-      </div>
+      )}
+      {embedded && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
+          <button className="btn btn-primary" onClick={openCreate}>
+            <Plus size={16} />
+            Create Key
+          </button>
+        </div>
+      )}
 
       <div className="card">
         <div className="table-wrapper">

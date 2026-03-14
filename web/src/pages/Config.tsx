@@ -10,9 +10,30 @@ import {
   Edit3,
   Save,
   RotateCcw,
+  Layers,
+  Clock,
 } from 'lucide-react';
 
-type Tab = 'view' | 'editor';
+type Tab = 'view' | 'editor' | 'schema';
+
+interface ConfigSection {
+  key: string;
+  label: string;
+  description: string;
+}
+
+const CONFIG_SECTIONS: ConfigSection[] = [
+  { key: 'listen', label: 'Server', description: 'Listen address, port, and TLS settings' },
+  { key: 'providers', label: 'Providers', description: 'Upstream provider credentials, base URLs, and model mappings' },
+  { key: 'routing', label: 'Routing', description: 'Routing profiles, rules, and model resolution' },
+  { key: 'auth-keys', label: 'Auth Keys', description: 'API keys for client authentication with model/credential ACLs' },
+  { key: 'dashboard', label: 'Dashboard', description: 'Dashboard authentication and settings' },
+  { key: 'rate-limit', label: 'Rate Limiting', description: 'Global and per-key RPM/TPM limits' },
+  { key: 'cache', label: 'Cache', description: 'Response cache settings (TTL, max entries)' },
+  { key: 'cost', label: 'Cost Tracking', description: 'Custom model pricing overrides' },
+  { key: 'audit', label: 'Audit', description: 'Audit logging backend configuration' },
+  { key: 'logging', label: 'Logging', description: 'Log level, file rotation, and output settings' },
+];
 
 export default function Config() {
   const [activeTab, setActiveTab] = useState<Tab>('view');
@@ -25,6 +46,7 @@ export default function Config() {
   const [isValidating, setIsValidating] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [expandedSection, setExpandedSection] = useState<string | null>(null);
 
   const fetchConfig = useCallback(async () => {
     setIsLoading(true);
@@ -111,7 +133,7 @@ export default function Config() {
     return (
       <div className="page">
         <div className="page-header">
-          <h2>Configuration</h2>
+          <h2>Config & Changes</h2>
         </div>
         <div className="card">
           <div className="card-body">Loading configuration...</div>
@@ -124,9 +146,9 @@ export default function Config() {
     <div className="page">
       <div className="page-header">
         <div>
-          <h2>Configuration</h2>
+          <h2>Config & Changes</h2>
           <p className="page-subtitle">
-            View and manage gateway configuration
+            View, validate, and apply gateway configuration
             {configPath && <> &mdash; <code>{configPath}</code></>}
           </p>
         </div>
@@ -156,6 +178,13 @@ export default function Config() {
               Current Config
             </button>
             <button
+              className={`btn ${activeTab === 'schema' ? 'btn-primary' : 'btn-ghost'} btn-sm`}
+              onClick={() => setActiveTab('schema')}
+            >
+              <Layers size={14} />
+              Config Schema
+            </button>
+            <button
               className={`btn ${activeTab === 'editor' ? 'btn-primary' : 'btn-ghost'} btn-sm`}
               onClick={() => setActiveTab('editor')}
             >
@@ -166,6 +195,84 @@ export default function Config() {
           </div>
         </div>
       </div>
+
+      {/* Schema Explorer Tab */}
+      {activeTab === 'schema' && (
+        <div className="card">
+          <div className="card-header">
+            <h3><Layers size={18} style={{ verticalAlign: 'middle', marginRight: '0.5rem' }} />Configuration Sections</h3>
+          </div>
+          <div className="card-body">
+            <p className="text-muted" style={{ marginBottom: '1rem' }}>
+              Each section of the configuration controls a specific domain. Click a section to see its current values.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {CONFIG_SECTIONS.map((section) => {
+                const sectionData = currentConfig?.[section.key];
+                const isExpanded = expandedSection === section.key;
+                return (
+                  <div key={section.key} style={{
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 'var(--radius-sm)',
+                    overflow: 'hidden',
+                  }}>
+                    <button
+                      onClick={() => setExpandedSection(isExpanded ? null : section.key)}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        width: '100%',
+                        padding: '0.75rem 1rem',
+                        background: isExpanded ? 'var(--bg-secondary)' : 'transparent',
+                        border: 'none',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        color: 'var(--text-primary)',
+                      }}
+                    >
+                      <div>
+                        <strong>{section.label}</strong>
+                        <span className="text-muted" style={{ marginLeft: '0.75rem', fontSize: '0.85rem' }}>
+                          {section.description}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        {sectionData !== undefined ? (
+                          <span className="type-badge type-badge--green">configured</span>
+                        ) : (
+                          <span className="type-badge">default</span>
+                        )}
+                        <Clock size={14} className="text-muted" style={{ transform: isExpanded ? 'rotate(180deg)' : 'none' }} />
+                      </div>
+                    </button>
+                    {isExpanded && (
+                      <div style={{ padding: '1rem', borderTop: '1px solid var(--color-border)' }}>
+                        {sectionData !== undefined ? (
+                          <pre style={{
+                            background: 'var(--bg-secondary)',
+                            padding: '0.75rem',
+                            borderRadius: 'var(--radius-sm)',
+                            overflow: 'auto',
+                            maxHeight: '300px',
+                            fontSize: '0.8rem',
+                            lineHeight: '1.5',
+                            margin: 0,
+                          }}>
+                            {JSON.stringify(sectionData, null, 2)}
+                          </pre>
+                        ) : (
+                          <p className="text-muted">Using default values. Not explicitly configured.</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {activeTab === 'view' && currentConfig && (
         <div className="card">

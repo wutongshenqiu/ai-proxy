@@ -5,7 +5,8 @@ import {
   LayoutDashboard,
   FileText,
   Server,
-  Key,
+  Network,
+  Layers,
   GitBranch,
   FileCode,
   Users,
@@ -14,19 +15,52 @@ import {
   LogOut,
   Menu,
   X,
+  PlayCircle,
 } from 'lucide-react';
 import { useState } from 'react';
 
-const navItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/request-logs', icon: FileText, label: 'Request Logs' },
-  { to: '/providers', icon: Server, label: 'Providers' },
-  { to: '/auth-keys', icon: Key, label: 'Auth Keys' },
-  { to: '/routing', icon: GitBranch, label: 'Routing' },
-  { to: '/tenants', icon: Users, label: 'Tenants' },
-  { to: '/config', icon: FileCode, label: 'Config' },
-  { to: '/system', icon: Activity, label: 'System' },
-  { to: '/logs', icon: ScrollText, label: 'App Logs' },
+interface NavSection {
+  label: string;
+  items: { to: string; icon: React.ComponentType<{ size?: number }>; label: string }[];
+}
+
+const navSections: NavSection[] = [
+  {
+    label: 'Observe',
+    items: [
+      { to: '/', icon: LayoutDashboard, label: 'Overview' },
+      { to: '/requests', icon: FileText, label: 'Requests' },
+    ],
+  },
+  {
+    label: 'Infrastructure',
+    items: [
+      { to: '/protocols', icon: Network, label: 'Protocols' },
+      { to: '/providers', icon: Server, label: 'Providers' },
+      { to: '/models', icon: Layers, label: 'Models & Capabilities' },
+    ],
+  },
+  {
+    label: 'Traffic',
+    items: [
+      { to: '/routing', icon: GitBranch, label: 'Routing' },
+      { to: '/replay', icon: PlayCircle, label: 'Replay' },
+    ],
+  },
+  {
+    label: 'Access Control',
+    items: [
+      { to: '/tenants', icon: Users, label: 'Tenants & Keys' },
+    ],
+  },
+  {
+    label: 'Operations',
+    items: [
+      { to: '/config', icon: FileCode, label: 'Config & Changes' },
+      { to: '/system', icon: Activity, label: 'System' },
+      { to: '/logs', icon: ScrollText, label: 'App Logs' },
+    ],
+  },
 ];
 
 export default function Layout() {
@@ -68,19 +102,24 @@ export default function Layout() {
         </div>
 
         <nav className="sidebar-nav">
-          {navItems.map(({ to, icon: Icon, label }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/'}
-              className={({ isActive }) =>
-                `sidebar-nav-item ${isActive ? 'sidebar-nav-item--active' : ''}`
-              }
-              onClick={() => setSidebarOpen(false)}
-            >
-              <Icon size={18} />
-              <span>{label}</span>
-            </NavLink>
+          {navSections.map((section) => (
+            <div key={section.label} className="sidebar-section">
+              <div className="sidebar-section-label">{section.label}</div>
+              {section.items.map(({ to, icon: Icon, label }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  end={to === '/'}
+                  className={({ isActive }) =>
+                    `sidebar-nav-item ${isActive ? 'sidebar-nav-item--active' : ''}`
+                  }
+                  onClick={() => setSidebarOpen(false)}
+                >
+                  <Icon size={18} />
+                  <span>{label}</span>
+                </NavLink>
+              ))}
+            </div>
           ))}
         </nav>
 

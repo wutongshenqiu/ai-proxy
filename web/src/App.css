@@ -55,6 +55,20 @@
   overflow-y: auto;
 }
 
+.sidebar-section {
+  margin-bottom: 0.25rem;
+}
+
+.sidebar-section-label {
+  padding: 0.5rem 0.875rem 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--sidebar-text);
+  opacity: 0.5;
+}
+
 .sidebar-nav-item {
   display: flex;
   align-items: center;
@@ -612,6 +626,10 @@
   color: var(--color-text-tertiary);
 }
 
+.table-row--highlight {
+  background: rgba(59, 130, 246, 0.08);
+}
+
 .text-mono {
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   font-size: 0.8125rem;
@@ -674,6 +692,24 @@
   background: var(--color-bg-tertiary);
   color: var(--color-text-secondary);
   font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.type-badge--green {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+.type-badge--blue {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
+.type-badge--red {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
 }
 
 .tag-list {
@@ -1690,6 +1726,14 @@
 }
 
 /* Form inputs */
+
+.form-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-bottom: 0.25rem;
+}
 
 .form-input,
 .form-select {

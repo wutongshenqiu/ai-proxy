@@ -103,7 +103,7 @@ export default function Dashboard() {
     <div className="page">
       <div className="page-header">
         <div>
-          <h2>Dashboard</h2>
+          <h2>Overview</h2>
           <p className="page-subtitle">Gateway overview and analytics</p>
         </div>
         <div className="page-header-actions">
