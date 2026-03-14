@@ -99,6 +99,19 @@ pub fn build_router(state: AppState) -> Router {
             "/v1/messages/count_tokens",
             axum::routing::post(handler::count_tokens::count_tokens),
         )
+        // Provider-scoped routes
+        .route(
+            "/api/provider/{provider}/v1/chat/completions",
+            axum::routing::post(handler::provider_scoped::provider_chat_completions),
+        )
+        .route(
+            "/api/provider/{provider}/v1/messages",
+            axum::routing::post(handler::provider_scoped::provider_messages),
+        )
+        .route(
+            "/api/provider/{provider}/v1/responses",
+            axum::routing::post(handler::provider_scoped::provider_responses),
+        )
         .layer(RequestBodyLimitLayer::new(body_limit_bytes))
         .layer(axum_mw::from_fn_with_state(
             state.clone(),

@@ -405,8 +405,7 @@ impl<'a> ExecutionController<'a> {
                     );
                     drop(attempt_span);
 
-                    self.state.router.record_failure(&auth.id);
-                    self.state.metrics.record_error();
+                    self.handle_attempt_error(&auth.id, &e);
 
                     Err(e)
                 }
@@ -598,8 +597,27 @@ impl<'a> ExecutionController<'a> {
         self.state.metrics.record_error();
         match error {
             ProxyError::Upstream {
-                status: 429 | 500..=599,
+                status: 429,
+                retry_after_secs,
                 ..
+            } => {
+                self.state.router.record_failure(auth_id);
+                let config = self.state.config.load();
+                let cooldown_secs = retry_after_secs.unwrap_or(config.quota_cooldown_default_secs);
+                self.state
+                    .router
+                    .set_quota_cooldown(auth_id, Duration::from_secs(cooldown_secs));
+            }
+            ProxyError::RateLimited {
+                retry_after_secs, ..
+            } => {
+                self.state.router.record_failure(auth_id);
+                self.state
+                    .router
+                    .set_quota_cooldown(auth_id, Duration::from_secs(*retry_after_secs));
+            }
+            ProxyError::Upstream {
+                status: 500..=599, ..
             }
             | ProxyError::Network(_) => {
                 self.state.router.record_failure(auth_id);

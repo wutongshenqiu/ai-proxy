@@ -24,8 +24,9 @@ pub fn translate_non_stream(
         .to_string();
     let created = chrono::Utc::now().timestamp();
 
-    // Extract text content and tool_use blocks
+    // Extract text content, thinking content, and tool_use blocks
     let mut text_parts = Vec::new();
+    let mut thinking_parts = Vec::new();
     let mut tool_calls = Vec::new();
     let mut tool_call_index = 0u32;
 
@@ -33,6 +34,13 @@ pub fn translate_non_stream(
         for block in content {
             let block_type = block.get("type").and_then(|t| t.as_str()).unwrap_or("");
             match block_type {
+                "thinking" => {
+                    if let Some(text) = block.get("thinking").and_then(|t| t.as_str())
+                        && !text.is_empty()
+                    {
+                        thinking_parts.push(text.to_string());
+                    }
+                }
                 "text" => {
                     if let Some(text) = block.get("text").and_then(|t| t.as_str()) {
                         text_parts.push(text.to_string());
@@ -65,7 +73,17 @@ pub fn translate_non_stream(
     } else {
         Some(tool_calls)
     };
-    let message = build_assistant_message(content, tc);
+    let mut message = build_assistant_message(content, tc);
+
+    // Add reasoning_content if thinking blocks were present
+    if !thinking_parts.is_empty()
+        && let Some(obj) = message.as_object_mut()
+    {
+        obj.insert(
+            "reasoning_content".to_string(),
+            Value::String(thinking_parts.join("\n")),
+        );
+    }
 
     // Map usage
     let usage = if let Some(u) = resp.get("usage") {
@@ -134,7 +152,9 @@ pub fn translate_stream(
 
             if let Some(cb) = event.get("content_block") {
                 let block_type = cb.get("type").and_then(|t| t.as_str()).unwrap_or("");
-                if block_type == "tool_use" {
+                if block_type == "thinking" {
+                    // Start of thinking block — no chunk emitted, we'll emit reasoning_content deltas
+                } else if block_type == "tool_use" {
                     let tc_idx = state.next_tool_call_index() as i32;
                     let tc_id = cb.get("id").and_then(|v| v.as_str()).unwrap_or("");
                     let name = cb.get("name").and_then(|v| v.as_str()).unwrap_or("");
@@ -163,6 +183,17 @@ pub fn translate_stream(
             if let Some(delta) = event.get("delta") {
                 let delta_type = delta.get("type").and_then(|t| t.as_str()).unwrap_or("");
                 match delta_type {
+                    "thinking_delta" => {
+                        let text = delta.get("thinking").and_then(|t| t.as_str()).unwrap_or("");
+                        let chunk = build_openai_chunk(
+                            &state.response_id,
+                            state.created,
+                            &state.model,
+                            json!({"reasoning_content": text}),
+                            None,
+                        );
+                        chunks.push(serde_json::to_string(&chunk)?);
+                    }
                     "text_delta" => {
                         let text = delta.get("text").and_then(|t| t.as_str()).unwrap_or("");
                         let chunk = build_openai_chunk(
@@ -635,5 +666,100 @@ mod tests {
         )
         .unwrap();
         assert!(chunks.is_empty());
+    }
+
+    // ==================
+    // Thinking / reasoning_content tests
+    // ==================
+
+    #[test]
+    fn test_non_stream_thinking_to_reasoning_content() {
+        let claude_resp = json!({
+            "id": "msg_think",
+            "model": "claude-sonnet-4-5-20250514",
+            "content": [
+                {"type": "thinking", "thinking": "Let me analyze this step by step...", "signature": "sig123"},
+                {"type": "text", "text": "The answer is 42."}
+            ],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 50}
+        });
+        let data = serde_json::to_vec(&claude_resp).unwrap();
+        let result: Value =
+            serde_json::from_str(&translate_non_stream("model", b"{}", &data).unwrap()).unwrap();
+
+        assert_eq!(
+            result["choices"][0]["message"]["reasoning_content"],
+            "Let me analyze this step by step..."
+        );
+        assert_eq!(
+            result["choices"][0]["message"]["content"],
+            "The answer is 42."
+        );
+    }
+
+    #[test]
+    fn test_non_stream_no_thinking_no_reasoning_content() {
+        let claude_resp = json!({
+            "id": "msg_no_think",
+            "model": "claude-3-5-sonnet-20241022",
+            "content": [{"type": "text", "text": "Hello!"}],
+            "stop_reason": "end_turn"
+        });
+        let data = serde_json::to_vec(&claude_resp).unwrap();
+        let result: Value =
+            serde_json::from_str(&translate_non_stream("model", b"{}", &data).unwrap()).unwrap();
+
+        assert!(
+            result["choices"][0]["message"]
+                .get("reasoning_content")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn test_stream_thinking_delta_to_reasoning_content() {
+        let mut state = new_state();
+        state.response_id = "chatcmpl-test".to_string();
+        state.created = 1000;
+        state.model = "claude-sonnet-4-5".to_string();
+
+        // content_block_start for thinking — should emit no chunk
+        let event = json!({
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "thinking", "thinking": ""}
+        });
+        let data = serde_json::to_vec(&event).unwrap();
+        let chunks = translate_stream(
+            "model",
+            b"{}",
+            Some("content_block_start"),
+            &data,
+            &mut state,
+        )
+        .unwrap();
+        assert!(chunks.is_empty());
+
+        // thinking_delta — should emit reasoning_content
+        let event = json!({
+            "type": "content_block_delta",
+            "delta": {"type": "thinking_delta", "thinking": "Step 1: "}
+        });
+        let data = serde_json::to_vec(&event).unwrap();
+        let chunks = translate_stream(
+            "model",
+            b"{}",
+            Some("content_block_delta"),
+            &data,
+            &mut state,
+        )
+        .unwrap();
+        assert_eq!(chunks.len(), 1);
+        let chunk = parse_chunk(&chunks[0]);
+        assert_eq!(
+            chunk["choices"][0]["delta"]["reasoning_content"],
+            "Step 1: "
+        );
     }
 }

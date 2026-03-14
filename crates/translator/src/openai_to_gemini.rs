@@ -305,6 +305,37 @@ fn build_generation_config(req: &Value) -> Option<Value> {
         }
     }
 
+    // Map reasoning_effort → thinkingConfig.thinkingBudget
+    if let Some(effort) = req.get("reasoning_effort").and_then(|e| e.as_str()) {
+        let max_tokens = req
+            .get("max_tokens")
+            .or(req.get("max_completion_tokens"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(8192);
+        let budget = match effort {
+            "low" => 1024u64,
+            "medium" => 4096,
+            "high" => (max_tokens.max(8192) as f64 * 0.8) as u64,
+            _ => 0,
+        };
+        if budget > 0 {
+            config["thinkingConfig"] = json!({
+                "thinkingBudget": budget,
+            });
+            has_any = true;
+        }
+    }
+
+    // Forward explicit thinking config (from model suffix parsing)
+    if let Some(thinking) = req.get("thinking")
+        && let Some(budget) = thinking.get("budget_tokens").and_then(|b| b.as_u64())
+    {
+        config["thinkingConfig"] = json!({
+            "thinkingBudget": budget,
+        });
+        has_any = true;
+    }
+
     if has_any { Some(config) } else { None }
 }
 
@@ -559,6 +590,64 @@ mod tests {
         });
         let result = translate(req);
         assert!(result.get("generationConfig").is_none());
+    }
+
+    #[test]
+    fn test_reasoning_effort_low_to_thinking_config() {
+        let req = json!({
+            "model": "gemini-2.5-flash",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "reasoning_effort": "low"
+        });
+        let result = translate(req);
+        assert_eq!(
+            result["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+            1024
+        );
+    }
+
+    #[test]
+    fn test_reasoning_effort_medium_to_thinking_config() {
+        let req = json!({
+            "model": "gemini-2.5-flash",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "reasoning_effort": "medium"
+        });
+        let result = translate(req);
+        assert_eq!(
+            result["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+            4096
+        );
+    }
+
+    #[test]
+    fn test_reasoning_effort_high_to_thinking_config() {
+        let req = json!({
+            "model": "gemini-2.5-flash",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "reasoning_effort": "high",
+            "max_tokens": 16384
+        });
+        let result = translate(req);
+        // high = max_tokens.max(8192) * 0.8 = 16384 * 0.8 = 13107
+        assert_eq!(
+            result["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+            13107
+        );
+    }
+
+    #[test]
+    fn test_thinking_budget_to_thinking_config() {
+        let req = json!({
+            "model": "gemini-2.5-flash",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "thinking": {"type": "enabled", "budget_tokens": 10000}
+        });
+        let result = translate(req);
+        assert_eq!(
+            result["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+            10000
+        );
     }
 
     #[test]

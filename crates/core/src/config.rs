@@ -96,6 +96,9 @@ pub struct Config {
     // Thinking signature cache
     pub thinking_cache: ThinkingCacheConfig,
 
+    // Quota-aware credential cooldown duration in seconds (default: 60).
+    pub quota_cooldown_default_secs: u64,
+
     // Provider credentials
     pub claude_api_key: Vec<ProviderKeyEntry>,
     pub openai_api_key: Vec<ProviderKeyEntry>,
@@ -136,6 +139,7 @@ impl Default for Config {
             dashboard: DashboardConfig::default(),
             daemon: DaemonConfig::default(),
             thinking_cache: ThinkingCacheConfig::default(),
+            quota_cooldown_default_secs: 60,
             claude_api_key: Vec::new(),
             openai_api_key: Vec::new(),
             gemini_api_key: Vec::new(),

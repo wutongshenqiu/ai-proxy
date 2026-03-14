@@ -59,6 +59,27 @@ pub fn translate_request(
         claude_req["thinking"] = thinking.clone();
     }
 
+    // Map reasoning_effort → thinking.budget_tokens if thinking not already set
+    if claude_req.get("thinking").is_none()
+        && let Some(effort) = req.get("reasoning_effort").and_then(|e| e.as_str())
+    {
+        let budget = match effort {
+            "low" => 1024u64,
+            "medium" => 4096,
+            "high" => {
+                let base = max_tokens.max(8192);
+                (base as f64 * 0.8) as u64
+            }
+            _ => 0,
+        };
+        if budget > 0 {
+            claude_req["thinking"] = json!({
+                "type": "enabled",
+                "budget_tokens": budget,
+            });
+        }
+    }
+
     // Forward tool_choice if present
     if let Some(tc) = req.get("tool_choice") {
         claude_req["tool_choice"] = convert_tool_choice(tc);
@@ -144,6 +165,14 @@ fn convert_messages(req: &Value) -> Result<Vec<Value>, ProxyError> {
 
         if role == "assistant" {
             let mut content_blocks = Vec::new();
+
+            // Handle reasoning_content → thinking block
+            if let Some(reasoning) = msg.get("reasoning_content").and_then(|r| r.as_str())
+                && !reasoning.is_empty()
+            {
+                content_blocks
+                    .push(json!({"type": "thinking", "thinking": reasoning, "signature": ""}));
+            }
 
             // Handle text content
             if let Some(content) = msg.get("content") {
@@ -759,5 +788,82 @@ mod tests {
         let raw = b"not valid json";
         let result = translate_request("claude-3-5-sonnet-20241022", raw, false);
         assert!(result.is_err());
+    }
+
+    // === Reasoning / Thinking translation ===
+
+    #[test]
+    fn test_reasoning_content_to_thinking_block() {
+        let req = json!({
+            "model": "gpt-4",
+            "messages": [
+                {"role": "user", "content": "Solve this math problem"},
+                {
+                    "role": "assistant",
+                    "reasoning_content": "Let me think step by step...",
+                    "content": "The answer is 42."
+                },
+                {"role": "user", "content": "Are you sure?"}
+            ]
+        });
+        let result = translate(req, false);
+        let assistant = &result["messages"][1];
+        let content = assistant["content"].as_array().unwrap();
+        // Should have thinking block first, then text
+        assert_eq!(content[0]["type"], "thinking");
+        assert_eq!(content[0]["thinking"], "Let me think step by step...");
+        assert_eq!(content[1]["type"], "text");
+        assert_eq!(content[1]["text"], "The answer is 42.");
+    }
+
+    #[test]
+    fn test_reasoning_effort_low() {
+        let req = json!({
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "reasoning_effort": "low"
+        });
+        let result = translate(req, false);
+        assert_eq!(result["thinking"]["type"], "enabled");
+        assert_eq!(result["thinking"]["budget_tokens"], 1024);
+    }
+
+    #[test]
+    fn test_reasoning_effort_medium() {
+        let req = json!({
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "reasoning_effort": "medium"
+        });
+        let result = translate(req, false);
+        assert_eq!(result["thinking"]["type"], "enabled");
+        assert_eq!(result["thinking"]["budget_tokens"], 4096);
+    }
+
+    #[test]
+    fn test_reasoning_effort_high() {
+        let req = json!({
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "reasoning_effort": "high",
+            "max_tokens": 16384
+        });
+        let result = translate(req, false);
+        assert_eq!(result["thinking"]["type"], "enabled");
+        // high = max_tokens.max(8192) * 0.8 = 16384 * 0.8 = 13107
+        assert_eq!(result["thinking"]["budget_tokens"], 13107);
+    }
+
+    #[test]
+    fn test_reasoning_effort_not_overridden_by_explicit_thinking() {
+        let req = json!({
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "thinking": {"type": "enabled", "budget_tokens": 50000},
+            "reasoning_effort": "low"
+        });
+        let result = translate(req, false);
+        // Explicit thinking should take precedence
+        assert_eq!(result["thinking"]["budget_tokens"], 50000);
     }
 }
