@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Format {
-    #[serde(rename = "openai")]
+    #[serde(rename = "openai", alias = "open-a-i")]
     OpenAI,
     Claude,
     Gemini,
