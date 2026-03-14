@@ -164,6 +164,9 @@ export const authKeysApi = {
     api.patch(`/auth-keys/${id}`, data),
 
   delete: (id: number | string) => api.delete(`/auth-keys/${id}`),
+
+  reveal: (id: number | string) =>
+    api.post<{ key: string }>(`/auth-keys/${id}/reveal`).then((res) => res.data.key),
 };
 
 // ── Routing ──

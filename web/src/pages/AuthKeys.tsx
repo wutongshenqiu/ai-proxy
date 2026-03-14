@@ -76,6 +76,8 @@ export default function AuthKeys() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copiedRowId, setCopiedRowId] = useState<number | null>(null);
+  const [copyingRowId, setCopyingRowId] = useState<number | null>(null);
 
   const fetchKeys = async () => {
     try {
@@ -190,6 +192,20 @@ export default function AuthKeys() {
     }
   };
 
+  const handleCopyKey = async (id: number) => {
+    setCopyingRowId(id);
+    try {
+      const key = await authKeysApi.reveal(id);
+      await navigator.clipboard.writeText(key);
+      setCopiedRowId(id);
+      setTimeout(() => setCopiedRowId(null), 2000);
+    } catch {
+      console.error('Failed to copy key');
+    } finally {
+      setCopyingRowId(null);
+    }
+  };
+
   const renderLimits = (key: AuthKey) => {
     const parts: string[] = [];
     if (key.rate_limit?.rpm) parts.push(`${key.rate_limit.rpm} RPM`);
@@ -265,6 +281,14 @@ export default function AuthKeys() {
                     </td>
                     <td>
                       <div className="action-btns">
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          onClick={() => handleCopyKey(key.id)}
+                          disabled={copyingRowId === key.id}
+                          title="Copy key"
+                        >
+                          {copiedRowId === key.id ? <Check size={14} /> : <Copy size={14} />}
+                        </button>
                         <button
                           className="btn btn-ghost btn-sm"
                           onClick={() => openEdit(key)}

@@ -174,6 +174,10 @@ pub fn build_router(state: AppState) -> Router {
             axum::routing::patch(handler::dashboard::auth_keys::update_auth_key)
                 .delete(handler::dashboard::auth_keys::delete_auth_key),
         )
+        .route(
+            "/api/dashboard/auth-keys/{id}/reveal",
+            axum::routing::post(handler::dashboard::auth_keys::reveal_auth_key),
+        )
         // Routing
         .route(
             "/api/dashboard/routing",
