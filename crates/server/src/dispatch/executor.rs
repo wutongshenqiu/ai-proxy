@@ -290,12 +290,11 @@ impl<'a> ExecutionController<'a> {
         }
 
         // Inject stream_options.include_usage for OpenAI-format streaming
-        let translated_payload =
-            if req.stream && matches!(target_format, Format::OpenAI | Format::OpenAICompat) {
-                inject_stream_usage_option(translated_payload)
-            } else {
-                translated_payload
-            };
+        let translated_payload = if req.stream && matches!(target_format, Format::OpenAI) {
+            inject_stream_usage_option(translated_payload)
+        } else {
+            translated_payload
+        };
 
         let provider_request = ProviderRequest {
             model: actual_model.clone(),

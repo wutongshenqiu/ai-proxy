@@ -17,10 +17,7 @@ pub async fn admin_config(State(state): State<AppState>) -> impl IntoResponse {
         "streaming": config.streaming,
         "connect_timeout": config.connect_timeout,
         "request_timeout": config.request_timeout,
-        "claude_keys_count": config.claude_api_key.len(),
-        "openai_keys_count": config.openai_api_key.len(),
-        "gemini_keys_count": config.gemini_api_key.len(),
-        "compat_keys_count": config.openai_compatibility.len(),
+        "providers_count": config.providers.len(),
     });
     Json(sanitized)
 }

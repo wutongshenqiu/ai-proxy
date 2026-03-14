@@ -147,7 +147,6 @@ impl PreviewRequest {
         let source_format = match self.source_format.as_str() {
             "claude" => Format::Claude,
             "gemini" => Format::Gemini,
-            "openai-compat" | "openai_compat" => Format::OpenAICompat,
             _ => Format::OpenAI,
         };
 

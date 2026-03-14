@@ -9,9 +9,8 @@ use std::time::Instant;
 
 #[derive(Debug, Serialize)]
 struct ProviderSummary {
-    id: String,
-    provider_type: String,
-    name: Option<String>,
+    name: String,
+    format: String,
     api_key_masked: String,
     base_url: Option<String>,
     models_count: usize,
@@ -20,14 +19,13 @@ struct ProviderSummary {
 
 #[derive(Debug, Deserialize)]
 pub struct CreateProviderRequest {
-    pub provider_type: String,
+    pub name: String,
+    pub format: String,
     pub api_key: String,
     #[serde(default)]
     pub base_url: Option<String>,
     #[serde(default)]
     pub proxy_url: Option<String>,
-    #[serde(default)]
-    pub name: Option<String>,
     #[serde(default)]
     pub prefix: Option<String>,
     #[serde(default)]
@@ -59,8 +57,6 @@ pub struct UpdateProviderRequest {
     #[serde(default)]
     pub proxy_url: Option<Option<String>>,
     #[serde(default)]
-    pub name: Option<Option<String>>,
-    #[serde(default)]
     pub prefix: Option<Option<String>>,
     #[serde(default)]
     pub models: Option<Vec<String>>,
@@ -85,27 +81,8 @@ fn mask_key(key: &str) -> String {
     format!("{}****{}", &key[..4], &key[key.len() - 4..])
 }
 
-fn provider_type_to_field(pt: &str) -> Option<&'static str> {
-    match pt {
-        "claude" => Some("claude-api-key"),
-        "openai" => Some("openai-api-key"),
-        "gemini" => Some("gemini-api-key"),
-        "openai-compat" => Some("openai-compatibility"),
-        _ => None,
-    }
-}
-
-fn get_entries_by_type(
-    config: &prism_core::config::Config,
-    provider_type: &str,
-) -> Vec<prism_core::config::ProviderKeyEntry> {
-    match provider_type {
-        "claude" => config.claude_api_key.clone(),
-        "openai" => config.openai_api_key.clone(),
-        "gemini" => config.gemini_api_key.clone(),
-        "openai-compat" => config.openai_compatibility.clone(),
-        _ => vec![],
-    }
+fn is_valid_format(format_str: &str) -> bool {
+    matches!(format_str, "openai" | "claude" | "gemini")
 }
 
 /// GET /api/dashboard/providers
@@ -113,53 +90,32 @@ pub async fn list_providers(State(state): State<AppState>) -> impl IntoResponse 
     let config = state.config.load();
     let mut providers = Vec::new();
 
-    let types = [
-        ("claude", &config.claude_api_key),
-        ("openai", &config.openai_api_key),
-        ("gemini", &config.gemini_api_key),
-        ("openai-compat", &config.openai_compatibility),
-    ];
-
-    for (ptype, entries) in &types {
-        for (i, entry) in entries.iter().enumerate() {
-            providers.push(ProviderSummary {
-                id: format!("{}-{}", ptype, i),
-                provider_type: ptype.to_string(),
-                name: entry.name.clone(),
-                api_key_masked: mask_key(&entry.api_key),
-                base_url: entry.base_url.clone(),
-                models_count: entry.models.len(),
-                disabled: entry.disabled,
-            });
-        }
+    for entry in config.providers.iter() {
+        providers.push(ProviderSummary {
+            name: entry.name.clone(),
+            format: entry.format.as_str().to_string(),
+            api_key_masked: mask_key(&entry.api_key),
+            base_url: entry.base_url.clone(),
+            models_count: entry.models.len(),
+            disabled: entry.disabled,
+        });
     }
 
     (StatusCode::OK, Json(json!({ "providers": providers })))
 }
 
-/// GET /api/dashboard/providers/:id
+/// GET /api/dashboard/providers/:name
 pub async fn get_provider(
     State(state): State<AppState>,
-    Path(id): Path<String>,
+    Path(name): Path<String>,
 ) -> impl IntoResponse {
     let config = state.config.load();
-    let (ptype, idx) = match parse_provider_id(&id) {
-        Some(v) => v,
-        None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "not_found", "message": "Provider not found"})),
-            );
-        }
-    };
 
-    let entries = get_entries_by_type(&config, ptype);
-    match entries.get(idx) {
+    match config.providers.iter().find(|e| e.name == name) {
         Some(entry) => {
             let detail = json!({
-                "id": id,
-                "provider_type": ptype,
                 "name": entry.name,
+                "format": entry.format.as_str(),
                 "api_key_masked": mask_key(&entry.api_key),
                 "base_url": entry.base_url,
                 "proxy_url": entry.proxy_url,
@@ -186,11 +142,17 @@ pub async fn create_provider(
     State(state): State<AppState>,
     Json(body): Json<CreateProviderRequest>,
 ) -> impl IntoResponse {
-    if provider_type_to_field(&body.provider_type).is_none() {
+    if body.name.is_empty() {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({"error": "validation_failed", "message": "name is required"})),
+        );
+    }
+    if !is_valid_format(&body.format) {
         return (
             StatusCode::UNPROCESSABLE_ENTITY,
             Json(
-                json!({"error": "validation_failed", "message": "Invalid provider_type. Must be one of: claude, openai, gemini, openai-compat"}),
+                json!({"error": "validation_failed", "message": "Invalid format. Must be one of: openai, claude, gemini"}),
             ),
         );
     }
@@ -200,6 +162,24 @@ pub async fn create_provider(
             Json(json!({"error": "validation_failed", "message": "api_key is required"})),
         );
     }
+
+    // Check name uniqueness
+    {
+        let config = state.config.load();
+        if config.providers.iter().any(|e| e.name == body.name) {
+            return (
+                StatusCode::CONFLICT,
+                Json(
+                    json!({"error": "duplicate_name", "message": format!("Provider name '{}' already exists", body.name)}),
+                ),
+            );
+        }
+    }
+
+    let format: prism_core::provider::Format = body
+        .format
+        .parse()
+        .unwrap_or(prism_core::provider::Format::OpenAI);
 
     let models = body
         .models
@@ -212,7 +192,11 @@ pub async fn create_provider(
         _ => prism_core::provider::WireApi::Chat,
     };
 
+    let provider_name = body.name.clone();
+
     let new_entry = prism_core::config::ProviderKeyEntry {
+        name: provider_name.clone(),
+        format,
         api_key: body.api_key,
         base_url: body.base_url,
         proxy_url: body.proxy_url,
@@ -221,7 +205,6 @@ pub async fn create_provider(
         excluded_models: body.excluded_models,
         headers: body.headers,
         disabled: body.disabled,
-        name: body.name,
         cloak: Default::default(),
         wire_api,
         weight: body.weight,
@@ -232,21 +215,15 @@ pub async fn create_provider(
         vertex_location: None,
     };
 
-    let provider_type = body.provider_type.clone();
-    let provider_name = new_entry.name.clone();
-    match update_config_file(&state, |config| match body.provider_type.as_str() {
-        "claude" => config.claude_api_key.push(new_entry.clone()),
-        "openai" => config.openai_api_key.push(new_entry.clone()),
-        "gemini" => config.gemini_api_key.push(new_entry.clone()),
-        "openai-compat" => config.openai_compatibility.push(new_entry.clone()),
-        _ => {}
+    match update_config_file(&state, |config| {
+        config.providers.push(new_entry.clone());
     })
     .await
     {
         Ok(()) => {
             tracing::info!(
-                provider_type = %provider_type,
-                name = ?provider_name,
+                name = %provider_name,
+                format = %body.format,
                 "Provider created via dashboard"
             );
             (
@@ -256,7 +233,7 @@ pub async fn create_provider(
         }
         Err(e) => {
             tracing::error!(
-                provider_type = %provider_type,
+                name = %provider_name,
                 error = %e,
                 "Failed to create provider"
             );
@@ -268,33 +245,26 @@ pub async fn create_provider(
     }
 }
 
-/// PATCH /api/dashboard/providers/:id
+/// PATCH /api/dashboard/providers/:name
 pub async fn update_provider(
     State(state): State<AppState>,
-    Path(id): Path<String>,
+    Path(name): Path<String>,
     Json(body): Json<UpdateProviderRequest>,
 ) -> impl IntoResponse {
-    let (ptype, idx) = match parse_provider_id(&id) {
-        Some(v) => v,
-        None => {
+    // Verify provider exists
+    {
+        let config = state.config.load();
+        if !config.providers.iter().any(|e| e.name == name) {
             return (
                 StatusCode::NOT_FOUND,
                 Json(json!({"error": "not_found", "message": "Provider not found"})),
             );
         }
-    };
+    }
 
-    let ptype = ptype.to_string();
-    let id_for_log = id.clone();
+    let name_for_log = name.clone();
     match update_config_file(&state, move |config| {
-        let entries = match ptype.as_str() {
-            "claude" => &mut config.claude_api_key,
-            "openai" => &mut config.openai_api_key,
-            "gemini" => &mut config.gemini_api_key,
-            "openai-compat" => &mut config.openai_compatibility,
-            _ => return,
-        };
-        if let Some(entry) = entries.get_mut(idx) {
+        if let Some(entry) = config.providers.iter_mut().find(|e| e.name == name) {
             if let Some(ref key) = body.api_key {
                 entry.api_key = key.clone();
             }
@@ -303,9 +273,6 @@ pub async fn update_provider(
             }
             if let Some(ref url) = body.proxy_url {
                 entry.proxy_url = url.clone();
-            }
-            if let Some(ref name) = body.name {
-                entry.name = name.clone();
             }
             if let Some(ref prefix) = body.prefix {
                 entry.prefix = prefix.clone();
@@ -345,14 +312,14 @@ pub async fn update_provider(
     .await
     {
         Ok(()) => {
-            tracing::info!(provider_id = %id_for_log, "Provider updated via dashboard");
+            tracing::info!(provider = %name_for_log, "Provider updated via dashboard");
             (
                 StatusCode::OK,
                 Json(json!({"message": "Provider updated successfully"})),
             )
         }
         Err(e) => {
-            tracing::error!(provider_id = %id_for_log, error = %e, "Failed to update provider");
+            tracing::error!(provider = %name_for_log, error = %e, "Failed to update provider");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"error": "write_failed", "message": e})),
@@ -361,62 +328,43 @@ pub async fn update_provider(
     }
 }
 
-/// DELETE /api/dashboard/providers/:id
+/// DELETE /api/dashboard/providers/:name
 pub async fn delete_provider(
     State(state): State<AppState>,
-    Path(id): Path<String>,
+    Path(name): Path<String>,
 ) -> impl IntoResponse {
-    let (ptype, idx) = match parse_provider_id(&id) {
-        Some(v) => v,
-        None => {
+    // Verify provider exists
+    {
+        let config = state.config.load();
+        if !config.providers.iter().any(|e| e.name == name) {
             return (
                 StatusCode::NOT_FOUND,
                 Json(json!({"error": "not_found", "message": "Provider not found"})),
             );
         }
-    };
+    }
 
-    let ptype = ptype.to_string();
-    let id_for_log = id.clone();
+    let name_for_log = name.clone();
     match update_config_file(&state, move |config| {
-        let entries = match ptype.as_str() {
-            "claude" => &mut config.claude_api_key,
-            "openai" => &mut config.openai_api_key,
-            "gemini" => &mut config.gemini_api_key,
-            "openai-compat" => &mut config.openai_compatibility,
-            _ => return,
-        };
-        if idx < entries.len() {
-            entries.remove(idx);
-        }
+        config.providers.retain(|e| e.name != name);
     })
     .await
     {
         Ok(()) => {
-            tracing::info!(provider_id = %id_for_log, "Provider deleted via dashboard");
+            tracing::info!(provider = %name_for_log, "Provider deleted via dashboard");
             (
                 StatusCode::OK,
                 Json(json!({"message": "Provider deleted successfully"})),
             )
         }
         Err(e) => {
-            tracing::error!(provider_id = %id_for_log, error = %e, "Failed to delete provider");
+            tracing::error!(provider = %name_for_log, error = %e, "Failed to delete provider");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"error": "write_failed", "message": e})),
             )
         }
     }
-}
-
-fn parse_provider_id(id: &str) -> Option<(&str, usize)> {
-    let (ptype, idx_str) = id.rsplit_once('-')?;
-    let idx = idx_str.parse::<usize>().ok()?;
-    // Validate provider type
-    if !["claude", "openai", "gemini", "openai-compat"].contains(&ptype) {
-        return None;
-    }
-    Some((ptype, idx))
 }
 
 /// Read current config from file, apply mutation, write back atomically.
@@ -481,7 +429,7 @@ async fn update_config_file(
 
 #[derive(Debug, Deserialize)]
 pub struct FetchModelsRequest {
-    pub provider_type: String,
+    pub format: String,
     pub api_key: String,
     #[serde(default)]
     pub base_url: Option<String>,
@@ -526,7 +474,7 @@ fn build_models_request(
 ) -> Result<reqwest::RequestBuilder, String> {
     let base = normalize_base_url(base_url);
     let mut req = match provider_type {
-        "openai" | "openai-compat" | "openai_compat" => client
+        "openai" => client
             .get(format!("{base}/v1/models"))
             .header("Authorization", format!("Bearer {api_key}")),
         "claude" => client
@@ -548,7 +496,7 @@ fn build_models_request(
 
 fn extract_model_ids(provider_type: &str, body: &serde_json::Value) -> Vec<String> {
     match provider_type {
-        "openai" | "openai-compat" | "openai_compat" | "claude" => body
+        "openai" | "claude" => body
             .get("data")
             .and_then(|d| d.as_array())
             .map(|arr| {
@@ -579,17 +527,14 @@ pub async fn fetch_models(
     State(state): State<AppState>,
     Json(body): Json<FetchModelsRequest>,
 ) -> impl IntoResponse {
-    let provider_type = body.provider_type.as_str();
+    let format = body.format.as_str();
 
-    // Validate provider type
-    if !matches!(
-        provider_type,
-        "openai" | "claude" | "gemini" | "openai-compat" | "openai_compat"
-    ) {
+    // Validate format
+    if !is_valid_format(format) {
         return (
             StatusCode::UNPROCESSABLE_ENTITY,
             Json(
-                json!({"error": "validation_failed", "message": "Invalid provider_type. Must be one of: claude, openai, gemini, openai-compat"}),
+                json!({"error": "validation_failed", "message": "Invalid format. Must be one of: openai, claude, gemini"}),
             ),
         );
     }
@@ -597,13 +542,13 @@ pub async fn fetch_models(
     // Resolve base URL
     let base_url = match body.base_url.as_deref().filter(|s| !s.is_empty()) {
         Some(url) => url.to_string(),
-        None => match default_base_url(provider_type) {
+        None => match default_base_url(format) {
             Some(url) => url.to_string(),
             None => {
                 return (
                     StatusCode::UNPROCESSABLE_ENTITY,
                     Json(
-                        json!({"error": "validation_failed", "message": "base_url is required for openai-compat provider"}),
+                        json!({"error": "validation_failed", "message": "base_url is required for this provider"}),
                     ),
                 );
             }
@@ -621,8 +566,7 @@ pub async fn fetch_models(
         }
     };
 
-    let request = match build_models_request(&client, provider_type, &body.api_key, &base_url, None)
-    {
+    let request = match build_models_request(&client, format, &body.api_key, &base_url, None) {
         Ok(r) => r,
         Err(e) => {
             return (
@@ -667,29 +611,18 @@ pub async fn fetch_models(
         }
     };
 
-    let models = extract_model_ids(provider_type, &body_json);
+    let models = extract_model_ids(format, &body_json);
     (StatusCode::OK, Json(json!({"models": models})))
 }
 
-/// POST /api/dashboard/providers/{id}/health
+/// POST /api/dashboard/providers/{name}/health
 pub async fn health_check(
     State(state): State<AppState>,
-    Path(id): Path<String>,
+    Path(name): Path<String>,
 ) -> impl IntoResponse {
     let config = state.config.load();
 
-    let (ptype, idx) = match parse_provider_id(&id) {
-        Some(v) => v,
-        None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"status": "error", "message": "Provider not found"})),
-            );
-        }
-    };
-
-    let entries = get_entries_by_type(&config, ptype);
-    let entry = match entries.get(idx) {
+    let entry = match config.providers.iter().find(|e| e.name == name) {
         Some(e) => e,
         None => {
             return (
@@ -698,6 +631,8 @@ pub async fn health_check(
             );
         }
     };
+
+    let ptype = entry.format.as_str();
 
     // Resolve base URL: entry-level, then default
     let base_url = entry

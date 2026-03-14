@@ -57,13 +57,17 @@ impl ProviderCatalog {
         }
     }
 
-    /// Update catalog from a pre-built credential map (same format as CredentialRouter uses).
-    pub fn update_from_credentials(&self, credentials: &HashMap<Format, Vec<AuthRecord>>) {
+    /// Update catalog from a pre-built credential map (keyed by provider name).
+    pub fn update_from_credentials(&self, credentials: &HashMap<String, Vec<AuthRecord>>) {
         let mut providers = Vec::new();
-        for (format, records) in credentials {
+        for (provider_name, records) in credentials {
+            let format = records
+                .first()
+                .map(|r| r.provider)
+                .unwrap_or(Format::OpenAI);
             providers.push(CatalogProvider {
-                format: *format,
-                name: format.as_str().to_string(),
+                format,
+                name: provider_name.clone(),
                 credentials: records
                     .iter()
                     .map(|r| CatalogCredential { record: r.clone() })
@@ -75,12 +79,12 @@ impl ProviderCatalog {
     }
 
     /// Find a credential by ID across all providers.
-    pub fn find_credential(&self, id: &str) -> Option<(Format, AuthRecord)> {
+    pub fn find_credential(&self, id: &str) -> Option<(String, AuthRecord)> {
         let providers = self.providers.read().unwrap_or_else(|e| e.into_inner());
         for provider in providers.iter() {
             for cred in &provider.credentials {
                 if cred.record.id == id {
-                    return Some((provider.format, cred.record.clone()));
+                    return Some((provider.name.clone(), cred.record.clone()));
                 }
             }
         }
@@ -124,6 +128,7 @@ mod tests {
         AuthRecord {
             id: id.to_string(),
             provider: format,
+            provider_name: format!("provider-{id}"),
             api_key: format!("key-{id}"),
             base_url: None,
             proxy_url: None,
@@ -192,8 +197,8 @@ mod tests {
         }
         let found = catalog.find_credential("c1");
         assert!(found.is_some());
-        let (format, record) = found.unwrap();
-        assert_eq!(format, Format::OpenAI);
+        let (provider_name, record) = found.unwrap();
+        assert_eq!(provider_name, "openai");
         assert_eq!(record.id, "c1");
 
         assert!(catalog.find_credential("nonexistent").is_none());

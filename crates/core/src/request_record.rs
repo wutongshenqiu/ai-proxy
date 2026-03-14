@@ -82,7 +82,7 @@ pub struct RequestRecord {
     pub upstream_request_body: Option<String>,
 
     // ── Routing ──
-    /// Provider format name (e.g., "openai", "claude", "gemini", "openai-compat").
+    /// Provider name (e.g., "openai", "claude", "gemini", "deepseek").
     pub provider: Option<String>,
     /// Actual model name used after routing/fallback.
     pub model: Option<String>,

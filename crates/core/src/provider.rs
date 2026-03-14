@@ -16,6 +16,8 @@ pub use prism_types::format::{Format, WireApi};
 pub struct AuthRecord {
     pub id: String,
     pub provider: Format,
+    /// Provider name from config (used for routing identity).
+    pub provider_name: String,
     pub api_key: String,
     pub base_url: Option<String>,
     pub proxy_url: Option<String>,
@@ -47,6 +49,7 @@ impl std::fmt::Debug for AuthRecord {
         f.debug_struct("AuthRecord")
             .field("id", &self.id)
             .field("provider", &self.provider)
+            .field("provider_name", &self.provider_name)
             .field("api_key", &"***")
             .field("circuit_breaker_state", &self.circuit_state())
             .finish()
@@ -67,6 +70,11 @@ impl AuthRecord {
             .unwrap_or(default)
             .trim_end_matches('/')
             .to_string()
+    }
+
+    /// Resolve base URL using the format's canonical default.
+    pub fn resolved_base_url(&self) -> String {
+        self.base_url_or_default(self.provider.default_base_url())
     }
 
     /// Resolve the effective proxy URL (entry-level → global fallback).
@@ -203,9 +211,6 @@ pub trait ProviderExecutor: Send + Sync {
 
     /// The native format of this provider.
     fn native_format(&self) -> Format;
-
-    /// Default base URL for this provider.
-    fn default_base_url(&self) -> &str;
 
     /// Execute a non-streaming request.
     async fn execute(

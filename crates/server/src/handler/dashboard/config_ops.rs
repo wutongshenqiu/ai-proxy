@@ -187,10 +187,7 @@ pub async fn get_config(State(state): State<AppState>) -> impl IntoResponse {
             "log_store_capacity": config.log_store.capacity,
         },
         "providers": {
-            "claude": config.claude_api_key.len(),
-            "openai": config.openai_api_key.len(),
-            "gemini": config.gemini_api_key.len(),
-            "openai_compat": config.openai_compatibility.len(),
+            "total": config.providers.len(),
         },
     });
     (StatusCode::OK, Json(sanitized))

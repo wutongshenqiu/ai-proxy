@@ -70,14 +70,15 @@ describe('routingApi', () => {
   });
 });
 
-describe('providersApi type mapping', () => {
-  it('passes openai-compat provider type directly', async () => {
+describe('providersApi', () => {
+  it('passes format field in create request', async () => {
     const mod = await import('../../services/api');
     const instance = vi.mocked(axios.create).mock.results[0]?.value;
     vi.mocked(instance.post).mockResolvedValueOnce({ data: {} });
 
     await mod.providersApi.create({
-      provider_type: 'openai-compat',
+      name: 'deepseek',
+      format: 'openai',
       api_key: 'key',
       disabled: false,
       models: ['model-1'],
@@ -85,7 +86,7 @@ describe('providersApi type mapping', () => {
 
     expect(instance.post).toHaveBeenCalledWith(
       '/providers',
-      expect.objectContaining({ provider_type: 'openai-compat' })
+      expect.objectContaining({ name: 'deepseek', format: 'openai' })
     );
   });
 });

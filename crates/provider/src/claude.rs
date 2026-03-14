@@ -60,10 +60,6 @@ impl ProviderExecutor for ClaudeExecutor {
         Format::Claude
     }
 
-    fn default_base_url(&self) -> &str {
-        DEFAULT_BASE_URL
-    }
-
     async fn execute(
         &self,
         auth: &AuthRecord,

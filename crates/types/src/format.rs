@@ -1,13 +1,16 @@
 use serde::{Deserialize, Serialize};
 
-/// Supported provider/API format identifiers.
+/// Supported wire protocol format identifiers.
+///
+/// Represents the JSON request/response structure used by the upstream API.
+/// Provider identity (e.g., OpenAI vs DeepSeek) is determined by the
+/// provider `name` in config, not by this enum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Format {
     OpenAI,
     Claude,
     Gemini,
-    OpenAICompat,
 }
 
 impl Format {
@@ -16,7 +19,15 @@ impl Format {
             Self::OpenAI => "openai",
             Self::Claude => "claude",
             Self::Gemini => "gemini",
-            Self::OpenAICompat => "openai-compat",
+        }
+    }
+
+    /// Canonical default base URL for this wire protocol.
+    pub fn default_base_url(&self) -> &'static str {
+        match self {
+            Self::OpenAI => "https://api.openai.com",
+            Self::Claude => "https://api.anthropic.com",
+            Self::Gemini => "https://generativelanguage.googleapis.com",
         }
     }
 }
@@ -35,7 +46,6 @@ impl std::str::FromStr for Format {
             "openai" => Ok(Self::OpenAI),
             "claude" => Ok(Self::Claude),
             "gemini" => Ok(Self::Gemini),
-            "openai-compat" | "openai_compat" => Ok(Self::OpenAICompat),
             _ => Err(format!("unknown format: {s}")),
         }
     }

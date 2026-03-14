@@ -3,7 +3,6 @@ pub mod claude;
 pub mod common;
 pub mod gemini;
 pub mod health;
-pub mod openai;
 pub mod openai_compat;
 pub mod routing;
 pub mod sse;
@@ -59,8 +58,13 @@ pub fn build_registry(
 ) -> ExecutorRegistry {
     let mut executors: HashMap<String, Arc<dyn ProviderExecutor>> = HashMap::new();
 
-    // OpenAI executor (OpenAI-compatible with OpenAI defaults)
-    let openai = openai::new_openai_executor(global_proxy.clone(), client_pool.clone());
+    // OpenAI executor (handles all OpenAI-format providers)
+    let openai = openai_compat::OpenAICompatExecutor {
+        name: "openai".to_string(),
+        format: Format::OpenAI,
+        global_proxy: global_proxy.clone(),
+        client_pool: client_pool.clone(),
+    };
     executors.insert("openai".to_string(), Arc::new(openai));
 
     // Claude executor
@@ -70,16 +74,6 @@ pub fn build_registry(
     // Gemini executor
     let gemini = gemini::GeminiExecutor::new(global_proxy.clone(), client_pool.clone());
     executors.insert("gemini".to_string(), Arc::new(gemini));
-
-    // OpenAI-compatible generic executor (no default base_url - users must provide base-url in config)
-    let compat = openai_compat::OpenAICompatExecutor {
-        name: "openai-compat".to_string(),
-        default_base_url: String::new(),
-        format: Format::OpenAICompat,
-        global_proxy: global_proxy.clone(),
-        client_pool,
-    };
-    executors.insert("openai-compat".to_string(), Arc::new(compat));
 
     ExecutorRegistry { executors }
 }

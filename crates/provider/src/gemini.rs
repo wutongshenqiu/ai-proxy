@@ -81,10 +81,6 @@ impl ProviderExecutor for GeminiExecutor {
         Format::Gemini
     }
 
-    fn default_base_url(&self) -> &str {
-        DEFAULT_BASE_URL
-    }
-
     async fn execute(
         &self,
         auth: &AuthRecord,
@@ -130,6 +126,7 @@ mod tests {
         AuthRecord {
             id: "test-gemini".to_string(),
             provider: Format::Gemini,
+            provider_name: "gemini".to_string(),
             api_key: "AIzaSyTest".to_string(),
             base_url: None,
             proxy_url: None,

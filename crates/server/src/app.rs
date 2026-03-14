@@ -103,13 +103,7 @@ impl Application {
         let translators = Arc::new(prism_translator::build_registry());
         let executors = Arc::new(executors);
 
-        tracing::info!(
-            "Loaded {} claude keys, {} openai keys, {} gemini keys, {} compat keys",
-            config.claude_api_key.len(),
-            config.openai_api_key.len(),
-            config.gemini_api_key.len(),
-            config.openai_compatibility.len(),
-        );
+        tracing::info!("Loaded {} provider entries", config.providers.len(),);
 
         let rate_limiter = Arc::new(CompositeRateLimiter::new(&config.rate_limit));
         let cost_calculator = Arc::new(prism_core::cost::CostCalculator::new(&config.model_prices));
@@ -215,11 +209,8 @@ impl Application {
             watcher_cost_calculator.update_prices(&new_cfg.model_prices);
             watcher_pool.clear();
             tracing::info!(
-                "Config reloaded: {} claude keys, {} openai keys, {} gemini keys, {} compat keys",
-                new_cfg.claude_api_key.len(),
-                new_cfg.openai_api_key.len(),
-                new_cfg.gemini_api_key.len(),
-                new_cfg.openai_compatibility.len(),
+                "Config reloaded: {} provider entries",
+                new_cfg.providers.len(),
             );
         });
 
@@ -245,11 +236,8 @@ impl Application {
                     reload_cost_calculator.update_prices(&new_cfg.model_prices);
                     reload_pool.clear();
                     tracing::info!(
-                        "SIGHUP reload: {} claude keys, {} openai keys, {} gemini keys, {} compat keys",
-                        new_cfg.claude_api_key.len(),
-                        new_cfg.openai_api_key.len(),
-                        new_cfg.gemini_api_key.len(),
-                        new_cfg.openai_compatibility.len(),
+                        "SIGHUP reload: {} provider entries",
+                        new_cfg.providers.len(),
                     );
                     reload_config.store(Arc::new(new_cfg));
                     reload_lifecycle.on_reloaded();
