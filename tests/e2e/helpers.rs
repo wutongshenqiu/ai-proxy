@@ -125,6 +125,9 @@ fn make_key_entry(api_key: &str, name: &str, base_url: Option<&str>) -> Provider
         weight: 1,
         region: None,
         credential_source: None,
+        vertex: false,
+        vertex_project: None,
+        vertex_location: None,
     }
 }
 

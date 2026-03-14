@@ -553,6 +553,15 @@ pub struct ProviderKeyEntry {
     /// Optional credential source (defaults to static API key from `api_key` field).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credential_source: Option<crate::credential_source::CredentialSource>,
+    /// Whether this is a Vertex AI credential (uses Bearer auth + Vertex URL pattern).
+    #[serde(default)]
+    pub vertex: bool,
+    /// Vertex AI project ID (required when `vertex: true`).
+    #[serde(default)]
+    pub vertex_project: Option<String>,
+    /// Vertex AI location (required when `vertex: true`, e.g. "us-central1").
+    #[serde(default)]
+    pub vertex_location: Option<String>,
 }
 
 fn default_weight() -> u32 {
@@ -675,6 +684,9 @@ mod tests {
                 weight: 1,
                 region: None,
                 credential_source: None,
+                vertex: false,
+                vertex_project: None,
+                vertex_location: None,
             },
             ProviderKeyEntry {
                 api_key: "".into(),
@@ -691,6 +703,9 @@ mod tests {
                 weight: 1,
                 region: None,
                 credential_source: None,
+                vertex: false,
+                vertex_project: None,
+                vertex_location: None,
             },
             ProviderKeyEntry {
                 api_key: "key1".into(), // duplicate
@@ -707,6 +722,9 @@ mod tests {
                 weight: 1,
                 region: None,
                 credential_source: None,
+                vertex: false,
+                vertex_project: None,
+                vertex_location: None,
             },
         ];
         sanitize_entries(&mut entries);

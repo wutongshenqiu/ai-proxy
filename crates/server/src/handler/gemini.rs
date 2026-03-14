@@ -79,7 +79,7 @@ async fn dispatch_gemini(
             models: None,
             stream,
             body,
-            allowed_formats: Some(vec![Format::Gemini]),
+            allowed_formats: None,
             user_agent,
             debug,
             api_key: ctx.auth_key.as_ref().map(|e| e.key.clone()),

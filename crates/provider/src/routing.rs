@@ -423,6 +423,9 @@ fn build_auth_record(
         credential_name: entry.name.clone(),
         weight: entry.weight.max(1),
         region: entry.region.clone(),
+        vertex: entry.vertex,
+        vertex_project: entry.vertex_project.clone(),
+        vertex_location: entry.vertex_location.clone(),
     }
 }
 
@@ -456,6 +459,9 @@ mod tests {
             credential_name: Some(id.to_string()),
             weight: 1,
             region: None,
+            vertex: false,
+            vertex_project: None,
+            vertex_location: None,
         }
     }
 
