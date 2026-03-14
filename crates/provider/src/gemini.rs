@@ -141,6 +141,7 @@ mod tests {
             credential_name: None,
             weight: 1,
             region: None,
+            upstream_presentation: Default::default(),
             vertex: false,
             vertex_project: None,
             vertex_location: None,

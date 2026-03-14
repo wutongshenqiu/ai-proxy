@@ -214,6 +214,47 @@ impl Config {
     /// Safe for the persistence path (dashboard config writes).
     fn normalize(&mut self) {
         sanitize_entries(&mut self.providers);
+        self.migrate_legacy_presentation();
+    }
+
+    /// Migrate legacy `cloak` + `headers` config into `upstream-presentation`.
+    fn migrate_legacy_presentation(&mut self) {
+        use crate::cloak::CloakMode;
+        use crate::presentation::{ActivationMode, ProfileKind, UpstreamPresentationConfig};
+
+        for entry in &mut self.providers {
+            let has_explicit_presentation = entry.upstream_presentation.profile
+                != ProfileKind::Native
+                || !entry.upstream_presentation.custom_headers.is_empty();
+
+            if has_explicit_presentation {
+                // upstream-presentation is explicitly set; ignore legacy fields
+                continue;
+            }
+
+            if entry.cloak.mode != CloakMode::Never {
+                // Migrate cloak → claude-code profile
+                entry.upstream_presentation = UpstreamPresentationConfig {
+                    profile: ProfileKind::ClaudeCode,
+                    mode: match entry.cloak.mode {
+                        CloakMode::Always => ActivationMode::Always,
+                        CloakMode::Auto => ActivationMode::Auto,
+                        CloakMode::Never => ActivationMode::Always,
+                    },
+                    strict_mode: entry.cloak.strict_mode,
+                    sensitive_words: entry.cloak.sensitive_words.clone(),
+                    cache_user_id: entry.cloak.cache_user_id,
+                    custom_headers: entry.headers.clone(),
+                };
+                // Clear legacy fields to avoid double-application
+                entry.cloak = crate::cloak::CloakConfig::default();
+                entry.headers.clear();
+            } else if !entry.headers.is_empty() {
+                // Migrate standalone headers → native profile with custom-headers
+                entry.upstream_presentation.custom_headers = entry.headers.clone();
+                entry.headers.clear();
+            }
+        }
     }
 
     /// Sanitize and normalize configuration, including secret resolution.
@@ -543,6 +584,9 @@ pub struct ProviderKeyEntry {
     /// Optional credential source (defaults to static API key from `api_key` field).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credential_source: Option<crate::credential_source::CredentialSource>,
+    /// Upstream presentation configuration (profile-first identity for upstream requests).
+    #[serde(default)]
+    pub upstream_presentation: crate::presentation::UpstreamPresentationConfig,
     /// Whether this is a Vertex AI credential (uses Bearer auth + Vertex URL pattern).
     #[serde(default)]
     pub vertex: bool,
@@ -669,6 +713,7 @@ mod tests {
             headers: HashMap::new(),
             disabled: false,
             cloak: Default::default(),
+            upstream_presentation: Default::default(),
             wire_api: crate::provider::WireApi::default(),
             weight: 1,
             region: None,
@@ -932,5 +977,142 @@ routing:
             Some("claude-sonnet-4-20250514")
         );
         assert_eq!(config.routing.resolve_model_rewrite("gemini-pro"), None);
+    }
+
+    #[test]
+    fn test_legacy_cloak_migration() {
+        let yaml = r#"
+providers:
+  - name: my-claude
+    format: claude
+    api-key: "sk-ant-xxx"
+    cloak:
+      mode: auto
+      strict-mode: true
+      sensitive-words: ["proxy", "prism"]
+      cache-user-id: true
+    headers:
+      x-custom: "value"
+"#;
+        let config = Config::from_yaml(yaml).unwrap();
+        let entry = &config.providers[0];
+        // Legacy cloak should be migrated to upstream-presentation
+        assert_eq!(
+            entry.upstream_presentation.profile,
+            crate::presentation::ProfileKind::ClaudeCode
+        );
+        assert_eq!(
+            entry.upstream_presentation.mode,
+            crate::presentation::ActivationMode::Auto
+        );
+        assert!(entry.upstream_presentation.strict_mode);
+        assert_eq!(
+            entry.upstream_presentation.sensitive_words,
+            vec!["proxy", "prism"]
+        );
+        assert!(entry.upstream_presentation.cache_user_id);
+        assert_eq!(
+            entry
+                .upstream_presentation
+                .custom_headers
+                .get("x-custom")
+                .unwrap(),
+            "value"
+        );
+        // Legacy fields should be cleared
+        assert_eq!(entry.cloak.mode, crate::cloak::CloakMode::Never);
+        assert!(entry.headers.is_empty());
+    }
+
+    #[test]
+    fn test_legacy_headers_only_migration() {
+        let yaml = r#"
+providers:
+  - name: my-provider
+    format: claude
+    api-key: "sk-xxx"
+    headers:
+      x-custom: "value"
+"#;
+        let config = Config::from_yaml(yaml).unwrap();
+        let entry = &config.providers[0];
+        assert_eq!(
+            entry.upstream_presentation.profile,
+            crate::presentation::ProfileKind::Native
+        );
+        assert_eq!(
+            entry
+                .upstream_presentation
+                .custom_headers
+                .get("x-custom")
+                .unwrap(),
+            "value"
+        );
+        assert!(entry.headers.is_empty());
+    }
+
+    #[test]
+    fn test_explicit_presentation_skips_migration() {
+        let yaml = r#"
+providers:
+  - name: my-claude
+    format: claude
+    api-key: "sk-ant-xxx"
+    upstream-presentation:
+      profile: claude-code
+      mode: always
+    cloak:
+      mode: always
+    headers:
+      x-old: "ignored"
+"#;
+        let config = Config::from_yaml(yaml).unwrap();
+        let entry = &config.providers[0];
+        // upstream-presentation is explicitly set, so legacy fields are NOT migrated
+        assert_eq!(
+            entry.upstream_presentation.profile,
+            crate::presentation::ProfileKind::ClaudeCode
+        );
+        // Legacy fields remain untouched (not cleared)
+        assert_eq!(entry.cloak.mode, crate::cloak::CloakMode::Always);
+    }
+
+    #[test]
+    fn test_upstream_presentation_yaml_round_trip() {
+        let yaml = r#"
+providers:
+  - name: my-claude
+    format: claude
+    api-key: "sk-ant-xxx"
+    upstream-presentation:
+      profile: claude-code
+      mode: auto
+      strict-mode: true
+      sensitive-words: ["proxy"]
+      cache-user-id: true
+      custom-headers:
+        x-extra: "val"
+"#;
+        let config = Config::from_yaml(yaml).unwrap();
+        let entry = &config.providers[0];
+        assert_eq!(
+            entry.upstream_presentation.profile,
+            crate::presentation::ProfileKind::ClaudeCode
+        );
+        assert_eq!(
+            entry.upstream_presentation.mode,
+            crate::presentation::ActivationMode::Auto
+        );
+        assert!(entry.upstream_presentation.strict_mode);
+        assert_eq!(entry.upstream_presentation.sensitive_words, vec!["proxy"]);
+        assert!(entry.upstream_presentation.cache_user_id);
+        assert_eq!(
+            entry
+                .upstream_presentation
+                .custom_headers
+                .get("x-extra")
+                .unwrap(),
+            "val"
+        );
     }
 }

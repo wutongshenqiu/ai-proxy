@@ -133,6 +133,7 @@ fn make_key_entry(
         headers: HashMap::new(),
         disabled: false,
         cloak: Default::default(),
+        upstream_presentation: Default::default(),
         wire_api: Default::default(),
         weight: 1,
         region: None,
