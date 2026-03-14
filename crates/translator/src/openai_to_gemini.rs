@@ -178,6 +178,38 @@ fn convert_content_to_parts(msg: &Value) -> Result<Vec<Value>, ProxyError> {
                                 }
                             }
                         }
+                        "file" => {
+                            if let Some(file_obj) = part.get("file") {
+                                let url =
+                                    file_obj.get("url").and_then(|u| u.as_str()).unwrap_or("");
+                                if let Some(rest) = url.strip_prefix("data:") {
+                                    let segs: Vec<&str> = rest.splitn(2, ',').collect();
+                                    if segs.len() == 2 {
+                                        let meta = segs[0];
+                                        let data = segs[1];
+                                        let mime_type = meta
+                                            .split(';')
+                                            .next()
+                                            .unwrap_or("application/octet-stream");
+                                        parts.push(json!({
+                                            "inlineData": {
+                                                "mimeType": mime_type,
+                                                "data": data,
+                                            }
+                                        }));
+                                    }
+                                } else if url.starts_with("http://") || url.starts_with("https://")
+                                {
+                                    let mime_type = infer_mime_type_from_url(url);
+                                    parts.push(json!({
+                                        "fileData": {
+                                            "mimeType": mime_type,
+                                            "fileUri": url,
+                                        }
+                                    }));
+                                }
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -236,9 +268,33 @@ fn convert_image_url_to_inline(url: &str) -> Option<Value> {
             }));
         }
     }
-    // Non-base64 URLs cannot be directly sent as inline data to Gemini
-    // Return as text reference for now
+    // For remote URLs, use Gemini's fileData format
+    if url.starts_with("http://") || url.starts_with("https://") {
+        let mime_type = infer_mime_type_from_url(url);
+        return Some(json!({
+            "fileData": {
+                "mimeType": mime_type,
+                "fileUri": url,
+            }
+        }));
+    }
+    // For other schemes, fall back to text reference
     Some(json!({"text": format!("[image: {}]", url)}))
+}
+
+fn infer_mime_type_from_url(url: &str) -> &str {
+    let path = url.split('?').next().unwrap_or(url);
+    if path.ends_with(".png") {
+        "image/png"
+    } else if path.ends_with(".gif") {
+        "image/gif"
+    } else if path.ends_with(".webp") {
+        "image/webp"
+    } else if path.ends_with(".pdf") {
+        "application/pdf"
+    } else {
+        "image/jpeg"
+    }
 }
 
 fn convert_tools(req: &Value) -> Option<Value> {
@@ -538,7 +594,7 @@ mod tests {
     }
 
     #[test]
-    fn test_regular_image_url_to_text_reference() {
+    fn test_remote_image_url_to_file_data() {
         let req = json!({
             "model": "gpt-4",
             "messages": [{
@@ -550,7 +606,74 @@ mod tests {
         });
         let result = translate(req);
         let part = &result["contents"][0]["parts"][0];
-        assert_eq!(part["text"], "[image: https://example.com/image.png]");
+        assert_eq!(part["fileData"]["mimeType"], "image/png");
+        assert_eq!(part["fileData"]["fileUri"], "https://example.com/image.png");
+    }
+
+    #[test]
+    fn test_remote_image_url_mime_inference() {
+        // .gif extension
+        let part = convert_image_url_to_inline("https://example.com/anim.gif").unwrap();
+        assert_eq!(part["fileData"]["mimeType"], "image/gif");
+
+        // .webp extension
+        let part = convert_image_url_to_inline("https://example.com/photo.webp").unwrap();
+        assert_eq!(part["fileData"]["mimeType"], "image/webp");
+
+        // no extension defaults to image/jpeg
+        let part = convert_image_url_to_inline("https://example.com/photo?id=123").unwrap();
+        assert_eq!(part["fileData"]["mimeType"], "image/jpeg");
+
+        // .pdf extension
+        let part = convert_image_url_to_inline("https://example.com/doc.pdf").unwrap();
+        assert_eq!(part["fileData"]["mimeType"], "application/pdf");
+    }
+
+    #[test]
+    fn test_file_content_part_base64_pdf() {
+        let req = json!({
+            "model": "gpt-4",
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "file",
+                        "file": {
+                            "url": "data:application/pdf;base64,JVBERi0xLjQ="
+                        }
+                    }
+                ]
+            }]
+        });
+        let result = translate(req);
+        let part = &result["contents"][0]["parts"][0];
+        assert_eq!(part["inlineData"]["mimeType"], "application/pdf");
+        assert_eq!(part["inlineData"]["data"], "JVBERi0xLjQ=");
+    }
+
+    #[test]
+    fn test_file_content_part_remote_url() {
+        let req = json!({
+            "model": "gpt-4",
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "file",
+                        "file": {
+                            "url": "https://example.com/report.pdf"
+                        }
+                    }
+                ]
+            }]
+        });
+        let result = translate(req);
+        let part = &result["contents"][0]["parts"][0];
+        assert_eq!(part["fileData"]["mimeType"], "application/pdf");
+        assert_eq!(
+            part["fileData"]["fileUri"],
+            "https://example.com/report.pdf"
+        );
     }
 
     #[test]

@@ -5,6 +5,7 @@ pub mod cloak;
 pub mod config;
 pub mod context;
 pub mod cost;
+pub mod credential_source;
 pub mod error;
 pub mod file_audit;
 pub mod glob;

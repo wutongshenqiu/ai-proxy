@@ -260,23 +260,42 @@ impl Config {
     }
 }
 
-/// Resolve env:// and file:// secrets in provider API keys.
+/// Resolve env:// and file:// secrets in provider API keys,
+/// and resolve credential_source if present.
 fn resolve_provider_secrets(entries: &mut [ProviderKeyEntry]) -> Result<(), anyhow::Error> {
     for entry in entries.iter_mut() {
-        entry.api_key = crate::secret::resolve(&entry.api_key).map_err(|e| {
-            anyhow::anyhow!(
-                "provider '{}': {e}",
-                entry.name.as_deref().unwrap_or("unnamed")
-            )
-        })?;
+        // If credential_source is set, resolve it and use as api_key
+        if let Some(ref source) = entry.credential_source {
+            match source.resolve() {
+                Ok(key) => {
+                    entry.api_key = key;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "provider '{}': failed to resolve credential source: {e}",
+                        entry.name.as_deref().unwrap_or("unnamed")
+                    );
+                    // Fall through to resolve api_key normally if it's non-empty
+                }
+            }
+        }
+
+        if !entry.api_key.is_empty() {
+            entry.api_key = crate::secret::resolve(&entry.api_key).map_err(|e| {
+                anyhow::anyhow!(
+                    "provider '{}': {e}",
+                    entry.name.as_deref().unwrap_or("unnamed")
+                )
+            })?;
+        }
     }
     Ok(())
 }
 
-/// Remove entries with empty api_key, deduplicate, normalize base_url.
+/// Remove entries with empty api_key (unless they have a credential_source), deduplicate, normalize base_url.
 fn sanitize_entries(entries: &mut Vec<ProviderKeyEntry>) {
-    // Remove entries with empty API keys
-    entries.retain(|e| !e.api_key.is_empty());
+    // Remove entries with empty API keys that don't have a credential_source
+    entries.retain(|e| !e.api_key.is_empty() || e.credential_source.is_some());
 
     // Deduplicate by api_key
     let mut seen = std::collections::HashSet::new();
@@ -531,6 +550,9 @@ pub struct ProviderKeyEntry {
     /// Region identifier for geo-aware routing.
     #[serde(default)]
     pub region: Option<String>,
+    /// Optional credential source (defaults to static API key from `api_key` field).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_source: Option<crate::credential_source::CredentialSource>,
 }
 
 fn default_weight() -> u32 {
@@ -652,6 +674,7 @@ mod tests {
                 wire_api: crate::provider::WireApi::default(),
                 weight: 1,
                 region: None,
+                credential_source: None,
             },
             ProviderKeyEntry {
                 api_key: "".into(),
@@ -667,6 +690,7 @@ mod tests {
                 wire_api: crate::provider::WireApi::default(),
                 weight: 1,
                 region: None,
+                credential_source: None,
             },
             ProviderKeyEntry {
                 api_key: "key1".into(), // duplicate
@@ -682,6 +706,7 @@ mod tests {
                 wire_api: crate::provider::WireApi::default(),
                 weight: 1,
                 region: None,
+                credential_source: None,
             },
         ];
         sanitize_entries(&mut entries);
