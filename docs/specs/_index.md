@@ -36,8 +36,8 @@ All specifications for the AI Proxy Gateway project.
 
 | ID       | Title                                          | Status    | Location                        |
 |----------|------------------------------------------------|-----------|---------------------------------|
-| SPEC-030 | Provider & Dispatch Unit Tests                 | Active    | [active/SPEC-030/](active/SPEC-030/) |
-| SPEC-036 | Add RequestContext to ProviderExecutor          | Draft     | [active/SPEC-036/](active/SPEC-036/) |
+| SPEC-030 | Provider & Dispatch Unit Tests                 | Completed | [active/SPEC-030/](active/SPEC-030/) — *Covered by SPEC-048~052 and subsequent work* |
+| SPEC-036 | Add RequestContext to ProviderExecutor          | Deprecated | [active/SPEC-036/](active/SPEC-036/) — *No concrete use case; context already available in dispatch layer* |
 | SPEC-042 | Crate Structure Refactoring                    | Draft     | [active/SPEC-042/](active/SPEC-042/) |
 | SPEC-047 | OAuth & Auth-File Upstream Onboarding           | Deprecated | [active/SPEC-047/](active/SPEC-047/) — *Superseded by SPEC-057* |
 | SPEC-053 | Thinking Signature Cache                       | Completed | [active/SPEC-053/](active/SPEC-053/) |
