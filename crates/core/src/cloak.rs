@@ -132,7 +132,7 @@ pub fn apply_cloak(body: &mut serde_json::Value, cloak_cfg: &CloakConfig, api_ke
 }
 
 /// Insert zero-width space after the first character of each sensitive word match.
-fn obfuscate_sensitive_words(body: &mut serde_json::Value, words: &[String]) {
+pub fn obfuscate_sensitive_words(body: &mut serde_json::Value, words: &[String]) {
     if words.is_empty() {
         return;
     }

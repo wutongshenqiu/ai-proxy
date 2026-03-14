@@ -36,6 +36,8 @@ pub struct AuthRecord {
     pub weight: u32,
     /// Region for geo-aware routing.
     pub region: Option<String>,
+    /// Upstream presentation configuration.
+    pub upstream_presentation: crate::presentation::UpstreamPresentationConfig,
     /// Whether this is a Vertex AI credential.
     pub vertex: bool,
     /// Vertex AI project ID.

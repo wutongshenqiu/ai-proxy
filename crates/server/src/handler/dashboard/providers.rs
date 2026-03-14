@@ -206,6 +206,7 @@ pub async fn create_provider(
         headers: body.headers,
         disabled: body.disabled,
         cloak: Default::default(),
+        upstream_presentation: Default::default(),
         wire_api,
         weight: body.weight,
         region: body.region,

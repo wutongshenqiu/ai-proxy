@@ -14,6 +14,7 @@ pub use prism_lifecycle as lifecycle;
 pub mod memory_log_store;
 pub mod metrics;
 pub mod payload;
+pub mod presentation;
 pub mod prometheus;
 pub mod provider;
 pub mod proxy;

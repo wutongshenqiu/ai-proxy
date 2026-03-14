@@ -149,6 +149,7 @@ mod tests {
             credential_name: Some(format!("name-{id}")),
             weight: 100,
             region: None,
+            upstream_presentation: Default::default(),
             vertex: false,
             vertex_project: None,
             vertex_location: None,

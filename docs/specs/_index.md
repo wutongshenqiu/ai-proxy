@@ -51,6 +51,7 @@ All specifications for the AI Proxy Gateway project.
 | SPEC-061 | Quota-Aware Credential Switching               | Completed | [active/SPEC-061/](active/SPEC-061/) |
 | SPEC-062 | Vertex AI Provider                             | Completed | [active/SPEC-062/](active/SPEC-062/) |
 | SPEC-063 | Unified Provider Configuration                 | Completed | [active/SPEC-063/](active/SPEC-063/) |
+| SPEC-064 | Upstream Presentation Layer                    | Draft     | [active/SPEC-064/](active/SPEC-064/) |
 
 ## Retroactively Completed
 
