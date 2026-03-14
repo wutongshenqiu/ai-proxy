@@ -38,33 +38,36 @@ pub async fn system_health(State(state): State<AppState>) -> impl IntoResponse {
     let config = state.config.load();
     let uptime_seconds = state.start_time.elapsed().as_secs();
 
-    let providers: Vec<serde_json::Value> = [
-        ("claude", &config.claude_api_key),
-        ("openai", &config.openai_api_key),
-        ("gemini", &config.gemini_api_key),
-        ("openai_compat", &config.openai_compatibility),
-    ]
-    .into_iter()
-    .map(|(name, keys)| {
-        let active = keys.iter().filter(|k| !k.disabled).count();
-        let total = keys.len();
-        let status = if total == 0 {
-            "unconfigured"
-        } else if active == 0 {
-            "unhealthy"
-        } else if active < total {
-            "degraded"
-        } else {
-            "healthy"
-        };
-        json!({
-            "name": name,
-            "status": status,
-            "active_keys": active,
-            "total_keys": total,
+    // Group providers by name for health summary
+    let mut provider_groups: std::collections::HashMap<&str, (usize, usize)> =
+        std::collections::HashMap::new();
+    for entry in &config.providers {
+        let (active, total) = provider_groups.entry(&entry.name).or_insert((0, 0));
+        *total += 1;
+        if !entry.disabled {
+            *active += 1;
+        }
+    }
+    let providers: Vec<serde_json::Value> = provider_groups
+        .into_iter()
+        .map(|(name, (active, total))| {
+            let status = if total == 0 {
+                "unconfigured"
+            } else if active == 0 {
+                "unhealthy"
+            } else if active < total {
+                "degraded"
+            } else {
+                "healthy"
+            };
+            json!({
+                "name": name,
+                "status": status,
+                "active_keys": active,
+                "total_keys": total,
+            })
         })
-    })
-    .collect();
+        .collect();
 
     // Determine overall status from provider statuses
     let has_any_provider = providers.iter().any(|p| p["status"] != "unconfigured");

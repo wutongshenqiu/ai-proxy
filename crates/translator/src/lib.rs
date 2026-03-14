@@ -204,34 +204,10 @@ pub fn build_registry() -> TranslatorRegistry {
         },
     );
 
-    // OpenAI -> OpenAICompat passthrough (only replace model name, pass responses as-is)
-    reg.register(
-        Format::OpenAI,
-        Format::OpenAICompat,
-        |model, raw_json, _stream| replace_model_in_payload(raw_json, model),
-        ResponseTransform {
-            stream: |_model, _orig_req, _event_type, data, _state| {
-                Ok(vec![String::from_utf8_lossy(data).to_string()])
-            },
-            non_stream: |_model, _orig_req, data| Ok(String::from_utf8_lossy(data).to_string()),
-        },
-    );
-
     // Gemini -> OpenAI request translation, OpenAI -> Gemini response translation
     reg.register(
         Format::Gemini,
         Format::OpenAI,
-        gemini_to_openai_request::translate_request,
-        ResponseTransform {
-            stream: openai_to_gemini_response::translate_stream,
-            non_stream: openai_to_gemini_response::translate_non_stream,
-        },
-    );
-
-    // Gemini -> OpenAICompat (same translators as Gemini -> OpenAI)
-    reg.register(
-        Format::Gemini,
-        Format::OpenAICompat,
         gemini_to_openai_request::translate_request,
         ResponseTransform {
             stream: openai_to_gemini_response::translate_stream,
@@ -337,32 +313,6 @@ mod tests {
         assert_eq!(val["contents"][0]["role"], "user");
     }
 
-    #[test]
-    fn test_registry_openai_compat_passthrough() {
-        let reg = build_registry();
-        let payload = json!({
-            "model": "gpt-4",
-            "messages": [{"role": "user", "content": "Hello"}],
-            "temperature": 0.7
-        });
-        let raw = serde_json::to_vec(&payload).unwrap();
-
-        let result = reg
-            .translate_request(
-                Format::OpenAI,
-                Format::OpenAICompat,
-                "deepseek-chat",
-                &raw,
-                false,
-            )
-            .unwrap();
-        let val: serde_json::Value = serde_json::from_slice(&result).unwrap();
-        // Model replaced, everything else preserved
-        assert_eq!(val["model"], "deepseek-chat");
-        assert_eq!(val["temperature"], 0.7);
-        assert_eq!(val["messages"][0]["content"], "Hello");
-    }
-
     // === translate_stream ===
 
     #[test]
@@ -457,7 +407,6 @@ mod tests {
         let reg = build_registry();
         assert!(reg.has_response_translator(Format::OpenAI, Format::Claude));
         assert!(reg.has_response_translator(Format::OpenAI, Format::Gemini));
-        assert!(reg.has_response_translator(Format::OpenAI, Format::OpenAICompat));
         // Same format should return false
         assert!(!reg.has_response_translator(Format::OpenAI, Format::OpenAI));
         // Unregistered pair should return false
@@ -540,13 +489,13 @@ mod tests {
     #[test]
     fn test_build_registry_has_all_paths() {
         let reg = build_registry();
-        // Should have 6 request translators:
-        // OpenAI→Claude, OpenAI→Gemini, OpenAI→OpenAICompat,
-        // Gemini→OpenAI, Gemini→OpenAICompat, Gemini→Claude
-        assert_eq!(reg.requests.len(), 6);
-        // Should have 5 response translators:
-        // OpenAI→Claude, OpenAI→Gemini, OpenAI→OpenAICompat,
-        // Gemini→OpenAI, Gemini→OpenAICompat
-        assert_eq!(reg.responses.len(), 5);
+        // Should have 4 request translators:
+        // OpenAI→Claude, OpenAI→Gemini,
+        // Gemini→OpenAI, Gemini→Claude
+        assert_eq!(reg.requests.len(), 4);
+        // Should have 3 response translators:
+        // OpenAI→Claude, OpenAI→Gemini,
+        // Gemini→OpenAI
+        assert_eq!(reg.responses.len(), 3);
     }
 }

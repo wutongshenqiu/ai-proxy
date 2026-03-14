@@ -99,11 +99,9 @@ pub struct Config {
     // Quota-aware credential cooldown duration in seconds (default: 60).
     pub quota_cooldown_default_secs: u64,
 
-    // Provider credentials
-    pub claude_api_key: Vec<ProviderKeyEntry>,
-    pub openai_api_key: Vec<ProviderKeyEntry>,
-    pub gemini_api_key: Vec<ProviderKeyEntry>,
-    pub openai_compatibility: Vec<ProviderKeyEntry>,
+    // Provider credentials (unified)
+    #[serde(default)]
+    pub providers: Vec<ProviderKeyEntry>,
 }
 
 impl Default for Config {
@@ -140,10 +138,7 @@ impl Default for Config {
             daemon: DaemonConfig::default(),
             thinking_cache: ThinkingCacheConfig::default(),
             quota_cooldown_default_secs: 60,
-            claude_api_key: Vec::new(),
-            openai_api_key: Vec::new(),
-            gemini_api_key: Vec::new(),
-            openai_compatibility: Vec::new(),
+            providers: Vec::new(),
         }
     }
 }
@@ -199,6 +194,16 @@ impl Config {
         if let Some(ref proxy) = self.proxy_url {
             crate::proxy::validate_proxy_url(proxy)?;
         }
+        // Provider name uniqueness
+        let mut seen_names = std::collections::HashSet::new();
+        for entry in &self.providers {
+            anyhow::ensure!(!entry.name.is_empty(), "provider name must not be empty");
+            anyhow::ensure!(
+                seen_names.insert(&entry.name),
+                "duplicate provider name: {}",
+                entry.name
+            );
+        }
         self.routing
             .validate()
             .map_err(|e| anyhow::anyhow!("routing: {e}"))?;
@@ -208,10 +213,7 @@ impl Config {
     /// Normalize entries without resolving secrets.
     /// Safe for the persistence path (dashboard config writes).
     fn normalize(&mut self) {
-        sanitize_entries(&mut self.claude_api_key);
-        sanitize_entries(&mut self.openai_api_key);
-        sanitize_entries(&mut self.gemini_api_key);
-        sanitize_entries(&mut self.openai_compatibility);
+        sanitize_entries(&mut self.providers);
     }
 
     /// Sanitize and normalize configuration, including secret resolution.
@@ -220,10 +222,7 @@ impl Config {
         self.normalize();
 
         // Resolve secrets in provider API keys
-        resolve_provider_secrets(&mut self.claude_api_key)?;
-        resolve_provider_secrets(&mut self.openai_api_key)?;
-        resolve_provider_secrets(&mut self.gemini_api_key)?;
-        resolve_provider_secrets(&mut self.openai_compatibility)?;
+        resolve_provider_secrets(&mut self.providers)?;
 
         // Resolve secrets in auth keys
         for entry in &mut self.auth_keys {
@@ -252,11 +251,7 @@ impl Config {
 
     /// Returns an iterator over all provider key entries.
     pub fn all_provider_keys(&self) -> impl Iterator<Item = &ProviderKeyEntry> {
-        self.claude_api_key
-            .iter()
-            .chain(self.openai_api_key.iter())
-            .chain(self.gemini_api_key.iter())
-            .chain(self.openai_compatibility.iter())
+        self.providers.iter()
     }
 }
 
@@ -273,7 +268,7 @@ fn resolve_provider_secrets(entries: &mut [ProviderKeyEntry]) -> Result<(), anyh
                 Err(e) => {
                     tracing::warn!(
                         "provider '{}': failed to resolve credential source: {e}",
-                        entry.name.as_deref().unwrap_or("unnamed")
+                        entry.name
                     );
                     // Fall through to resolve api_key normally if it's non-empty
                 }
@@ -281,12 +276,8 @@ fn resolve_provider_secrets(entries: &mut [ProviderKeyEntry]) -> Result<(), anyh
         }
 
         if !entry.api_key.is_empty() {
-            entry.api_key = crate::secret::resolve(&entry.api_key).map_err(|e| {
-                anyhow::anyhow!(
-                    "provider '{}': {e}",
-                    entry.name.as_deref().unwrap_or("unnamed")
-                )
-            })?;
+            entry.api_key = crate::secret::resolve(&entry.api_key)
+                .map_err(|e| anyhow::anyhow!("provider '{}': {e}", entry.name))?;
         }
     }
     Ok(())
@@ -521,6 +512,11 @@ pub struct ModelMapping {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct ProviderKeyEntry {
+    /// Unique provider name (used as identity for routing).
+    pub name: String,
+    /// Wire protocol format.
+    pub format: crate::provider::Format,
+    #[serde(default)]
     pub api_key: String,
     #[serde(default)]
     pub base_url: Option<String>,
@@ -536,12 +532,9 @@ pub struct ProviderKeyEntry {
     pub headers: HashMap<String, String>,
     #[serde(default)]
     pub disabled: bool,
-    /// Human-readable name for this key entry (used for logging/identification).
-    #[serde(default)]
-    pub name: Option<String>,
     #[serde(default)]
     pub cloak: crate::cloak::CloakConfig,
-    /// Wire API format for OpenAI-compatible providers.
+    /// Wire API format for OpenAI-protocol providers (Chat or Responses).
     #[serde(default)]
     pub wire_api: crate::provider::WireApi,
     /// Weight for weighted round-robin routing (default: 1, range 1-100).
@@ -666,67 +659,37 @@ mod tests {
         assert!(cfg.circuit_breaker.enabled);
     }
 
+    fn make_test_entry(name: &str, api_key: &str) -> ProviderKeyEntry {
+        ProviderKeyEntry {
+            name: name.to_string(),
+            format: crate::provider::Format::OpenAI,
+            api_key: api_key.into(),
+            base_url: None,
+            proxy_url: None,
+            prefix: None,
+            models: vec![],
+            excluded_models: vec![],
+            headers: HashMap::new(),
+            disabled: false,
+            cloak: Default::default(),
+            wire_api: crate::provider::WireApi::default(),
+            weight: 1,
+            region: None,
+            credential_source: None,
+            vertex: false,
+            vertex_project: None,
+            vertex_location: None,
+        }
+    }
+
     #[test]
     fn test_sanitize_entries() {
-        let mut entries = vec![
-            ProviderKeyEntry {
-                api_key: "key1".into(),
-                base_url: Some("https://api.example.com/".into()),
-                proxy_url: None,
-                prefix: None,
-                models: vec![],
-                excluded_models: vec![],
-                headers: HashMap::from([("X-Custom".into(), "val".into())]),
-                disabled: false,
-                name: None,
-                cloak: Default::default(),
-                wire_api: crate::provider::WireApi::default(),
-                weight: 1,
-                region: None,
-                credential_source: None,
-                vertex: false,
-                vertex_project: None,
-                vertex_location: None,
-            },
-            ProviderKeyEntry {
-                api_key: "".into(),
-                base_url: None,
-                proxy_url: None,
-                prefix: None,
-                models: vec![],
-                excluded_models: vec![],
-                headers: HashMap::new(),
-                disabled: false,
-                name: None,
-                cloak: Default::default(),
-                wire_api: crate::provider::WireApi::default(),
-                weight: 1,
-                region: None,
-                credential_source: None,
-                vertex: false,
-                vertex_project: None,
-                vertex_location: None,
-            },
-            ProviderKeyEntry {
-                api_key: "key1".into(), // duplicate
-                base_url: None,
-                proxy_url: None,
-                prefix: None,
-                models: vec![],
-                excluded_models: vec![],
-                headers: HashMap::new(),
-                disabled: false,
-                name: None,
-                cloak: Default::default(),
-                wire_api: crate::provider::WireApi::default(),
-                weight: 1,
-                region: None,
-                credential_source: None,
-                vertex: false,
-                vertex_project: None,
-                vertex_location: None,
-            },
-        ];
+        let mut e1 = make_test_entry("p1", "key1");
+        e1.base_url = Some("https://api.example.com/".into());
+        e1.headers = HashMap::from([("X-Custom".into(), "val".into())]);
+        let e2 = make_test_entry("p2", "");
+        let e3 = make_test_entry("p3", "key1"); // duplicate key
+        let mut entries = vec![e1, e2, e3];
         sanitize_entries(&mut entries);
         assert_eq!(entries.len(), 1);
         assert_eq!(
@@ -748,8 +711,10 @@ auth-keys:
     allowed-models: ["claude-*"]
 routing:
   default-profile: balanced
-claude-api-key:
-  - api-key: "sk-ant-xxx"
+providers:
+  - name: claude
+    format: claude
+    api-key: "sk-ant-xxx"
     base-url: "https://api.anthropic.com"
     models:
       - id: "claude-sonnet-4-20250514"
@@ -762,8 +727,9 @@ claude-api-key:
         assert_eq!(config.auth_keys[0].key, "test-key");
         assert_eq!(config.auth_keys[0].tenant_id.as_deref(), Some("t1"));
         assert_eq!(config.routing.default_profile, "balanced");
-        assert_eq!(config.claude_api_key.len(), 1);
-        assert_eq!(config.claude_api_key[0].models.len(), 1);
+        assert_eq!(config.providers.len(), 1);
+        assert_eq!(config.providers[0].models.len(), 1);
+        assert_eq!(config.providers[0].format, crate::provider::Format::Claude);
     }
 
     #[test]
@@ -883,9 +849,10 @@ dashboard:
         unsafe { std::env::set_var("TEST_RAW_API_KEY", "resolved-secret") };
 
         let yaml = r#"
-claude-api-key:
-  - api-key: "env://TEST_RAW_API_KEY"
-    name: "test-claude"
+providers:
+  - name: test-claude
+    format: claude
+    api-key: "env://TEST_RAW_API_KEY"
 auth-keys:
   - key: "env://TEST_RAW_API_KEY"
     name: "test-auth"
@@ -896,7 +863,7 @@ dashboard:
 "#;
         // from_yaml_raw should NOT resolve secrets
         let raw = Config::from_yaml_raw(yaml).unwrap();
-        assert_eq!(raw.claude_api_key[0].api_key, "env://TEST_RAW_API_KEY");
+        assert_eq!(raw.providers[0].api_key, "env://TEST_RAW_API_KEY");
         assert_eq!(raw.auth_keys[0].key, "env://TEST_RAW_API_KEY");
         assert_eq!(raw.dashboard.password_hash, "env://TEST_RAW_API_KEY");
         assert_eq!(
@@ -907,13 +874,13 @@ dashboard:
         // Round-trip: serialize and re-parse should still preserve references
         let serialized = raw.to_yaml().unwrap();
         let raw2 = Config::from_yaml_raw(&serialized).unwrap();
-        assert_eq!(raw2.claude_api_key[0].api_key, "env://TEST_RAW_API_KEY");
+        assert_eq!(raw2.providers[0].api_key, "env://TEST_RAW_API_KEY");
         assert_eq!(raw2.auth_keys[0].key, "env://TEST_RAW_API_KEY");
         assert_eq!(raw2.dashboard.password_hash, "env://TEST_RAW_API_KEY");
 
         // from_yaml (with sanitize) SHOULD resolve secrets
         let resolved = Config::from_yaml(yaml).unwrap();
-        assert_eq!(resolved.claude_api_key[0].api_key, "resolved-secret");
+        assert_eq!(resolved.providers[0].api_key, "resolved-secret");
         assert_eq!(resolved.auth_keys[0].key, "resolved-secret");
 
         unsafe { std::env::remove_var("TEST_RAW_API_KEY") };
@@ -928,19 +895,20 @@ dashboard:
 
         let yaml = format!(
             r#"
-claude-api-key:
-  - api-key: "{file_ref}"
-    name: "file-test"
+providers:
+  - name: file-test
+    format: claude
+    api-key: "{file_ref}"
 "#
         );
 
         // from_yaml_raw preserves file:// references
         let raw = Config::from_yaml_raw(&yaml).unwrap();
-        assert_eq!(raw.claude_api_key[0].api_key, file_ref);
+        assert_eq!(raw.providers[0].api_key, file_ref);
 
         // from_yaml resolves them
         let resolved = Config::from_yaml(&yaml).unwrap();
-        assert_eq!(resolved.claude_api_key[0].api_key, "file-secret-value");
+        assert_eq!(resolved.providers[0].api_key, "file-secret-value");
     }
 
     #[test]

@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 pub struct OpenAICompatExecutor {
     pub name: String,
-    pub default_base_url: String,
     pub format: Format,
     pub global_proxy: Option<String>,
     pub client_pool: Arc<HttpClientPool>,
@@ -168,16 +167,12 @@ impl ProviderExecutor for OpenAICompatExecutor {
         self.format
     }
 
-    fn default_base_url(&self) -> &str {
-        &self.default_base_url
-    }
-
     async fn execute(
         &self,
         auth: &AuthRecord,
         request: ProviderRequest,
     ) -> Result<ProviderResponse, ProxyError> {
-        let base_url = auth.base_url_or_default(&self.default_base_url);
+        let base_url = auth.resolved_base_url();
 
         let (url, body) = if use_responses_api(auth) {
             (
@@ -266,7 +261,7 @@ impl ProviderExecutor for OpenAICompatExecutor {
             });
         }
 
-        let base_url = auth.base_url_or_default(&self.default_base_url);
+        let base_url = auth.resolved_base_url();
         let url = format!("{base_url}/v1/chat/completions");
 
         let req = self.build_request(auth, &url, &request.payload, &request.headers)?;

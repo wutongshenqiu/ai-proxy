@@ -12,22 +12,18 @@ use prism_core::provider::Format;
 /// Resolve a provider path segment to a list of credential name patterns.
 ///
 /// Resolution order:
-/// 1. If the provider string matches a known format name ("openai", "claude",
-///    "gemini", "openai-compat"), collect all credential names for that format.
+/// 1. If the provider string matches a provider name in the credential map,
+///    collect all credential names for that provider.
 /// 2. Otherwise, treat it as a credential name pattern (exact match).
 fn resolve_provider(state: &AppState, provider: &str) -> Result<Vec<String>, ProxyError> {
-    // Try parsing as a format name first
-    if let Ok(format) = provider.parse::<Format>() {
-        let cred_map = state.router.credential_map();
-        let names: Vec<String> = cred_map
-            .get(&format)
-            .map(|entries| {
-                entries
-                    .iter()
-                    .filter_map(|a| a.credential_name.clone())
-                    .collect()
-            })
-            .unwrap_or_default();
+    let cred_map = state.router.credential_map();
+
+    // Try matching as a provider name first
+    if let Some(entries) = cred_map.get(provider) {
+        let names: Vec<String> = entries
+            .iter()
+            .filter_map(|a| a.credential_name.clone())
+            .collect();
         if names.is_empty() {
             return Err(ProxyError::BadRequest(format!(
                 "no credentials found for provider '{provider}'"
@@ -37,7 +33,6 @@ fn resolve_provider(state: &AppState, provider: &str) -> Result<Vec<String>, Pro
     }
 
     // Otherwise treat it as a credential name
-    let cred_map = state.router.credential_map();
     let exists = cred_map.values().any(|entries| {
         entries
             .iter()

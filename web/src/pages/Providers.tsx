@@ -1,22 +1,20 @@
 import { useEffect, useState } from 'react';
 import { providersApi } from '../services/api';
-import type { Provider, ProviderCreateRequest, ProviderType } from '../types';
+import type { Provider, ProviderCreateRequest, FormatType } from '../types';
 import StatusBadge from '../components/StatusBadge';
 import TagList from '../components/TagList';
 import { Server, Plus, Pencil, Trash2, X, RefreshCw, HeartPulse, PlusCircle, MinusCircle, Copy } from 'lucide-react';
 
-const PROVIDER_TYPES: { value: ProviderType; label: string }[] = [
+const FORMAT_OPTIONS: { value: FormatType; label: string }[] = [
   { value: 'openai', label: 'OpenAI' },
   { value: 'claude', label: 'Claude (Anthropic)' },
   { value: 'gemini', label: 'Gemini (Google)' },
-  { value: 'openai-compat', label: 'OpenAI Compatible' },
 ];
 
-const DEFAULT_BASE_URLS: Record<ProviderType, string> = {
-  openai: 'https://api.openai.com/v1',
-  claude: 'https://api.anthropic.com/v1',
-  gemini: 'https://generativelanguage.googleapis.com/v1beta',
-  'openai-compat': '',
+const DEFAULT_BASE_URLS: Record<FormatType, string> = {
+  openai: 'https://api.openai.com',
+  claude: 'https://api.anthropic.com',
+  gemini: 'https://generativelanguage.googleapis.com',
 };
 
 interface HeaderPair {
@@ -26,7 +24,7 @@ interface HeaderPair {
 
 interface FormState {
   name: string;
-  provider_type: ProviderType;
+  format: FormatType;
   base_url: string;
   proxy_url: string;
   api_key: string;
@@ -42,7 +40,7 @@ interface FormState {
 
 const emptyForm: FormState = {
   name: '',
-  provider_type: 'openai',
+  format: 'openai',
   base_url: DEFAULT_BASE_URLS.openai,
   proxy_url: '',
   api_key: '',
@@ -60,7 +58,7 @@ export default function Providers() {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
-  const [editId, setEditId] = useState<string | null>(null);
+  const [editName, setEditName] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -84,14 +82,14 @@ export default function Providers() {
   }, []);
 
   const openCreate = () => {
-    setEditId(null);
+    setEditName(null);
     setForm(emptyForm);
     setError('');
     setShowModal(true);
   };
 
   const openEdit = (provider: Provider) => {
-    setEditId(provider.id);
+    setEditName(provider.name);
     const headerPairs: HeaderPair[] = provider.headers
       ? Object.entries(provider.headers).map(([key, value]) => ({ key, value }))
       : [];
@@ -99,8 +97,8 @@ export default function Providers() {
       typeof m === 'string' ? m : m.id
     );
     setForm({
-      name: provider.name ?? '',
-      provider_type: provider.provider_type,
+      name: provider.name,
+      format: provider.format,
       base_url: provider.base_url ?? '',
       proxy_url: provider.proxy_url ?? '',
       api_key: '',
@@ -118,7 +116,11 @@ export default function Providers() {
   };
 
   const handleSubmit = async () => {
-    if (!editId && !form.api_key.trim()) {
+    if (!form.name.trim()) {
+      setError('Name is required');
+      return;
+    }
+    if (!editName && !form.api_key.trim()) {
       setError('API key is required');
       return;
     }
@@ -142,9 +144,8 @@ export default function Providers() {
         if (key.trim() && value.trim()) headers[key.trim()] = value.trim();
       });
 
-      if (editId) {
-        await providersApi.update(editId, {
-          name: form.name || null,
+      if (editName) {
+        await providersApi.update(editName, {
           base_url: form.base_url || null,
           proxy_url: form.proxy_url || null,
           api_key: form.api_key || undefined,
@@ -159,8 +160,8 @@ export default function Providers() {
         });
       } else {
         const data: ProviderCreateRequest = {
-          name: form.name || undefined,
-          provider_type: form.provider_type,
+          name: form.name,
+          format: form.format,
           base_url: form.base_url || undefined,
           proxy_url: form.proxy_url || undefined,
           api_key: form.api_key,
@@ -185,25 +186,25 @@ export default function Providers() {
     }
   };
 
-  const handleDelete = async (id: string, name: string) => {
+  const handleDelete = async (name: string) => {
     if (!window.confirm(`Delete provider "${name}"? This cannot be undone.`)) {
       return;
     }
 
     try {
-      await providersApi.delete(id);
+      await providersApi.delete(name);
       fetchProviders();
     } catch (err) {
       console.error('Failed to delete provider:', err);
     }
   };
 
-  const handleTypeChange = (type: ProviderType) => {
+  const handleFormatChange = (fmt: FormatType) => {
     setForm((prev) => ({
       ...prev,
-      provider_type: type,
-      base_url: prev.base_url === DEFAULT_BASE_URLS[prev.provider_type]
-        ? DEFAULT_BASE_URLS[type]
+      format: fmt,
+      base_url: prev.base_url === DEFAULT_BASE_URLS[prev.format]
+        ? DEFAULT_BASE_URLS[fmt]
         : prev.base_url,
     }));
   };
@@ -212,7 +213,7 @@ export default function Providers() {
     setFetchingModels(true);
     try {
       const result = await providersApi.fetchModels({
-        provider_type: form.provider_type,
+        format: form.format,
         api_key: form.api_key,
         base_url: form.base_url || undefined,
       });
@@ -224,15 +225,15 @@ export default function Providers() {
     }
   };
 
-  const handleHealthCheck = async (id: string) => {
-    setHealthChecking(id);
+  const handleHealthCheck = async (name: string) => {
+    setHealthChecking(name);
     try {
-      const result = await providersApi.healthCheck(id);
-      setHealthResults((prev) => ({ ...prev, [id]: result }));
+      const result = await providersApi.healthCheck(name);
+      setHealthResults((prev) => ({ ...prev, [name]: result }));
     } catch (err) {
       setHealthResults((prev) => ({
         ...prev,
-        [id]: { status: 'error', message: err instanceof Error ? err.message : 'Health check failed' },
+        [name]: { status: 'error', message: err instanceof Error ? err.message : 'Health check failed' },
       }));
     } finally {
       setHealthChecking(null);
@@ -258,7 +259,7 @@ export default function Providers() {
             <thead>
               <tr>
                 <th>Name</th>
-                <th>Type</th>
+                <th>Format</th>
                 <th>Base URL</th>
                 <th>Models</th>
                 <th>Status</th>
@@ -285,11 +286,11 @@ export default function Providers() {
                 </tr>
               ) : (
                 providers.map((provider) => (
-                  <tr key={provider.id}>
+                  <tr key={provider.name}>
                     <td className="text-bold">{provider.name}</td>
                     <td>
                       <span className="type-badge">
-                        {PROVIDER_TYPES.find((t) => t.value === provider.provider_type)?.label ?? provider.provider_type}
+                        {FORMAT_OPTIONS.find((t) => t.value === provider.format)?.label ?? provider.format}
                       </span>
                     </td>
                     <td className="text-mono" style={{ maxWidth: 250 }}>
@@ -323,13 +324,13 @@ export default function Providers() {
                       )}
                     </td>
                     <td>
-                      {healthResults[provider.id] ? (
+                      {healthResults[provider.name] ? (
                         <span
-                          className={`health-badge ${healthResults[provider.id].status === 'ok' ? 'health-ok' : 'health-error'}`}
-                          title={healthResults[provider.id].message || `${healthResults[provider.id].latency_ms}ms`}
+                          className={`health-badge ${healthResults[provider.name].status === 'ok' ? 'health-ok' : 'health-error'}`}
+                          title={healthResults[provider.name].message || `${healthResults[provider.name].latency_ms}ms`}
                         >
-                          {healthResults[provider.id].status === 'ok'
-                            ? `✓ ${healthResults[provider.id].latency_ms}ms`
+                          {healthResults[provider.name].status === 'ok'
+                            ? `✓ ${healthResults[provider.name].latency_ms}ms`
                             : '✗ Error'}
                         </span>
                       ) : (
@@ -349,15 +350,15 @@ export default function Providers() {
                         </button>
                         <button
                           className="btn btn-ghost btn-sm"
-                          onClick={() => handleHealthCheck(provider.id)}
+                          onClick={() => handleHealthCheck(provider.name)}
                           title="Health Check"
-                          disabled={healthChecking === provider.id}
+                          disabled={healthChecking === provider.name}
                         >
                           <HeartPulse size={14} />
                         </button>
                         <button
                           className="btn btn-ghost btn-sm btn-danger-ghost"
-                          onClick={() => handleDelete(provider.id, provider.name ?? 'Unnamed')}
+                          onClick={() => handleDelete(provider.name)}
                           title="Delete"
                         >
                           <Trash2 size={14} />
@@ -377,7 +378,7 @@ export default function Providers() {
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>{editId ? 'Edit Provider' : 'Add Provider'}</h3>
+              <h3>{editName ? 'Edit Provider' : 'Add Provider'}</h3>
               <button className="btn btn-ghost btn-sm" onClick={() => setShowModal(false)}>
                 <X size={18} />
               </button>
@@ -391,21 +392,28 @@ export default function Providers() {
                   type="text"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  placeholder="e.g., OpenAI Production"
+                  placeholder="e.g., deepseek, openai-prod"
+                  disabled={!!editName}
                 />
+                <span className="form-help" style={{ fontSize: '0.8rem', opacity: 0.6 }}>
+                  Unique identifier for this provider. Used in routing and logs.
+                </span>
               </div>
 
               <div className="form-group">
-                <label>Provider Type</label>
+                <label>Format</label>
                 <select
-                  value={form.provider_type}
-                  onChange={(e) => handleTypeChange(e.target.value as ProviderType)}
-                  disabled={!!editId}
+                  value={form.format}
+                  onChange={(e) => handleFormatChange(e.target.value as FormatType)}
+                  disabled={!!editName}
                 >
-                  {PROVIDER_TYPES.map((t) => (
+                  {FORMAT_OPTIONS.map((t) => (
                     <option key={t.value} value={t.value}>{t.label}</option>
                   ))}
                 </select>
+                <span className="form-help" style={{ fontSize: '0.8rem', opacity: 0.6 }}>
+                  Wire protocol format. Use OpenAI for OpenAI-compatible providers (DeepSeek, Groq, etc.).
+                </span>
               </div>
 
               <div className="form-group">
@@ -414,17 +422,17 @@ export default function Providers() {
                   type="text"
                   value={form.base_url}
                   onChange={(e) => setForm({ ...form, base_url: e.target.value })}
-                  placeholder="https://api.example.com/v1"
+                  placeholder={DEFAULT_BASE_URLS[form.format]}
                 />
               </div>
 
               <div className="form-group">
-                <label>API Key {editId && '(leave empty to keep current)'}</label>
+                <label>API Key {editName && '(leave empty to keep current)'}</label>
                 <input
                   type="password"
                   value={form.api_key}
                   onChange={(e) => setForm({ ...form, api_key: e.target.value })}
-                  placeholder={editId ? '********' : 'sk-...'}
+                  placeholder={editName ? '********' : 'sk-...'}
                 />
               </div>
 
@@ -435,8 +443,8 @@ export default function Providers() {
                     type="button"
                     className="btn btn-ghost btn-sm"
                     onClick={handleFetchModels}
-                    disabled={fetchingModels || (!form.api_key && !editId)}
-                    title={editId && !form.api_key ? 'Enter API key to fetch models' : 'Fetch available models from provider'}
+                    disabled={fetchingModels || (!form.api_key && !editName)}
+                    title={editName && !form.api_key ? 'Enter API key to fetch models' : 'Fetch available models from provider'}
                   >
                     <RefreshCw size={14} className={fetchingModels ? 'spinning' : ''} />
                     {fetchingModels ? 'Fetching...' : 'Fetch Models'}
@@ -542,7 +550,7 @@ export default function Providers() {
               </div>
 
               <div className="form-row">
-                {form.provider_type === 'openai-compat' && (
+                {form.format === 'openai' && (
                   <div className="form-group">
                     <label>Wire API</label>
                     <select
@@ -600,7 +608,7 @@ export default function Providers() {
                 onClick={handleSubmit}
                 disabled={saving}
               >
-                {saving ? 'Saving...' : editId ? 'Update' : 'Create'}
+                {saving ? 'Saving...' : editName ? 'Update' : 'Create'}
               </button>
             </div>
           </div>

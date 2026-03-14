@@ -6,7 +6,6 @@ use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
 use prism_core::context::RequestContext;
 use prism_core::error::ProxyError;
-use prism_core::provider::Format;
 
 /// POST /v1/messages/count_tokens — Proxy to Claude's token counting endpoint.
 pub async fn count_tokens(
@@ -43,7 +42,7 @@ pub async fn count_tokens(
     let auth = state
         .router
         .pick(
-            Format::Claude,
+            "claude",
             model,
             &[],
             ctx.client_region.as_deref(),

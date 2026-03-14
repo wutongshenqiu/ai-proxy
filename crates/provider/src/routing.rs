@@ -33,9 +33,9 @@ pub fn check_credential_access(patterns: &[String], credential_name: Option<&str
 }
 
 pub struct CredentialRouter {
-    credentials: RwLock<HashMap<Format, Vec<AuthRecord>>>,
-    /// Index: credential_id → (Format, index in Vec) for O(1) lookup.
-    credential_index: RwLock<HashMap<String, (Format, usize)>>,
+    credentials: RwLock<HashMap<String, Vec<AuthRecord>>>,
+    /// Index: credential_id → (provider_name, index in Vec) for O(1) lookup.
+    credential_index: RwLock<HashMap<String, (String, usize)>>,
     counters: RwLock<HashMap<String, AtomicUsize>>,
     strategy: RwLock<CredentialStrategy>,
     /// EWMA latency per credential_id (ms).
@@ -68,14 +68,14 @@ impl CredentialRouter {
     /// glob patterns (by credential name) are considered.
     pub fn pick(
         &self,
-        provider: Format,
+        provider_name: &str,
         model: &str,
         tried: &[String],
         _client_region: Option<&str>,
         allowed_credentials: &[String],
     ) -> Option<AuthRecord> {
         let creds = self.credentials.read().ok()?;
-        let entries = creds.get(&provider)?;
+        let entries = creds.get(provider_name)?;
 
         // Filter to available credentials that support the model and haven't been tried
         let candidates: Vec<&AuthRecord> = entries
@@ -97,7 +97,7 @@ impl CredentialRouter {
         match strategy {
             CredentialStrategy::FillFirst => candidates.first().cloned().cloned(),
             CredentialStrategy::PriorityWeightedRR => {
-                self.pick_round_robin(provider, model, &candidates)
+                self.pick_round_robin(provider_name, model, &candidates)
             }
             CredentialStrategy::EwmaLatency => self.pick_latency_aware(&candidates),
             CredentialStrategy::LeastInflight
@@ -105,18 +105,18 @@ impl CredentialRouter {
             | CredentialStrategy::RandomTwoChoices => {
                 // These strategies will be fully implemented in SPEC-050.
                 // For now, fall back to round-robin behavior.
-                self.pick_round_robin(provider, model, &candidates)
+                self.pick_round_robin(provider_name, model, &candidates)
             }
         }
     }
 
     fn pick_round_robin(
         &self,
-        provider: Format,
+        provider_name: &str,
         model: &str,
         candidates: &[&AuthRecord],
     ) -> Option<AuthRecord> {
-        let key = format!("{}:{}", provider.as_str(), model);
+        let key = format!("{}:{}", provider_name, model);
         let counters = self.counters.read().ok()?;
         let idx = if let Some(counter) = counters.get(&key) {
             counter.fetch_add(1, Ordering::Relaxed)
@@ -218,9 +218,9 @@ impl CredentialRouter {
     /// O(1) credential lookup by ID using the index.
     pub fn find_credential(&self, auth_id: &str) -> Option<AuthRecord> {
         let index = self.credential_index.read().ok()?;
-        let &(format, idx) = index.get(auth_id)?;
+        let (provider_name, idx) = index.get(auth_id)?;
         let creds = self.credentials.read().ok()?;
-        creds.get(&format)?.get(idx).cloned()
+        creds.get(provider_name)?.get(*idx).cloned()
     }
 
     /// Get circuit breaker states for all credentials (for Prometheus).
@@ -249,36 +249,17 @@ impl CredentialRouter {
 
         let cb_config = config.circuit_breaker.clone();
 
-        let mut map: HashMap<Format, Vec<AuthRecord>> = HashMap::new();
+        let mut map: HashMap<String, Vec<AuthRecord>> = HashMap::new();
 
-        // Claude credentials
-        for entry in &config.claude_api_key {
-            let auth = build_auth_record(entry, Format::Claude, &cb_config);
-            map.entry(Format::Claude).or_default().push(auth);
-        }
-
-        // OpenAI credentials
-        for entry in &config.openai_api_key {
-            let auth = build_auth_record(entry, Format::OpenAI, &cb_config);
-            map.entry(Format::OpenAI).or_default().push(auth);
-        }
-
-        // Gemini credentials
-        for entry in &config.gemini_api_key {
-            let auth = build_auth_record(entry, Format::Gemini, &cb_config);
-            map.entry(Format::Gemini).or_default().push(auth);
-        }
-
-        // OpenAI-compatible credentials
-        for entry in &config.openai_compatibility {
-            let auth = build_auth_record(entry, Format::OpenAICompat, &cb_config);
-            map.entry(Format::OpenAICompat).or_default().push(auth);
+        for entry in &config.providers {
+            let auth = build_auth_record(entry, &cb_config);
+            map.entry(entry.name.clone()).or_default().push(auth);
         }
 
         if let Ok(mut creds) = self.credentials.write() {
             // Preserve circuit breaker state from existing credentials
-            for (format, new_entries) in map.iter_mut() {
-                if let Some(old_entries) = creds.get(format) {
+            for (provider_name, new_entries) in map.iter_mut() {
+                if let Some(old_entries) = creds.get(provider_name) {
                     for new_auth in new_entries.iter_mut() {
                         if let Some(old_auth) =
                             old_entries.iter().find(|o| o.api_key == new_auth.api_key)
@@ -293,9 +274,9 @@ impl CredentialRouter {
             // Rebuild credential index for O(1) lookups
             if let Ok(mut index) = self.credential_index.write() {
                 index.clear();
-                for (format, entries) in creds.iter() {
+                for (provider_name, entries) in creds.iter() {
                     for (i, auth) in entries.iter().enumerate() {
-                        index.insert(auth.id.clone(), (*format, i));
+                        index.insert(auth.id.clone(), (provider_name.clone(), i));
                     }
                 }
             }
@@ -314,7 +295,7 @@ impl CredentialRouter {
     pub fn all_models(&self) -> Vec<ModelInfo> {
         let mut models = Vec::new();
         if let Ok(creds) = self.credentials.read() {
-            for (format, entries) in creds.iter() {
+            for (provider_name, entries) in creds.iter() {
                 for auth in entries {
                     if !auth.is_available() {
                         continue;
@@ -329,8 +310,8 @@ impl CredentialRouter {
                         if !models.iter().any(|m: &ModelInfo| m.id == model_id) {
                             models.push(ModelInfo {
                                 id: model_id,
-                                provider: format.as_str().to_string(),
-                                owned_by: format.as_str().to_string(),
+                                provider: provider_name.clone(),
+                                owned_by: provider_name.clone(),
                             });
                         }
                     }
@@ -355,26 +336,28 @@ impl CredentialRouter {
     }
 
     /// Resolve which provider(s) can handle a given model name.
-    pub fn resolve_providers(&self, model: &str) -> Vec<Format> {
-        let mut formats = Vec::new();
+    /// Returns (provider_name, Format) pairs.
+    pub fn resolve_providers(&self, model: &str) -> Vec<(String, Format)> {
+        let mut result = Vec::new();
         if let Ok(creds) = self.credentials.read() {
-            for (format, entries) in creds.iter() {
+            for (provider_name, entries) in creds.iter() {
                 for auth in entries {
                     if auth.is_available() && auth.supports_model(model) {
-                        if !formats.contains(format) {
-                            formats.push(*format);
+                        let pair = (provider_name.clone(), auth.provider);
+                        if !result.iter().any(|(n, _)| n == provider_name) {
+                            result.push(pair);
                         }
                         break;
                     }
                 }
             }
         }
-        formats
+        result
     }
 
-    /// Get a snapshot of all credentials grouped by format.
+    /// Get a snapshot of all credentials grouped by provider name.
     /// Used by ProviderCatalog to build inventory snapshots.
-    pub fn credential_map(&self) -> HashMap<Format, Vec<AuthRecord>> {
+    pub fn credential_map(&self) -> HashMap<String, Vec<AuthRecord>> {
         self.credentials
             .read()
             .map(|c| c.clone())
@@ -384,7 +367,6 @@ impl CredentialRouter {
 
 fn build_auth_record(
     entry: &prism_core::config::ProviderKeyEntry,
-    format: Format,
     cb_config: &CircuitBreakerConfig,
 ) -> AuthRecord {
     let models = entry
@@ -404,7 +386,8 @@ fn build_auth_record(
 
     AuthRecord {
         id: uuid::Uuid::new_v4().to_string(),
-        provider: format,
+        provider: entry.format,
+        provider_name: entry.name.clone(),
         api_key: entry.api_key.clone(),
         base_url: entry.base_url.clone(),
         proxy_url: entry.proxy_url.clone(),
@@ -414,13 +397,13 @@ fn build_auth_record(
         prefix: entry.prefix.clone(),
         disabled: entry.disabled,
         circuit_breaker,
-        cloak: if matches!(format, Format::Claude) {
+        cloak: if matches!(entry.format, Format::Claude) {
             Some(entry.cloak.clone())
         } else {
             None
         },
         wire_api: entry.wire_api,
-        credential_name: entry.name.clone(),
+        credential_name: Some(entry.name.clone()),
         weight: entry.weight.max(1),
         region: entry.region.clone(),
         vertex: entry.vertex,
@@ -435,10 +418,11 @@ mod tests {
     use prism_core::routing::config::CredentialStrategy;
 
     /// Build a test AuthRecord with sensible defaults.
-    fn make_auth(id: &str, format: Format, models: Vec<&str>) -> AuthRecord {
+    fn make_auth(id: &str, provider_name: &str, format: Format, models: Vec<&str>) -> AuthRecord {
         AuthRecord {
             id: id.to_string(),
             provider: format,
+            provider_name: provider_name.to_string(),
             api_key: format!("key-{id}"),
             base_url: None,
             proxy_url: None,
@@ -467,9 +451,11 @@ mod tests {
 
     fn setup_router(strategy: CredentialStrategy, creds: Vec<AuthRecord>) -> CredentialRouter {
         let router = CredentialRouter::new(strategy);
-        let mut map: HashMap<Format, Vec<AuthRecord>> = HashMap::new();
+        let mut map: HashMap<String, Vec<AuthRecord>> = HashMap::new();
         for auth in creds {
-            map.entry(auth.provider).or_default().push(auth);
+            map.entry(auth.provider_name.clone())
+                .or_default()
+                .push(auth);
         }
         *router.credentials.write().unwrap() = map;
         router
@@ -482,13 +468,11 @@ mod tests {
         let router = setup_router(
             CredentialStrategy::FillFirst,
             vec![
-                make_auth("a", Format::OpenAI, vec!["gpt-4"]),
-                make_auth("b", Format::OpenAI, vec!["gpt-4"]),
+                make_auth("a", "openai", Format::OpenAI, vec!["gpt-4"]),
+                make_auth("b", "openai", Format::OpenAI, vec!["gpt-4"]),
             ],
         );
-        let picked = router
-            .pick(Format::OpenAI, "gpt-4", &[], None, &[])
-            .unwrap();
+        let picked = router.pick("openai", "gpt-4", &[], None, &[]).unwrap();
         assert_eq!(picked.id, "a");
     }
 
@@ -497,12 +481,12 @@ mod tests {
         let router = setup_router(
             CredentialStrategy::FillFirst,
             vec![
-                make_auth("a", Format::OpenAI, vec!["gpt-4"]),
-                make_auth("b", Format::OpenAI, vec!["gpt-4"]),
+                make_auth("a", "openai", Format::OpenAI, vec!["gpt-4"]),
+                make_auth("b", "openai", Format::OpenAI, vec!["gpt-4"]),
             ],
         );
         let picked = router
-            .pick(Format::OpenAI, "gpt-4", &["a".to_string()], None, &[])
+            .pick("openai", "gpt-4", &["a".to_string()], None, &[])
             .unwrap();
         assert_eq!(picked.id, "b");
     }
@@ -511,9 +495,9 @@ mod tests {
     fn test_fill_first_no_available() {
         let router = setup_router(
             CredentialStrategy::FillFirst,
-            vec![make_auth("a", Format::OpenAI, vec!["gpt-4"])],
+            vec![make_auth("a", "openai", Format::OpenAI, vec!["gpt-4"])],
         );
-        let picked = router.pick(Format::OpenAI, "gpt-4", &["a".to_string()], None, &[]);
+        let picked = router.pick("openai", "gpt-4", &["a".to_string()], None, &[]);
         assert!(picked.is_none());
     }
 
@@ -521,9 +505,9 @@ mod tests {
     fn test_fill_first_wrong_model() {
         let router = setup_router(
             CredentialStrategy::FillFirst,
-            vec![make_auth("a", Format::OpenAI, vec!["gpt-4"])],
+            vec![make_auth("a", "openai", Format::OpenAI, vec!["gpt-4"])],
         );
-        let picked = router.pick(Format::OpenAI, "gpt-3.5", &[], None, &[]);
+        let picked = router.pick("openai", "gpt-3.5", &[], None, &[]);
         assert!(picked.is_none());
     }
 
@@ -531,9 +515,9 @@ mod tests {
     fn test_fill_first_wrong_provider() {
         let router = setup_router(
             CredentialStrategy::FillFirst,
-            vec![make_auth("a", Format::OpenAI, vec!["gpt-4"])],
+            vec![make_auth("a", "openai", Format::OpenAI, vec!["gpt-4"])],
         );
-        let picked = router.pick(Format::Claude, "gpt-4", &[], None, &[]);
+        let picked = router.pick("claude", "gpt-4", &[], None, &[]);
         assert!(picked.is_none());
     }
 
@@ -544,24 +528,16 @@ mod tests {
         let router = setup_router(
             CredentialStrategy::PriorityWeightedRR,
             vec![
-                make_auth("a", Format::OpenAI, vec!["gpt-4"]),
-                make_auth("b", Format::OpenAI, vec!["gpt-4"]),
-                make_auth("c", Format::OpenAI, vec!["gpt-4"]),
+                make_auth("a", "openai", Format::OpenAI, vec!["gpt-4"]),
+                make_auth("b", "openai", Format::OpenAI, vec!["gpt-4"]),
+                make_auth("c", "openai", Format::OpenAI, vec!["gpt-4"]),
             ],
         );
 
-        let first = router
-            .pick(Format::OpenAI, "gpt-4", &[], None, &[])
-            .unwrap();
-        let second = router
-            .pick(Format::OpenAI, "gpt-4", &[], None, &[])
-            .unwrap();
-        let third = router
-            .pick(Format::OpenAI, "gpt-4", &[], None, &[])
-            .unwrap();
-        let fourth = router
-            .pick(Format::OpenAI, "gpt-4", &[], None, &[])
-            .unwrap();
+        let first = router.pick("openai", "gpt-4", &[], None, &[]).unwrap();
+        let second = router.pick("openai", "gpt-4", &[], None, &[]).unwrap();
+        let third = router.pick("openai", "gpt-4", &[], None, &[]).unwrap();
+        let fourth = router.pick("openai", "gpt-4", &[], None, &[]).unwrap();
 
         assert_eq!(first.id, "a");
         assert_eq!(second.id, "b");
@@ -571,21 +547,16 @@ mod tests {
 
     #[test]
     fn test_round_robin_weighted() {
-        let mut auth_a = make_auth("a", Format::OpenAI, vec!["gpt-4"]);
+        let mut auth_a = make_auth("a", "openai", Format::OpenAI, vec!["gpt-4"]);
         auth_a.weight = 2;
-        let auth_b = make_auth("b", Format::OpenAI, vec!["gpt-4"]);
+        let auth_b = make_auth("b", "openai", Format::OpenAI, vec!["gpt-4"]);
 
         let router = setup_router(CredentialStrategy::PriorityWeightedRR, vec![auth_a, auth_b]);
 
         // With weights 2:1, total weight = 3
         // slots: a(0), a(1), b(2)
         let picks: Vec<String> = (0..6)
-            .map(|_| {
-                router
-                    .pick(Format::OpenAI, "gpt-4", &[], None, &[])
-                    .unwrap()
-                    .id
-            })
+            .map(|_| router.pick("openai", "gpt-4", &[], None, &[]).unwrap().id)
             .collect();
         assert_eq!(picks, vec!["a", "a", "b", "a", "a", "b"]);
     }
@@ -597,17 +568,15 @@ mod tests {
         let router = setup_router(
             CredentialStrategy::EwmaLatency,
             vec![
-                make_auth("slow", Format::OpenAI, vec!["gpt-4"]),
-                make_auth("fast", Format::OpenAI, vec!["gpt-4"]),
+                make_auth("slow", "openai", Format::OpenAI, vec!["gpt-4"]),
+                make_auth("fast", "openai", Format::OpenAI, vec!["gpt-4"]),
             ],
         );
 
         router.record_latency("slow", 500.0);
         router.record_latency("fast", 100.0);
 
-        let picked = router
-            .pick(Format::OpenAI, "gpt-4", &[], None, &[])
-            .unwrap();
+        let picked = router.pick("openai", "gpt-4", &[], None, &[]).unwrap();
         assert_eq!(picked.id, "fast");
     }
 
@@ -616,16 +585,14 @@ mod tests {
         let router = setup_router(
             CredentialStrategy::EwmaLatency,
             vec![
-                make_auth("recorded", Format::OpenAI, vec!["gpt-4"]),
-                make_auth("unrecorded", Format::OpenAI, vec!["gpt-4"]),
+                make_auth("recorded", "openai", Format::OpenAI, vec!["gpt-4"]),
+                make_auth("unrecorded", "openai", Format::OpenAI, vec!["gpt-4"]),
             ],
         );
 
         router.record_latency("recorded", 200.0);
         // unrecorded defaults to 0.0, so should be picked
-        let picked = router
-            .pick(Format::OpenAI, "gpt-4", &[], None, &[])
-            .unwrap();
+        let picked = router.pick("openai", "gpt-4", &[], None, &[]).unwrap();
         assert_eq!(picked.id, "unrecorded");
     }
 
@@ -633,15 +600,13 @@ mod tests {
 
     #[test]
     fn test_disabled_credential_skipped() {
-        let mut disabled = make_auth("disabled", Format::OpenAI, vec!["gpt-4"]);
+        let mut disabled = make_auth("disabled", "openai", Format::OpenAI, vec!["gpt-4"]);
         disabled.disabled = true;
-        let enabled = make_auth("enabled", Format::OpenAI, vec!["gpt-4"]);
+        let enabled = make_auth("enabled", "openai", Format::OpenAI, vec!["gpt-4"]);
 
         let router = setup_router(CredentialStrategy::FillFirst, vec![disabled, enabled]);
 
-        let picked = router
-            .pick(Format::OpenAI, "gpt-4", &[], None, &[])
-            .unwrap();
+        let picked = router.pick("openai", "gpt-4", &[], None, &[]).unwrap();
         assert_eq!(picked.id, "enabled");
     }
 
@@ -670,23 +635,31 @@ mod tests {
         let router = setup_router(
             CredentialStrategy::FillFirst,
             vec![
-                make_auth("oai", Format::OpenAI, vec!["gpt-4"]),
-                make_auth("ds", Format::OpenAICompat, vec!["gpt-4"]),
-                make_auth("claude", Format::Claude, vec!["claude-3"]),
+                make_auth("oai", "openai", Format::OpenAI, vec!["gpt-4"]),
+                make_auth("ds", "deepseek", Format::OpenAI, vec!["gpt-4"]),
+                make_auth("claude", "claude", Format::Claude, vec!["claude-3"]),
             ],
         );
 
         let providers = router.resolve_providers("gpt-4");
-        assert!(providers.contains(&Format::OpenAI));
-        assert!(providers.contains(&Format::OpenAICompat));
-        assert!(!providers.contains(&Format::Claude));
+        assert!(
+            providers
+                .iter()
+                .any(|(n, f)| n == "openai" && *f == Format::OpenAI)
+        );
+        assert!(
+            providers
+                .iter()
+                .any(|(n, f)| n == "deepseek" && *f == Format::OpenAI)
+        );
+        assert!(!providers.iter().any(|(n, _)| n == "claude"));
     }
 
     #[test]
     fn test_resolve_providers_no_match() {
         let router = setup_router(
             CredentialStrategy::FillFirst,
-            vec![make_auth("a", Format::OpenAI, vec!["gpt-4"])],
+            vec![make_auth("a", "openai", Format::OpenAI, vec!["gpt-4"])],
         );
         let providers = router.resolve_providers("nonexistent-model");
         assert!(providers.is_empty());
@@ -696,14 +669,14 @@ mod tests {
 
     #[test]
     fn test_all_models() {
-        let mut auth_with_alias = make_auth("a", Format::OpenAI, vec!["gpt-4"]);
+        let mut auth_with_alias = make_auth("a", "openai", Format::OpenAI, vec!["gpt-4"]);
         auth_with_alias.models[0].alias = Some("my-gpt4".to_string());
 
         let router = setup_router(
             CredentialStrategy::FillFirst,
             vec![
                 auth_with_alias,
-                make_auth("b", Format::Claude, vec!["claude-3"]),
+                make_auth("b", "claude", Format::Claude, vec!["claude-3"]),
             ],
         );
 
@@ -719,8 +692,8 @@ mod tests {
         let router = setup_router(
             CredentialStrategy::FillFirst,
             vec![
-                make_auth("a", Format::OpenAI, vec!["gpt-4"]),
-                make_auth("b", Format::OpenAI, vec!["gpt-4"]),
+                make_auth("a", "openai", Format::OpenAI, vec!["gpt-4"]),
+                make_auth("b", "openai", Format::OpenAI, vec!["gpt-4"]),
             ],
         );
 
@@ -732,7 +705,7 @@ mod tests {
 
     #[test]
     fn test_model_has_prefix() {
-        let mut auth = make_auth("a", Format::OpenAI, vec!["gpt-4"]);
+        let mut auth = make_auth("a", "openai", Format::OpenAI, vec!["gpt-4"]);
         auth.prefix = Some("myprefix".to_string());
 
         let router = setup_router(CredentialStrategy::FillFirst, vec![auth]);
@@ -776,25 +749,19 @@ mod tests {
         let router = setup_router(
             CredentialStrategy::FillFirst,
             vec![
-                make_auth("a", Format::OpenAI, vec!["gpt-4"]),
-                make_auth("b", Format::OpenAI, vec!["gpt-4"]),
+                make_auth("a", "openai", Format::OpenAI, vec!["gpt-4"]),
+                make_auth("b", "openai", Format::OpenAI, vec!["gpt-4"]),
             ],
         );
 
         // With restriction, only "b" matches
         let picked = router
-            .pick(Format::OpenAI, "gpt-4", &[], None, &["b".to_string()])
+            .pick("openai", "gpt-4", &[], None, &["b".to_string()])
             .unwrap();
         assert_eq!(picked.id, "b");
 
         // With restriction that matches nothing
-        let picked = router.pick(
-            Format::OpenAI,
-            "gpt-4",
-            &[],
-            None,
-            &["nonexistent".to_string()],
-        );
+        let picked = router.pick("openai", "gpt-4", &[], None, &["nonexistent".to_string()]);
         assert!(picked.is_none());
     }
 
@@ -825,8 +792,8 @@ mod tests {
         let router = setup_router(
             CredentialStrategy::FillFirst,
             vec![
-                make_auth("a", Format::OpenAI, vec!["gpt-4"]),
-                make_auth("b", Format::OpenAI, vec!["gpt-4"]),
+                make_auth("a", "openai", Format::OpenAI, vec!["gpt-4"]),
+                make_auth("b", "openai", Format::OpenAI, vec!["gpt-4"]),
             ],
         );
 
@@ -834,9 +801,7 @@ mod tests {
         router.set_quota_cooldown("a", Duration::from_secs(60));
 
         // Should skip "a" and pick "b"
-        let picked = router
-            .pick(Format::OpenAI, "gpt-4", &[], None, &[])
-            .unwrap();
+        let picked = router.pick("openai", "gpt-4", &[], None, &[]).unwrap();
         assert_eq!(picked.id, "b");
     }
 
@@ -845,15 +810,15 @@ mod tests {
         let router = setup_router(
             CredentialStrategy::FillFirst,
             vec![
-                make_auth("a", Format::OpenAI, vec!["gpt-4"]),
-                make_auth("b", Format::OpenAI, vec!["gpt-4"]),
+                make_auth("a", "openai", Format::OpenAI, vec!["gpt-4"]),
+                make_auth("b", "openai", Format::OpenAI, vec!["gpt-4"]),
             ],
         );
 
         router.set_quota_cooldown("a", Duration::from_secs(60));
         router.set_quota_cooldown("b", Duration::from_secs(60));
 
-        let picked = router.pick(Format::OpenAI, "gpt-4", &[], None, &[]);
+        let picked = router.pick("openai", "gpt-4", &[], None, &[]);
         assert!(picked.is_none());
     }
 
@@ -861,15 +826,13 @@ mod tests {
     fn test_cooldown_expired_credential_available_again() {
         let router = setup_router(
             CredentialStrategy::FillFirst,
-            vec![make_auth("a", Format::OpenAI, vec!["gpt-4"])],
+            vec![make_auth("a", "openai", Format::OpenAI, vec!["gpt-4"])],
         );
 
         router.set_quota_cooldown("a", Duration::from_millis(1));
         std::thread::sleep(Duration::from_millis(5));
 
-        let picked = router
-            .pick(Format::OpenAI, "gpt-4", &[], None, &[])
-            .unwrap();
+        let picked = router.pick("openai", "gpt-4", &[], None, &[]).unwrap();
         assert_eq!(picked.id, "a");
     }
 

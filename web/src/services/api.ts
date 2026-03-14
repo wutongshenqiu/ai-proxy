@@ -115,22 +115,22 @@ export const providersApi = {
       return { ...res, data };
     }) as Promise<{ data: Provider[] } & Record<string, unknown>>,
 
-  get: (id: string) => api.get<Provider>(`/providers/${id}`),
+  get: (name: string) => api.get<Provider>(`/providers/${encodeURIComponent(name)}`),
 
   create: (data: ProviderCreateRequest) =>
     api.post<Provider>('/providers', data),
 
-  update: (id: string, data: ProviderUpdateRequest) =>
-    api.patch<Provider>(`/providers/${id}`, data),
+  update: (name: string, data: ProviderUpdateRequest) =>
+    api.patch<Provider>(`/providers/${encodeURIComponent(name)}`, data),
 
-  delete: (id: string) => api.delete(`/providers/${id}`),
+  delete: (name: string) => api.delete(`/providers/${encodeURIComponent(name)}`),
 
-  fetchModels: (data: { provider_type: string; api_key: string; base_url?: string }) =>
+  fetchModels: (data: { format: string; api_key: string; base_url?: string }) =>
     api.post<{ models: string[] }>('/providers/fetch-models', data)
       .then((res) => res.data.models),
 
-  healthCheck: (id: string) =>
-    api.post<{ status: string; latency_ms?: number; message?: string }>(`/providers/${id}/health`)
+  healthCheck: (name: string) =>
+    api.post<{ status: string; latency_ms?: number; message?: string }>(`/providers/${encodeURIComponent(name)}/health`)
       .then((res) => res.data),
 };
 

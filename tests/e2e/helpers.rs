@@ -115,8 +115,15 @@ impl TestServer {
     }
 }
 
-fn make_key_entry(api_key: &str, name: &str, base_url: Option<&str>) -> ProviderKeyEntry {
+fn make_key_entry(
+    api_key: &str,
+    name: &str,
+    format: prism_core::provider::Format,
+    base_url: Option<&str>,
+) -> ProviderKeyEntry {
     ProviderKeyEntry {
+        name: name.to_string(),
+        format,
         api_key: api_key.to_string(),
         base_url: base_url.map(String::from),
         proxy_url: None,
@@ -125,7 +132,6 @@ fn make_key_entry(api_key: &str, name: &str, base_url: Option<&str>) -> Provider
         excluded_models: vec![],
         headers: HashMap::new(),
         disabled: false,
-        name: Some(name.to_string()),
         cloak: Default::default(),
         wire_api: Default::default(),
         weight: 1,
@@ -137,7 +143,7 @@ fn make_key_entry(api_key: &str, name: &str, base_url: Option<&str>) -> Provider
     }
 }
 
-/// Build a config with Bailian (OpenAI-compat) provider.
+/// Build a config with Bailian (OpenAI-format) provider.
 /// Supports both Coding Plan keys (sk-sp-xxx → coding.dashscope.aliyuncs.com)
 /// and standard keys (sk-xxx → dashscope.aliyuncs.com/compatible-mode).
 pub fn build_bailian_config(api_key: &str) -> Config {
@@ -147,7 +153,12 @@ pub fn build_bailian_config(api_key: &str) -> Config {
         "https://dashscope.aliyuncs.com/compatible-mode"
     };
     Config {
-        openai_compatibility: vec![make_key_entry(api_key, "bailian", Some(base_url))],
+        providers: vec![make_key_entry(
+            api_key,
+            "bailian",
+            prism_core::provider::Format::OpenAI,
+            Some(base_url),
+        )],
         ..Default::default()
     }
 }
@@ -155,7 +166,12 @@ pub fn build_bailian_config(api_key: &str) -> Config {
 /// Build a config with OpenAI provider.
 pub fn build_openai_config(api_key: &str) -> Config {
     Config {
-        openai_api_key: vec![make_key_entry(api_key, "openai", None)],
+        providers: vec![make_key_entry(
+            api_key,
+            "openai",
+            prism_core::provider::Format::OpenAI,
+            None,
+        )],
         ..Default::default()
     }
 }
@@ -163,7 +179,12 @@ pub fn build_openai_config(api_key: &str) -> Config {
 /// Build a config with Claude provider.
 pub fn build_claude_config(api_key: &str) -> Config {
     Config {
-        claude_api_key: vec![make_key_entry(api_key, "claude", None)],
+        providers: vec![make_key_entry(
+            api_key,
+            "claude",
+            prism_core::provider::Format::Claude,
+            None,
+        )],
         ..Default::default()
     }
 }
@@ -171,7 +192,12 @@ pub fn build_claude_config(api_key: &str) -> Config {
 /// Build a config with Gemini provider.
 pub fn build_gemini_config(api_key: &str) -> Config {
     Config {
-        gemini_api_key: vec![make_key_entry(api_key, "gemini", None)],
+        providers: vec![make_key_entry(
+            api_key,
+            "gemini",
+            prism_core::provider::Format::Gemini,
+            None,
+        )],
         ..Default::default()
     }
 }

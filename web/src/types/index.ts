@@ -13,9 +13,8 @@ export interface LoginResponse {
 // ── Provider ──
 
 export interface Provider {
-  id: string;
-  name: string | null;
-  provider_type: ProviderType;
+  name: string;
+  format: FormatType;
   base_url: string | null;
   proxy_url: string | null;
   api_key_masked: string;
@@ -36,11 +35,11 @@ export interface ModelMapping {
   alias: string | null;
 }
 
-export type ProviderType = 'openai' | 'claude' | 'gemini' | 'openai-compat';
+export type FormatType = 'openai' | 'claude' | 'gemini';
 
 export interface ProviderCreateRequest {
-  name?: string;
-  provider_type: ProviderType;
+  name: string;
+  format: FormatType;
   base_url?: string;
   proxy_url?: string;
   api_key: string;
@@ -55,7 +54,6 @@ export interface ProviderCreateRequest {
 }
 
 export interface ProviderUpdateRequest {
-  name?: string | null;
   base_url?: string | null;
   proxy_url?: string | null;
   api_key?: string;

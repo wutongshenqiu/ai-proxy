@@ -137,25 +137,28 @@ streaming:
 #     input: 2.50            # Override built-in price
 #     output: 10.0
 
-# ─── Provider Credentials ───────────────────────────────────────────────────
-# Each provider supports multiple API keys with optional per-key settings.
+# ─── Providers ───────────────────────────────────────────────────────────────
+# Unified provider configuration. Each entry has a unique name and format.
 #
-# Per-key options:
-#   api-key:          (required) API key string. Supports env://VAR and file:///path.
-#   base-url:         Custom API endpoint URL
-#   proxy-url:        Per-key proxy (overrides global proxy-url)
+# Fields:
+#   name:             (required) Unique provider identifier, used in routing and logs
+#   format:           (required) Wire protocol: openai | claude | gemini
+#   api-key:          (required) API key string. Supports env://VAR and file:///path
+#   base-url:         Custom API endpoint URL (defaults to format's canonical URL)
+#   proxy-url:        Per-provider proxy (overrides global proxy-url)
 #                     Set to "" for direct connection (bypass global proxy)
-#   prefix:           Model name prefix (e.g., "teamA/")
+#   prefix:           Model name prefix (e.g., "deepseek/")
 #   models:           List of available models [{id, alias}]
 #   excluded-models:  Models to exclude (supports * wildcard)
-#   headers:          Custom HTTP headers sent to the upstream provider.
-#                     Use this to override User-Agent or add provider-specific
-#                     headers (similar to LiteLLM's extra_headers).
+#   headers:          Custom HTTP headers sent to the upstream provider
+#   wire-api:         OpenAI wire format: chat (default) | responses
 #   weight:           Routing weight for weighted round-robin (default: 1)
 #   region:           Region tag for geo-aware routing (e.g., "us", "eu", "asia")
 
-claude-api-key:
-  - api-key: "sk-ant-your-claude-key"
+providers:
+  - name: claude
+    format: claude
+    api-key: "sk-ant-your-claude-key"
     # api-key: "env://CLAUDE_API_KEY"       # Load from environment variable
     # api-key: "file:///etc/secrets/claude"  # Load from file
     # base-url: "https://api.anthropic.com"
@@ -169,43 +172,48 @@ claude-api-key:
     #     alias: "sonnet"
     #   - id: "claude-opus-4-6"
 
-openai-api-key:
-  - api-key: "sk-your-openai-key"
+  - name: openai
+    format: openai
+    api-key: "sk-your-openai-key"
     # base-url: "https://api.openai.com"
     # region: "us"
     # models:
     #   - id: "gpt-4o"
     #   - id: "gpt-4o-mini"
 
-gemini-api-key:
-  - api-key: "your-gemini-key"
+  - name: gemini
+    format: gemini
+    api-key: "your-gemini-key"
     # base-url: "https://generativelanguage.googleapis.com"
     # region: "us"
     # models:
     #   - id: "gemini-2.0-flash"
     #   - id: "gemini-2.5-pro-preview-06-05"
 
-# OpenAI-compatible providers (e.g., DeepSeek, Groq, Bailian Coding Plan)
-# openai-compatibility:
-#   - api-key: "your-deepseek-key"
-#     base-url: "https://api.deepseek.com"
-#     prefix: "deepseek/"
-#     region: "asia"
-#     models:
-#       - id: "deepseek-chat"
-#       - id: "deepseek-reasoner"
-#
-#   # Alibaba Cloud Bailian Coding Plan (阿里云百炼)
-#   # Docs: https://help.aliyun.com/zh/model-studio/coding-plan-quickstart
-#   # API key format: sk-sp-xxxxx (Coding Plan dedicated, NOT the pay-as-you-go sk-xxxxx)
-#   - api-key: "sk-sp-your-bailian-coding-plan-key"
-#     base-url: "https://coding.dashscope.aliyuncs.com/v1"
-#     prefix: "bailian/"
-#     region: "asia"
-#     models:
-#       - id: "qwen3-coder-next"
-#       - id: "qwen3-coder-plus"
-#       - id: "qwen3.5-plus"
-#       - id: "glm-5"
-#       - id: "kimi-k2.5"
-#       - id: "MiniMax-M2.5"
+  # OpenAI-compatible providers use format: openai with a custom base-url
+  # - name: deepseek
+  #   format: openai
+  #   api-key: "your-deepseek-key"
+  #   base-url: "https://api.deepseek.com"
+  #   prefix: "deepseek/"
+  #   region: "asia"
+  #   models:
+  #     - id: "deepseek-chat"
+  #     - id: "deepseek-reasoner"
+
+  # Alibaba Cloud Bailian Coding Plan (阿里云百炼)
+  # Docs: https://help.aliyun.com/zh/model-studio/coding-plan-quickstart
+  # API key format: sk-sp-xxxxx (Coding Plan dedicated, NOT the pay-as-you-go sk-xxxxx)
+  # - name: bailian
+  #   format: openai
+  #   api-key: "sk-sp-your-bailian-coding-plan-key"
+  #   base-url: "https://coding.dashscope.aliyuncs.com/v1"
+  #   prefix: "bailian/"
+  #   region: "asia"
+  #   models:
+  #     - id: "qwen3-coder-next"
+  #     - id: "qwen3-coder-plus"
+  #     - id: "qwen3.5-plus"
+  #     - id: "glm-5"
+  #     - id: "kimi-k2.5"
+  #     - id: "MiniMax-M2.5"

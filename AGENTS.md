@@ -4,7 +4,7 @@ Universal context for AI agents working on this project.
 
 ## Project
 
-Prism is a Rust/Axum multi-provider AI API gateway. It routes and translates requests across Claude (Anthropic), OpenAI, Gemini (Google AI), and OpenAI-compatible providers (DeepSeek, Groq, etc.). The project follows Spec-Driven Development (SDD) methodology.
+Prism is a Rust/Axum multi-provider AI API gateway. It routes and translates requests across Claude (Anthropic), OpenAI, Gemini (Google AI), and any OpenAI-compatible provider (DeepSeek, Groq, etc.) using a unified `providers` config array. The project follows Spec-Driven Development (SDD) methodology.
 
 ## Key Paths
 
@@ -12,7 +12,7 @@ Prism is a Rust/Axum multi-provider AI API gateway. It routes and translates req
 |------|---------|
 | `crates/core/` | Foundation types, config, errors, provider traits, metrics, rate limiting, cost tracking, glob, proxy, cloaking, payload rules, lifecycle |
 | `crates/core/src/types/` | Provider-specific request/response types (OpenAI, Claude, Gemini) |
-| `crates/provider/` | Provider executors (Claude, OpenAI, Gemini, OpenAICompat), credential routing, SSE parsing |
+| `crates/provider/` | Provider executors (Claude, OpenAI/OpenAICompat, Gemini), credential routing, SSE parsing |
 | `crates/translator/` | Format translation between provider APIs |
 | `crates/server/` | Axum router, handlers, middleware (auth, logging, request_context, dashboard_auth, rate_limit), dispatch |
 | `crates/server/src/handler/dashboard/` | Dashboard API handlers (auth, providers, auth_keys, routing, logs, config_ops, system, websocket) |
@@ -58,7 +58,7 @@ Foundation types shared across all crates:
 - `RateLimitConfig` -- Per-key and global RPM limits
 - `ProxyError` -- Unified error type using `thiserror`, with HTTP status code mapping (includes `RateLimited` variant with `Retry-After`)
 - `AuthRecord` -- Provider credential record (API key, base URL, proxy, models, circuit breaker state, cloak config, weight, region)
-- `Format` enum -- Identifies API format: `OpenAI`, `Claude`, `Gemini`, `OpenAICompat`
+- `Format` enum -- Identifies wire protocol format: `OpenAI`, `Claude`, `Gemini` (3 variants only)
 - `WireApi` enum -- OpenAI-compatible wire protocol: `Chat` (default) or `Responses`
 - `CloakConfig` -- Claude request cloaking (system prompt injection, user_id generation, sensitive word obfuscation)
 - `PayloadConfig` -- Request payload manipulation (default/override/filter rules with model glob matching)
@@ -87,7 +87,7 @@ Foundation types shared across all crates:
 ### `crates/provider/`
 Provider-specific execution logic:
 - `ClaudeExecutor` -- Anthropic Claude API executor
-- `OpenAICompatExecutor` -- Generic executor for OpenAI-format APIs (also used for OpenAI itself via `openai::new_openai_executor()`)
+- `OpenAICompatExecutor` -- Generic executor for all OpenAI-format APIs (OpenAI, DeepSeek, Groq, etc.)
 - `GeminiExecutor` -- Google Gemini API executor
 - `ExecutorRegistry` -- Registry of all executor instances
 - `CredentialRouter` -- Credential selection with round-robin/fill-first/latency-aware/geo-aware routing, circuit breaker tracking, and latency EWMA
@@ -175,14 +175,13 @@ Subcommand architecture with daemon support:
 
 ## Provider Matrix
 
-| Provider | Format | Default Base URL | Notes |
-|----------|--------|------------------|-------|
-| Claude | `Format::Claude` | `https://api.anthropic.com` | Auth via `x-api-key` header |
-| OpenAI | `Format::OpenAI` | `https://api.openai.com` | Uses `OpenAICompatExecutor` with OpenAI defaults |
-| Gemini | `Format::Gemini` | `https://generativelanguage.googleapis.com` | Auth via `x-goog-api-key` header |
-| OpenAI-compatible | `Format::OpenAICompat` | (must be configured) | For DeepSeek, Groq, etc. Supports `wire-api: chat\|responses` |
+| Format | Default Base URL | Notes |
+|--------|------------------|-------|
+| `Format::Claude` | `https://api.anthropic.com` | Auth via `x-api-key` header |
+| `Format::OpenAI` | `https://api.openai.com` | All OpenAI-compatible providers (OpenAI, DeepSeek, Groq, etc.) use this format with custom `base-url` |
+| `Format::Gemini` | `https://generativelanguage.googleapis.com` | Auth via `x-goog-api-key` header |
 
-Models are not hardcoded — any model name can be routed if configured in `config.yaml`.
+Provider identity is determined by the `name` field in the unified `providers` config array, not by `Format`. Models are not hardcoded — any model name can be routed if configured in `config.yaml`.
 
 ## Commands
 

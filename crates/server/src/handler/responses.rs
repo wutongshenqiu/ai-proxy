@@ -33,11 +33,11 @@ pub async fn responses(
         )));
     }
 
-    // Resolve provider - only OpenAI(-compatible) providers support this
+    // Resolve provider - only OpenAI-format providers support this
     let providers = state.router.resolve_providers(&model);
-    let target_format = providers
+    let (provider_name, _target_format) = providers
         .iter()
-        .find(|f| matches!(f, Format::OpenAI | Format::OpenAICompat))
+        .find(|(_, f)| matches!(f, Format::OpenAI))
         .ok_or_else(|| {
             ProxyError::BadRequest(
                 "responses API only supported by OpenAI-compatible providers".into(),
@@ -47,7 +47,7 @@ pub async fn responses(
     let auth = state
         .router
         .pick(
-            *target_format,
+            provider_name,
             &model,
             &[],
             ctx.client_region.as_deref(),
@@ -57,12 +57,12 @@ pub async fn responses(
                 .unwrap_or(&[]),
         )
         .ok_or_else(|| ProxyError::NoCredentials {
-            provider: target_format.as_str().into(),
+            provider: provider_name.clone(),
             model: model.clone(),
         })?;
 
     // Build a direct request to /v1/responses
-    let base_url = auth.base_url_or_default("https://api.openai.com");
+    let base_url = auth.resolved_base_url();
     let url = format!("{base_url}/v1/responses");
 
     let client = state

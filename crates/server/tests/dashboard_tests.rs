@@ -351,7 +351,7 @@ async fn test_create_provider_and_list() {
 
     // Create a provider
     let create_body = json!({
-        "provider_type": "openai",
+        "format": "openai",
         "api_key": "sk-test-key-1234567890abcdef",
         "name": "Test OpenAI"
     });
@@ -370,9 +370,8 @@ async fn test_create_provider_and_list() {
     assert_eq!(status, StatusCode::OK);
     let providers = body["providers"].as_array().unwrap();
     assert_eq!(providers.len(), 1);
-    assert_eq!(providers[0]["provider_type"], "openai");
+    assert_eq!(providers[0]["format"], "openai");
     assert_eq!(providers[0]["name"], "Test OpenAI");
-    assert_eq!(providers[0]["id"], "openai-0");
     // API key should be masked
     let masked = providers[0]["api_key_masked"].as_str().unwrap();
     assert!(masked.contains("****"), "API key should be masked");
@@ -383,13 +382,13 @@ async fn test_create_provider_and_list() {
 }
 
 #[tokio::test]
-async fn test_get_provider_by_id() {
+async fn test_get_provider_by_name() {
     let harness = create_test_harness();
     let token = login_and_get_token(&harness).await;
 
     // Create a provider
     let create_body = json!({
-        "provider_type": "claude",
+        "format": "claude",
         "api_key": "sk-ant-test-1234567890abcdef",
         "name": "Test Claude Provider",
         "base_url": "https://api.anthropic.com"
@@ -403,11 +402,11 @@ async fn test_get_provider_by_id() {
     let new_config = Config::load(&config_path).expect("failed to reload config");
     harness.state.config.store(Arc::new(new_config));
 
-    // Get the provider by ID
-    let req = authed_get("/api/dashboard/providers/claude-0", &token);
+    // Get the provider by name
+    let req = authed_get("/api/dashboard/providers/Test%20Claude%20Provider", &token);
     let (status, body) = send_request(&harness, req).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["provider_type"], "claude");
+    assert_eq!(body["format"], "claude");
     assert_eq!(body["name"], "Test Claude Provider");
     assert_eq!(body["base_url"], "https://api.anthropic.com");
     // API key should be masked
@@ -420,7 +419,7 @@ async fn test_get_provider_not_found() {
     let harness = create_test_harness();
     let token = login_and_get_token(&harness).await;
 
-    let req = authed_get("/api/dashboard/providers/openai-99", &token);
+    let req = authed_get("/api/dashboard/providers/nonexistent-provider", &token);
     let (status, body) = send_request(&harness, req).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(body["error"], "not_found");
@@ -433,7 +432,7 @@ async fn test_update_provider() {
 
     // Create a provider
     let create_body = json!({
-        "provider_type": "openai",
+        "format": "openai",
         "api_key": "sk-test-key-1234567890abcdef",
         "name": "Original Name"
     });
@@ -446,12 +445,15 @@ async fn test_update_provider() {
     let new_config = Config::load(&config_path).expect("failed to reload config");
     harness.state.config.store(Arc::new(new_config));
 
-    // Update the provider
+    // Update the provider (name is immutable, not included in update body)
     let update_body = json!({
-        "name": "Updated Name",
         "disabled": true
     });
-    let req = authed_patch("/api/dashboard/providers/openai-0", &token, update_body);
+    let req = authed_patch(
+        "/api/dashboard/providers/Original%20Name",
+        &token,
+        update_body,
+    );
     let (status, body) = send_request(&harness, req).await;
     assert_eq!(status, StatusCode::OK, "update failed: {body:?}");
 
@@ -460,10 +462,10 @@ async fn test_update_provider() {
     let new_config = Config::load(&config_path).expect("failed to reload config");
     harness.state.config.store(Arc::new(new_config));
 
-    let req = authed_get("/api/dashboard/providers/openai-0", &token);
+    let req = authed_get("/api/dashboard/providers/Original%20Name", &token);
     let (status, body) = send_request(&harness, req).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["name"], "Updated Name");
+    assert_eq!(body["name"], "Original Name");
     assert_eq!(body["disabled"], true);
 }
 
@@ -474,8 +476,9 @@ async fn test_delete_provider() {
 
     // Create a provider
     let create_body = json!({
-        "provider_type": "gemini",
+        "format": "gemini",
         "api_key": "gemini-test-key-1234567890abcdef",
+        "name": "Gemini Test"
     });
     let req = authed_post("/api/dashboard/providers", &token, create_body);
     let (status, _) = send_request(&harness, req).await;
@@ -493,7 +496,7 @@ async fn test_delete_provider() {
     assert_eq!(body["providers"].as_array().unwrap().len(), 1);
 
     // Delete the provider
-    let req = authed_delete("/api/dashboard/providers/gemini-0", &token);
+    let req = authed_delete("/api/dashboard/providers/Gemini%20Test", &token);
     let (status, body) = send_request(&harness, req).await;
     assert_eq!(status, StatusCode::OK, "delete failed: {body:?}");
 
@@ -514,8 +517,9 @@ async fn test_create_provider_with_empty_api_key() {
     let token = login_and_get_token(&harness).await;
 
     let create_body = json!({
-        "provider_type": "openai",
+        "format": "openai",
         "api_key": "",
+        "name": "Empty Key Provider"
     });
     let req = authed_post("/api/dashboard/providers", &token, create_body);
     let (status, body) = send_request(&harness, req).await;
@@ -529,8 +533,9 @@ async fn test_create_provider_with_invalid_type() {
     let token = login_and_get_token(&harness).await;
 
     let create_body = json!({
-        "provider_type": "invalid-provider",
+        "format": "invalid-provider",
         "api_key": "some-key-that-is-long-enough",
+        "name": "Invalid Provider"
     });
     let req = authed_post("/api/dashboard/providers", &token, create_body);
     let (status, body) = send_request(&harness, req).await;
@@ -539,12 +544,12 @@ async fn test_create_provider_with_invalid_type() {
 }
 
 #[tokio::test]
-async fn test_create_openai_compat_provider() {
+async fn test_create_openai_provider_for_deepseek() {
     let harness = create_test_harness();
     let token = login_and_get_token(&harness).await;
 
     let create_body = json!({
-        "provider_type": "openai-compat",
+        "format": "openai",
         "api_key": "deepseek-test-key-1234567890abcdef",
         "base_url": "https://api.deepseek.com/v1",
         "name": "DeepSeek"
@@ -554,7 +559,7 @@ async fn test_create_openai_compat_provider() {
     assert_eq!(
         status,
         StatusCode::CREATED,
-        "create openai-compat failed: {body:?}"
+        "create openai provider failed: {body:?}"
     );
 
     // Reload and verify
@@ -562,10 +567,10 @@ async fn test_create_openai_compat_provider() {
     let new_config = Config::load(&config_path).expect("failed to reload config");
     harness.state.config.store(Arc::new(new_config));
 
-    let req = authed_get("/api/dashboard/providers/openai-compat-0", &token);
+    let req = authed_get("/api/dashboard/providers/DeepSeek", &token);
     let (status, body) = send_request(&harness, req).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["provider_type"], "openai-compat");
+    assert_eq!(body["format"], "openai");
     assert_eq!(body["name"], "DeepSeek");
     assert_eq!(body["base_url"], "https://api.deepseek.com/v1");
 }
@@ -1069,17 +1074,17 @@ async fn test_multiple_provider_types() {
     // Create providers of different types
     let providers = vec![
         json!({
-            "provider_type": "openai",
+            "format": "openai",
             "api_key": "sk-openai-test-1234567890abcdef",
             "name": "OpenAI Prod"
         }),
         json!({
-            "provider_type": "claude",
+            "format": "claude",
             "api_key": "sk-ant-claude-test-1234567890abcdef",
             "name": "Claude Prod"
         }),
         json!({
-            "provider_type": "gemini",
+            "format": "gemini",
             "api_key": "gemini-key-test-1234567890abcdef",
             "name": "Gemini Prod"
         }),
@@ -1103,14 +1108,14 @@ async fn test_multiple_provider_types() {
     let all_providers = body["providers"].as_array().unwrap();
     assert_eq!(all_providers.len(), 3);
 
-    // Verify provider IDs
-    let ids: Vec<&str> = all_providers
+    // Verify provider names
+    let names: Vec<&str> = all_providers
         .iter()
-        .map(|p| p["id"].as_str().unwrap())
+        .map(|p| p["name"].as_str().unwrap())
         .collect();
-    assert!(ids.contains(&"openai-0"));
-    assert!(ids.contains(&"claude-0"));
-    assert!(ids.contains(&"gemini-0"));
+    assert!(names.contains(&"OpenAI Prod"));
+    assert!(names.contains(&"Claude Prod"));
+    assert!(names.contains(&"Gemini Prod"));
 }
 
 // ===========================================================================
@@ -1163,7 +1168,7 @@ async fn test_preview_route_with_providers() {
         "/api/dashboard/providers",
         &token,
         json!({
-            "provider_type": "openai",
+            "format": "openai",
             "api_key": "sk-test-preview-1234567890abcdef",
             "name": "Preview Test OpenAI"
         }),
@@ -1225,7 +1230,7 @@ async fn test_explain_includes_scoring() {
         "/api/dashboard/providers",
         &token,
         json!({
-            "provider_type": "openai",
+            "format": "openai",
             "api_key": "sk-test-explain-1234567890abcdef",
             "name": "Explain Test OpenAI"
         }),

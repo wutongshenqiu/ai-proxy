@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 pub(super) fn extract_features(req: &DispatchRequest) -> RouteRequestFeatures {
     let endpoint = match req.source_format {
         Format::Claude => RouteEndpoint::Messages,
-        Format::OpenAI | Format::OpenAICompat => RouteEndpoint::ChatCompletions,
+        Format::OpenAI => RouteEndpoint::ChatCompletions,
         Format::Gemini => RouteEndpoint::ChatCompletions,
     };
 
