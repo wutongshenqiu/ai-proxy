@@ -177,6 +177,23 @@ pub async fn update_auth_key(
     }
 }
 
+/// POST /api/dashboard/auth-keys/:id/reveal
+pub async fn reveal_auth_key(
+    State(state): State<AppState>,
+    Path(id): Path<usize>,
+) -> impl IntoResponse {
+    let config = state.config.load();
+    if let Some(entry) = config.auth_keys.get(id) {
+        tracing::info!(key_id = id, name = ?entry.name, "Auth key revealed via dashboard");
+        (StatusCode::OK, Json(json!({ "key": entry.key })))
+    } else {
+        (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "not_found", "message": "Auth key not found"})),
+        )
+    }
+}
+
 /// DELETE /api/dashboard/auth-keys/:id
 pub async fn delete_auth_key(
     State(state): State<AppState>,
