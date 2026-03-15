@@ -261,18 +261,17 @@ pub fn build_router(state: AppState) -> Router {
             "/api/dashboard/routing/explain",
             axum::routing::post(handler::dashboard::control_plane::route_explain),
         )
+        // WebSocket route (auth via query param, validated by dashboard_auth middleware)
+        .route(
+            "/ws/dashboard",
+            axum::routing::get(handler::dashboard::websocket::ws_handler),
+        )
         .layer(axum_mw::from_fn_with_state(
             state.clone(),
             middleware::dashboard_auth::dashboard_auth_middleware,
         ))
         // Dashboard body size limit (1 MB) to reject oversized payloads
         .layer(RequestBodyLimitLayer::new(1024 * 1024));
-
-    // WebSocket routes (auth via query param)
-    let ws_routes = Router::new().route(
-        "/ws/dashboard",
-        axum::routing::get(handler::dashboard::websocket::ws_handler),
-    );
 
     // Compose: public + admin + api + dashboard, then global middleware layers (outer → inner)
     let mut router = Router::new()
@@ -284,8 +283,7 @@ pub fn build_router(state: AppState) -> Router {
     if state.config.load().dashboard.enabled {
         router = router
             .merge(dashboard_auth_routes)
-            .merge(dashboard_protected_routes)
-            .merge(ws_routes);
+            .merge(dashboard_protected_routes);
     }
 
     router

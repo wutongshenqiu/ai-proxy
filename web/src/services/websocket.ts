@@ -1,28 +1,41 @@
 import type { WsMessage } from '../types';
 
 type MessageHandler = (message: WsMessage) => void;
+type TokenProvider = () => string | null;
 
 export class WebSocketManager {
   private ws: WebSocket | null = null;
-  private url: string;
   private handlers: Set<MessageHandler> = new Set();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private baseReconnectDelay = 1000;
   private shouldReconnect = true;
+  private tokenProvider: TokenProvider;
 
-  constructor(token: string) {
+  constructor(tokenProvider: TokenProvider) {
+    this.tokenProvider = tokenProvider;
+  }
+
+  private buildUrl(): string | null {
+    const token = this.tokenProvider();
+    if (!token) return null;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
-    this.url = `${protocol}//${host}/ws/dashboard?token=${encodeURIComponent(token)}`;
+    return `${protocol}//${host}/ws/dashboard?token=${encodeURIComponent(token)}`;
   }
 
   connect(): void {
     if (this.ws?.readyState === WebSocket.OPEN) return;
 
+    const url = this.buildUrl();
+    if (!url) {
+      console.warn('[WS] No token available, skipping connect');
+      return;
+    }
+
     try {
-      this.ws = new WebSocket(this.url);
+      this.ws = new WebSocket(url);
 
       this.ws.onopen = () => {
         console.log('[WS] Connected');
@@ -40,6 +53,10 @@ export class WebSocketManager {
 
       this.ws.onclose = (event) => {
         console.log('[WS] Disconnected:', event.code, event.reason);
+        // 4001 = server-side token expired indicator; 1008 = policy violation (auth fail)
+        if (event.code === 4001 || event.code === 1008) {
+          console.warn('[WS] Auth failure, triggering reconnect with fresh token');
+        }
         if (this.shouldReconnect) {
           this.scheduleReconnect();
         }
@@ -57,6 +74,12 @@ export class WebSocketManager {
   private scheduleReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.warn('[WS] Max reconnect attempts reached');
+      return;
+    }
+
+    // If no token available, stop reconnecting
+    if (!this.tokenProvider()) {
+      console.warn('[WS] No token for reconnect, stopping');
       return;
     }
 
@@ -99,16 +122,10 @@ export class WebSocketManager {
 }
 
 let instance: WebSocketManager | null = null;
-let instanceToken: string | null = null;
 
-export function getWebSocketManager(token: string): WebSocketManager {
-  if (!instance || instanceToken !== token) {
-    // Token changed — tear down old connection and create a new one
-    if (instance) {
-      instance.disconnect();
-    }
-    instance = new WebSocketManager(token);
-    instanceToken = token;
+export function getWebSocketManager(tokenProvider: TokenProvider): WebSocketManager {
+  if (!instance) {
+    instance = new WebSocketManager(tokenProvider);
   }
   return instance;
 }
@@ -117,6 +134,5 @@ export function destroyWebSocketManager(): void {
   if (instance) {
     instance.disconnect();
     instance = null;
-    instanceToken = null;
   }
 }

@@ -54,10 +54,18 @@ const PROTOCOLS: {
 
 type CoverageLevel = 'native' | 'adapted' | 'none';
 
+// Translation is supported for all pairs where both protocols are in {openai, claude, gemini}.
+// A provider is native when its format matches the protocol, adapted when translation exists.
+const TRANSLATION_PAIRS = new Set([
+  'openai->claude', 'openai->gemini',
+  'claude->openai', 'claude->gemini',
+  'gemini->openai', 'gemini->claude',
+]);
+
 function getCoverage(protocol: string, providerFormat: string): CoverageLevel {
   if (protocol === providerFormat) return 'native';
-  // All formats can be reached via translation
-  return 'adapted';
+  const key = `${protocol}->${providerFormat}`;
+  return TRANSLATION_PAIRS.has(key) ? 'adapted' : 'none';
 }
 
 function CoverageBadge({ level }: { level: CoverageLevel }) {
@@ -77,7 +85,7 @@ export default function Protocols() {
   const fetchProviders = useCallback(async () => {
     try {
       const res = await providersApi.list();
-      setProviders(res.data.filter((p) => !p.disabled));
+      setProviders(res.data.filter((p: Provider) => !p.disabled));
     } catch (err) {
       console.error('Failed to fetch providers:', err);
     } finally {

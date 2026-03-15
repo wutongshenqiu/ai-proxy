@@ -1,64 +1,16 @@
 use crate::AppState;
 use axum::extract::ws::{Message, WebSocket};
-use axum::extract::{Query, State, WebSocketUpgrade};
+use axum::extract::{State, WebSocketUpgrade};
 use axum::response::IntoResponse;
-use serde::Deserialize;
 use serde_json::json;
 use std::time::Duration;
 use tokio::sync::broadcast;
 
-#[derive(Debug, Deserialize)]
-pub struct WsQuery {
-    pub token: Option<String>,
-}
-
 /// GET /ws/dashboard — WebSocket endpoint for real-time updates.
-pub async fn ws_handler(
-    State(state): State<AppState>,
-    Query(query): Query<WsQuery>,
-    ws: WebSocketUpgrade,
-) -> impl IntoResponse {
-    // Validate JWT from query param — fail closed if JWT secret is not configured
-    let config = state.config.load();
-    let secret = match config.dashboard.resolve_jwt_secret() {
-        Some(s) => s,
-        None => {
-            tracing::error!("WebSocket rejected: JWT secret not configured");
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "Dashboard JWT secret not configured",
-            )
-                .into_response();
-        }
-    };
-
-    let token = match query.token {
-        Some(t) => t,
-        None => {
-            tracing::warn!("WebSocket rejected: missing token");
-            return (
-                axum::http::StatusCode::UNAUTHORIZED,
-                "Missing token query parameter",
-            )
-                .into_response();
-        }
-    };
-    let key = jsonwebtoken::DecodingKey::from_secret(secret.as_bytes());
-    if jsonwebtoken::decode::<crate::middleware::dashboard_auth::Claims>(
-        &token,
-        &key,
-        &jsonwebtoken::Validation::default(),
-    )
-    .is_err()
-    {
-        tracing::warn!("WebSocket rejected: invalid or expired token");
-        return (
-            axum::http::StatusCode::UNAUTHORIZED,
-            "Invalid or expired token",
-        )
-            .into_response();
-    }
-
+///
+/// Authentication is handled by the `dashboard_auth_middleware` layer
+/// (supports both `Authorization: Bearer` header and `?token=` query param).
+pub async fn ws_handler(State(state): State<AppState>, ws: WebSocketUpgrade) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_ws(socket, state))
 }
 

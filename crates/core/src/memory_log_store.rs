@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::RwLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_trait::async_trait;
 use chrono::{DateTime, TimeZone, Utc};
@@ -32,6 +33,9 @@ pub struct InMemoryLogStore {
     capacity: usize,
     tx: broadcast::Sender<RequestRecord>,
     file_writer: Option<FileAuditWriter>,
+    /// Monotonic counter incremented on each `push` so pagination
+    /// clients can detect stale snapshots across requests.
+    version: AtomicU64,
 }
 
 fn field_contains(field: Option<&str>, needle: &str) -> bool {
@@ -46,6 +50,7 @@ impl InMemoryLogStore {
             capacity,
             tx,
             file_writer,
+            version: AtomicU64::new(0),
         }
     }
 
@@ -179,6 +184,7 @@ impl LogStore for InMemoryLogStore {
                 entries.pop_front();
             }
             entries.push_back(entry);
+            self.version.fetch_add(1, Ordering::Relaxed);
         }
     }
 
@@ -193,6 +199,7 @@ impl LogStore for InMemoryLogStore {
     async fn query(&self, q: &LogQuery) -> LogPage {
         let page = q.page.unwrap_or(1).max(1);
         let page_size = q.page_size.unwrap_or(50).clamp(1, 200);
+        let snapshot_version = self.version.load(Ordering::Relaxed);
 
         // Pre-compute keyword lowercase once outside the per-record loop
         let keyword_lower = q.keyword.as_ref().map(|kw| kw.to_lowercase());
@@ -243,6 +250,7 @@ impl LogStore for InMemoryLogStore {
                 page,
                 page_size,
                 total_pages,
+                snapshot_version,
             };
         }
 
@@ -276,6 +284,7 @@ impl LogStore for InMemoryLogStore {
             page,
             page_size,
             total_pages,
+            snapshot_version,
         }
     }
 

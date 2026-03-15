@@ -5,6 +5,7 @@ import type {
   ProviderCreateRequest,
   ProviderUpdateRequest,
   PresentationPreviewResponse,
+  ProviderCapabilityEntry,
   AuthKey,
   AuthKeyCreateRequest,
   AuthKeyCreateResponse,
@@ -137,6 +138,10 @@ export const providersApi = {
   presentationPreview: (name: string, data: { model?: string; user_agent?: string; sample_body?: unknown }) =>
     api.post<PresentationPreviewResponse>(`/providers/${encodeURIComponent(name)}/presentation-preview`, data)
       .then((res) => res.data),
+
+  capabilities: () =>
+    api.get<{ providers: ProviderCapabilityEntry[] }>('/providers/capabilities')
+      .then((res) => res.data.providers),
 };
 
 // ── Auth Keys ──

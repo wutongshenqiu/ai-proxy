@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { providersApi } from '../services/api';
-import type { Provider } from '../types';
+import type { Provider, ProviderCapabilityEntry } from '../types';
 import {
   Layers,
   RefreshCw,
@@ -19,6 +19,7 @@ interface ModelEntry {
 
 export default function ModelsCapabilities() {
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [capabilityMap, setCapabilityMap] = useState<Record<string, ProviderCapabilityEntry>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterFormat, setFilterFormat] = useState('');
@@ -26,8 +27,16 @@ export default function ModelsCapabilities() {
 
   const fetchProviders = useCallback(async () => {
     try {
-      const res = await providersApi.list();
-      setProviders(res.data);
+      const [provRes, caps] = await Promise.all([
+        providersApi.list(),
+        providersApi.capabilities().catch(() => [] as ProviderCapabilityEntry[]),
+      ]);
+      setProviders(provRes.data);
+      const map: Record<string, ProviderCapabilityEntry> = {};
+      for (const c of caps) {
+        map[c.name] = c;
+      }
+      setCapabilityMap(map);
     } catch (err) {
       console.error('Failed to fetch providers:', err);
     } finally {
@@ -91,18 +100,21 @@ export default function ModelsCapabilities() {
   const activeProviders = providers.filter((p) => !p.disabled);
   const providerNames = activeProviders.map((p) => p.name);
 
-  // Capability summary per provider
+  // Capability summary per provider — sourced from capabilities API
   const providerCapabilities = useMemo(() => {
-    return activeProviders.map((p) => ({
-      name: p.name,
-      format: p.format,
-      modelsCount: p.models.length,
-      supportsStream: true, // all formats support streaming
-      supportsTools: p.format !== 'gemini', // gemini tools are limited
-      wireApi: p.wire_api,
-      hasPresentation: !!p.upstream_presentation && p.upstream_presentation.profile !== 'native',
-    }));
-  }, [activeProviders]);
+    return activeProviders.map((p) => {
+      const caps = capabilityMap[p.name]?.capabilities;
+      return {
+        name: p.name,
+        format: p.format,
+        modelsCount: p.models.length,
+        supportsStream: caps?.supports_stream ?? true,
+        supportsTools: caps?.supports_tools ?? false,
+        wireApi: p.wire_api,
+        hasPresentation: !!p.upstream_presentation && p.upstream_presentation.profile !== 'native',
+      };
+    });
+  }, [activeProviders, capabilityMap]);
 
   return (
     <div className="page">

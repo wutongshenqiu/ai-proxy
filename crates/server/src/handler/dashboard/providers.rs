@@ -70,13 +70,13 @@ pub struct UpdateProviderRequest {
     #[serde(default)]
     pub disabled: Option<bool>,
     #[serde(default)]
-    pub wire_api: Option<String>,
+    pub wire_api: Option<Option<String>>,
     #[serde(default)]
     pub weight: Option<u32>,
     #[serde(default)]
     pub region: Option<Option<String>>,
     #[serde(default)]
-    pub upstream_presentation: Option<prism_core::presentation::UpstreamPresentationConfig>,
+    pub upstream_presentation: Option<Option<prism_core::presentation::UpstreamPresentationConfig>>,
 }
 
 fn mask_key(key: &str) -> String {
@@ -303,9 +303,9 @@ pub async fn update_provider(
             if let Some(disabled) = body.disabled {
                 entry.disabled = disabled;
             }
-            if let Some(ref wire_api) = body.wire_api {
-                entry.wire_api = match wire_api.as_str() {
-                    "responses" => prism_core::provider::WireApi::Responses,
+            if let Some(ref wire_api_opt) = body.wire_api {
+                entry.wire_api = match wire_api_opt.as_deref() {
+                    Some("responses") => prism_core::provider::WireApi::Responses,
                     _ => prism_core::provider::WireApi::Chat,
                 };
             }
@@ -315,8 +315,8 @@ pub async fn update_provider(
             if let Some(ref region) = body.region {
                 entry.region = region.clone();
             }
-            if let Some(ref presentation) = body.upstream_presentation {
-                entry.upstream_presentation = presentation.clone();
+            if let Some(ref presentation_opt) = body.upstream_presentation {
+                entry.upstream_presentation = presentation_opt.clone().unwrap_or_default();
             }
         }
     })
@@ -410,14 +410,20 @@ async fn update_config_file(
         .to_yaml()
         .map_err(|e| format!("Failed to serialize config: {e}"))?;
 
-    // Atomic write: write to temp file then rename
+    // Atomic write: write to unique temp file then rename
     let dir = std::path::Path::new(&config_path)
         .parent()
         .unwrap_or(std::path::Path::new("."));
-    let tmp_path = dir.join(".config.yaml.tmp");
-    std::fs::write(&tmp_path, &yaml).map_err(|e| format!("Failed to write temp file: {e}"))?;
-    std::fs::rename(&tmp_path, &config_path)
-        .map_err(|e| format!("Failed to rename config file: {e}"))?;
+    let tmp_name = format!(".config.yaml.tmp.{}", std::process::id());
+    let tmp_path = dir.join(tmp_name);
+    if let Err(e) = std::fs::write(&tmp_path, &yaml) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(format!("Failed to write temp file: {e}"));
+    }
+    if let Err(e) = std::fs::rename(&tmp_path, &config_path) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(format!("Failed to rename config file: {e}"));
+    }
 
     // Load the written config with full secret resolution for runtime use
     let runtime_config = prism_core::config::Config::load_from_str(&yaml)
