@@ -97,22 +97,7 @@ impl AuthProfileEntry {
                     ));
                 }
             }
-            AuthMode::OpenaiCodexOauth => {
-                let has_access = self
-                    .access_token
-                    .as_deref()
-                    .is_some_and(|s| !s.trim().is_empty());
-                let has_refresh = self
-                    .refresh_token
-                    .as_deref()
-                    .is_some_and(|s| !s.trim().is_empty());
-                if !self.disabled && !has_access && !has_refresh {
-                    return Err(format!(
-                        "auth profile '{}' requires an access token or refresh token",
-                        self.id
-                    ));
-                }
-            }
+            AuthMode::OpenaiCodexOauth => {}
         }
         Ok(())
     }
@@ -246,6 +231,6 @@ mod tests {
             disabled: false,
             ..Default::default()
         };
-        assert!(profile.validate().is_err());
+        assert!(profile.validate().is_ok());
     }
 }

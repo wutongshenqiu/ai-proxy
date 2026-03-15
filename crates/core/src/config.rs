@@ -346,14 +346,8 @@ fn resolve_provider_secrets(entries: &mut [ProviderKeyEntry]) -> Result<(), anyh
     Ok(())
 }
 
-/// Remove entries with empty api_key (unless they have a credential_source),
-/// then normalize base_url and header casing.
-fn sanitize_entries(entries: &mut Vec<ProviderKeyEntry>) {
-    // Remove entries with no auth material at all.
-    entries.retain(|e| {
-        !e.auth_profiles.is_empty() || !e.api_key.is_empty() || e.credential_source.is_some()
-    });
-
+/// Normalize provider entries for runtime and persistence.
+fn sanitize_entries(entries: &mut [ProviderKeyEntry]) {
     // Normalize entries
     for entry in entries.iter_mut() {
         // Strip trailing slash from base_url
@@ -636,6 +630,10 @@ impl ProviderKeyEntry {
             return self.auth_profiles.clone();
         }
 
+        if self.api_key.is_empty() {
+            return Vec::new();
+        }
+
         vec![crate::auth_profile::AuthProfileEntry {
             id: self.name.clone(),
             mode: crate::auth_profile::AuthMode::ApiKey,
@@ -789,14 +787,16 @@ mod tests {
         e3.format = crate::provider::Format::Claude;
         let mut entries = vec![e1, e2, e3];
         sanitize_entries(&mut entries);
-        assert_eq!(entries.len(), 2);
+        assert_eq!(entries.len(), 3);
         assert_eq!(
             entries[0].base_url.as_deref(),
             Some("https://api.example.com")
         );
         assert!(entries[0].headers.contains_key("x-custom"));
-        assert_eq!(entries[1].name, "p3");
-        assert_eq!(entries[1].format, crate::provider::Format::Claude);
+        assert_eq!(entries[1].name, "p2");
+        assert!(entries[1].expanded_auth_profiles().is_empty());
+        assert_eq!(entries[2].name, "p3");
+        assert_eq!(entries[2].format, crate::provider::Format::Claude);
     }
 
     #[test]

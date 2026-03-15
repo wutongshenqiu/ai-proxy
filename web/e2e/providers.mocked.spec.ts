@@ -149,7 +149,8 @@ test('providers edit modal shows managed auth profile warning', async ({ page })
   await expect(page.getByText('codex-user · Codex OAuth')).toBeVisible();
   await expect(
     page.getByText(
-      'Shared provider fields can be edited here. Auth profile credential material is currently managed through the auth profile API/YAML flow.'
+      'Shared provider fields can be edited here. Credential material is managed from the dedicated Auth Profiles page.'
     )
   ).toBeVisible();
+  await expect(page.getByRole('button', { name: /manage auth profiles/i })).toBeVisible();
 });

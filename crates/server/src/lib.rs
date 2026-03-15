@@ -148,7 +148,13 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route(
             "/api/dashboard/auth-profiles",
-            axum::routing::get(handler::dashboard::auth_profiles::list_auth_profiles),
+            axum::routing::get(handler::dashboard::auth_profiles::list_auth_profiles)
+                .post(handler::dashboard::auth_profiles::create_auth_profile),
+        )
+        .route(
+            "/api/dashboard/auth-profiles/{provider}/{profile}",
+            axum::routing::put(handler::dashboard::auth_profiles::replace_auth_profile)
+                .delete(handler::dashboard::auth_profiles::delete_auth_profile),
         )
         .route(
             "/api/dashboard/auth-profiles/codex/oauth/start",

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { providersApi } from '../services/api';
 import type { Provider, ProviderAuthProfile, ProviderCreateRequest, FormatType, ProfileKind, ActivationMode, PresentationPreviewResponse } from '../types';
 import StatusBadge from '../components/StatusBadge';
@@ -80,6 +81,7 @@ const emptyForm: FormState = {
 };
 
 export default function Providers() {
+  const navigate = useNavigate();
   const [providers, setProviders] = useState<Provider[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -218,11 +220,6 @@ export default function Providers() {
       setError('Name is required');
       return;
     }
-    if (!editName && !form.api_key.trim()) {
-      setError('API key is required');
-      return;
-    }
-
     setSaving(true);
     setError('');
 
@@ -577,8 +574,15 @@ export default function Providers() {
                     This provider uses managed auth profiles
                   </div>
                   <div style={{ fontSize: '0.9rem', opacity: 0.9, marginBottom: 8 }}>
-                    Shared provider fields can be edited here. Auth profile credential material is currently managed through the auth profile API/YAML flow.
+                    Shared provider fields can be edited here. Credential material is managed from the dedicated Auth Profiles page.
                   </div>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => navigate(`/auth-profiles?provider=${encodeURIComponent(editName)}`)}
+                  >
+                    Manage Auth Profiles
+                  </button>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                     {currentAuthProfiles.map((profile) => (
                       <span
@@ -641,6 +645,9 @@ export default function Providers() {
                   onChange={(e) => setForm({ ...form, api_key: e.target.value })}
                   placeholder={editName ? '********' : 'sk-...'}
                 />
+                <span className="form-help" style={{ fontSize: '0.8rem', opacity: 0.6 }}>
+                  Optional when this provider will be backed by explicit auth profiles.
+                </span>
               </div>
 
               <div className="form-group">

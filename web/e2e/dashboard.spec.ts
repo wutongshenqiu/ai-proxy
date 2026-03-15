@@ -72,6 +72,10 @@ test.describe('Dashboard Pages', () => {
     await page.getByRole('button', { name: /preview presentation/i }).click();
     await expect(page.locator('.modal-body')).toContainText(/Profile:\s+codex-cli/i);
     await expect(page.locator('.modal-body')).toContainText(/user-agent:\s+Codex\/1.0.0/i);
+    await page.getByRole('button', { name: /manage auth profiles/i }).click();
+    await expect(page).toHaveURL(/\/auth-profiles\?provider=codex-gateway/);
+    await expect(page.getByRole('heading', { name: 'Auth Profiles' })).toBeVisible();
+    await expect(page.getByTestId('auth-profile-row-codex-gateway/api')).toBeVisible();
   });
 
   test('providers page can create and delete a legacy api-key provider', async ({ page }) => {
@@ -99,6 +103,74 @@ test.describe('Dashboard Pages', () => {
     await page.getByRole('link', { name: /requests/i }).click();
     await expect(page.getByRole('heading', { name: 'Request Logs' })).toBeVisible();
     await expect(page.locator('body')).toContainText(/0 total requests|No request logs/i);
+  });
+
+  test('auth profiles page can create, edit, and delete an api-key profile', async ({ page }) => {
+    const profileId = `pw-api-${Date.now()}`;
+    page.once('dialog', (dialog) => dialog.accept());
+
+    await page.getByRole('link', { name: /auth profiles/i }).click();
+    await expect(page.getByRole('heading', { name: 'Auth Profiles' })).toBeVisible();
+
+    await page.getByRole('button', { name: /add auth profile/i }).click();
+    await page.locator('.modal select').first().selectOption('claude-gateway');
+    await page.getByPlaceholder('e.g. billing, oauth-user').fill(profileId);
+    await page.getByPlaceholder('sk-...').fill('sk-auth-profile-playwright');
+    await page.getByRole('button', { name: /^create$/i }).click();
+
+    await expect(page.locator('body')).toContainText(`Auth profile "claude-gateway/${profileId}" created.`);
+    const row = page.getByTestId(`auth-profile-row-claude-gateway/${profileId}`);
+    await expect(row).toBeVisible();
+    await expect(row).toContainText('Connected');
+
+    await row.getByTitle('Edit').click();
+    await page.locator('.modal input[type="number"]').fill('3');
+    await page.getByPlaceholder('optional').nth(1).fill('claude/');
+    await page.getByRole('button', { name: /^update$/i }).click();
+
+    await expect(page.locator('body')).toContainText(`Auth profile "claude-gateway/${profileId}" updated.`);
+    await expect(row).toContainText('weight 3');
+    await expect(row).toContainText('claude/');
+
+    await row.getByTitle('Delete').click();
+    await expect(page.locator('body')).toContainText(`Auth profile "claude-gateway/${profileId}" deleted.`);
+    await expect(page.getByTestId(`auth-profile-row-claude-gateway/${profileId}`)).toHaveCount(0);
+  });
+
+  test('auth profiles page can connect, refresh, and delete a codex oauth profile', async ({ page }) => {
+    const profileId = `pw-oauth-${Date.now()}`;
+    page.once('dialog', (dialog) => dialog.accept());
+
+    await page.getByRole('link', { name: /auth profiles/i }).click();
+    await page.getByRole('button', { name: /add auth profile/i }).click();
+    await page.locator('.modal select').first().selectOption('codex-gateway');
+    await page.getByPlaceholder('e.g. billing, oauth-user').fill(profileId);
+    await page.locator('.modal select').nth(1).selectOption('openai-codex-oauth');
+    await page.getByRole('button', { name: /^create$/i }).click();
+
+    await expect(page.locator('body')).toContainText(`Auth profile "codex-gateway/${profileId}" created.`);
+    let row = page.getByTestId(`auth-profile-row-codex-gateway/${profileId}`);
+    await expect(row).toContainText('Disconnected');
+
+    await Promise.all([
+      page.waitForURL(/\/auth-profiles\/callback/),
+      row.getByTitle('Connect OAuth').click(),
+    ]);
+    await page.waitForURL((url) => url.pathname === '/auth-profiles');
+    await expect(page.getByRole('heading', { name: 'Auth Profiles' })).toBeVisible();
+    await expect(page.locator('body')).toContainText(`OAuth login completed for ${profileId}.`);
+
+    row = page.getByTestId(`auth-profile-row-codex-gateway/${profileId}`);
+    await expect(row).toContainText('Connected');
+    await expect(row).toContainText('oauth-playwright@example.com');
+
+    await row.getByTitle('Refresh token').click();
+    await expect(page.locator('body')).toContainText(`Auth profile "codex-gateway/${profileId}" refreshed.`);
+    await expect(row).toContainText('Connected');
+
+    await row.getByTitle('Delete').click();
+    await expect(page.locator('body')).toContainText(`Auth profile "codex-gateway/${profileId}" deleted.`);
+    await expect(page.getByTestId(`auth-profile-row-codex-gateway/${profileId}`)).toHaveCount(0);
   });
 
   test('routing page loads', async ({ page }) => {

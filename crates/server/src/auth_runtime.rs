@@ -2,15 +2,23 @@ use axum::http::StatusCode;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{Duration, Utc};
-use prism_core::auth_profile::SharedOAuthTokenState;
+use dashmap::DashMap;
+use prism_core::auth_profile::{
+    AuthMode, AuthProfileEntry, OAuthTokenState, SharedOAuthTokenState,
+};
+use prism_core::config::Config;
 use prism_core::error::ProxyError;
 use prism_core::provider::AuthRecord;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, RwLock};
 
 const CODEX_AUTH_URL: &str = "https://auth.openai.com/oauth/authorize";
 const CODEX_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const CODEX_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
+const AUTH_STORE_VERSION: u32 = 1;
 
 #[derive(Debug, Clone)]
 pub struct PendingCodexOauthSession {
@@ -32,12 +40,39 @@ pub struct CodexOAuthTokens {
     pub last_refresh: chrono::DateTime<Utc>,
 }
 
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedOAuthProfileState {
+    provider: String,
+    profile_id: String,
+    access_token: String,
+    refresh_token: String,
+    id_token: Option<String>,
+    expires_at: Option<String>,
+    account_id: Option<String>,
+    email: Option<String>,
+    last_refresh: Option<String>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct RuntimeAuthStoreFile {
+    version: u32,
+    oauth_profiles: Vec<PersistedOAuthProfileState>,
+}
+
 pub struct AuthRuntimeManager {
     refresh_skew_seconds: i64,
     codex_auth_url: String,
     codex_token_url: String,
     codex_client_id: String,
+    store_path: RwLock<Option<PathBuf>>,
+    persist_lock: Mutex<()>,
+    oauth_profiles: DashMap<String, SharedOAuthTokenState>,
+}
+
+impl Default for AuthRuntimeManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AuthRuntimeManager {
@@ -53,6 +88,9 @@ impl AuthRuntimeManager {
             codex_auth_url,
             codex_token_url,
             codex_client_id,
+            store_path: RwLock::new(None),
+            persist_lock: Mutex::new(()),
+            oauth_profiles: DashMap::new(),
         }
     }
 
@@ -62,7 +100,180 @@ impl AuthRuntimeManager {
             codex_auth_url: auth_url,
             codex_token_url: token_url,
             codex_client_id: client_id,
+            store_path: RwLock::new(None),
+            persist_lock: Mutex::new(()),
+            oauth_profiles: DashMap::new(),
         }
+    }
+
+    pub fn initialize(&self, config_path: &str, config: &Config) -> Result<(), String> {
+        {
+            let mut guard = self
+                .store_path
+                .write()
+                .map_err(|e| format!("auth runtime store path lock poisoned: {e}"))?;
+            *guard = Some(Self::store_path_for_config(config_path));
+        }
+        self.load_store_file()?;
+        self.sync_with_config(config)
+    }
+
+    pub fn sync_with_config(&self, config: &Config) -> Result<(), String> {
+        let mut valid_keys = HashSet::new();
+        let mut dirty = false;
+
+        for entry in &config.providers {
+            for profile in &entry.auth_profiles {
+                if profile.mode != AuthMode::OpenaiCodexOauth {
+                    continue;
+                }
+                let key = Self::profile_key(&entry.name, &profile.id);
+                valid_keys.insert(key.clone());
+                if !self.oauth_profiles.contains_key(&key)
+                    && let Some(state) = OAuthTokenState::from_profile(profile)
+                {
+                    self.oauth_profiles
+                        .insert(key, Arc::new(RwLock::new(state)));
+                    dirty = true;
+                }
+            }
+        }
+
+        let stale_keys = self
+            .oauth_profiles
+            .iter()
+            .filter(|entry| !valid_keys.contains(entry.key()))
+            .map(|entry| entry.key().clone())
+            .collect::<Vec<_>>();
+        for key in stale_keys {
+            self.oauth_profiles.remove(&key);
+            dirty = true;
+        }
+
+        if dirty {
+            self.persist_store_file()?;
+        }
+        Ok(())
+    }
+
+    pub fn profile_key(provider: &str, profile_id: &str) -> String {
+        format!("{provider}/{profile_id}")
+    }
+
+    pub fn oauth_snapshot(&self) -> HashMap<String, OAuthTokenState> {
+        self.oauth_profiles
+            .iter()
+            .filter_map(|entry| {
+                entry
+                    .value()
+                    .read()
+                    .ok()
+                    .map(|state| (entry.key().clone(), state.clone()))
+            })
+            .collect()
+    }
+
+    pub fn state_for_profile(
+        &self,
+        provider: &str,
+        profile_id: &str,
+    ) -> Result<Option<OAuthTokenState>, String> {
+        let key = Self::profile_key(provider, profile_id);
+        let Some(entry) = self.oauth_profiles.get(&key) else {
+            return Ok(None);
+        };
+        let guard = entry
+            .read()
+            .map_err(|e| format!("oauth state lock poisoned: {e}"))?;
+        Ok(Some(guard.clone()))
+    }
+
+    pub fn apply_runtime_state(
+        &self,
+        provider: &str,
+        profile: &AuthProfileEntry,
+    ) -> Result<AuthProfileEntry, String> {
+        if profile.mode != AuthMode::OpenaiCodexOauth {
+            return Ok(profile.clone());
+        }
+        let Some(state) = self.state_for_profile(provider, &profile.id)? else {
+            return Ok(profile.clone());
+        };
+        let mut hydrated = profile.clone();
+        hydrated.access_token = Some(state.access_token);
+        hydrated.refresh_token = Some(state.refresh_token);
+        hydrated.id_token = state.id_token;
+        hydrated.expires_at = state.expires_at.map(|dt| dt.to_rfc3339());
+        hydrated.account_id = state.account_id;
+        hydrated.email = state.email;
+        hydrated.last_refresh = state.last_refresh.map(|dt| dt.to_rfc3339());
+        Ok(hydrated)
+    }
+
+    pub fn ensure_profile_placeholder(
+        &self,
+        provider: &str,
+        profile_id: &str,
+    ) -> Result<(), String> {
+        let key = Self::profile_key(provider, profile_id);
+        self.oauth_profiles.entry(key).or_insert_with(|| {
+            Arc::new(RwLock::new(OAuthTokenState {
+                access_token: String::new(),
+                refresh_token: String::new(),
+                id_token: None,
+                account_id: None,
+                email: None,
+                expires_at: None,
+                last_refresh: None,
+            }))
+        });
+        self.persist_store_file()
+    }
+
+    pub fn store_codex_tokens(
+        &self,
+        provider: &str,
+        profile_id: &str,
+        tokens: &CodexOAuthTokens,
+    ) -> Result<(), String> {
+        self.store_state(
+            provider,
+            profile_id,
+            OAuthTokenState {
+                access_token: tokens.access_token.clone(),
+                refresh_token: tokens.refresh_token.clone(),
+                id_token: tokens.id_token.clone(),
+                account_id: tokens.account_id.clone(),
+                email: tokens.email.clone(),
+                expires_at: tokens.expires_at,
+                last_refresh: Some(tokens.last_refresh),
+            },
+        )
+    }
+
+    pub fn store_state(
+        &self,
+        provider: &str,
+        profile_id: &str,
+        state: OAuthTokenState,
+    ) -> Result<(), String> {
+        let key = Self::profile_key(provider, profile_id);
+        if let Some(existing) = self.oauth_profiles.get(&key) {
+            let mut guard = existing
+                .write()
+                .map_err(|e| format!("oauth state lock poisoned: {e}"))?;
+            *guard = state;
+        } else {
+            self.oauth_profiles
+                .insert(key, Arc::new(RwLock::new(state)));
+        }
+        self.persist_store_file()
+    }
+
+    pub fn clear_profile_state(&self, provider: &str, profile_id: &str) -> Result<(), String> {
+        let key = Self::profile_key(provider, profile_id);
+        self.oauth_profiles.remove(&key);
+        self.persist_store_file()
     }
 
     pub async fn prepare_auth(
@@ -76,13 +287,13 @@ impl AuthRuntimeManager {
         let Some(shared) = auth.oauth_state.clone() else {
             return Ok(());
         };
-        let should_refresh = {
+        let skip_refresh = {
             let guard = shared
                 .read()
                 .map_err(|e| ProxyError::Internal(format!("oauth state lock poisoned: {e}")))?;
             guard.refresh_token.is_empty() || !guard.expires_soon(self.refresh_skew_seconds)
         };
-        if should_refresh {
+        if skip_refresh {
             return Ok(());
         }
 
@@ -98,14 +309,16 @@ impl AuthRuntimeManager {
             let mut guard = shared
                 .write()
                 .map_err(|e| ProxyError::Internal(format!("oauth state lock poisoned: {e}")))?;
-            guard.access_token = refreshed.access_token;
-            guard.refresh_token = refreshed.refresh_token;
-            guard.id_token = refreshed.id_token;
+            guard.access_token = refreshed.access_token.clone();
+            guard.refresh_token = refreshed.refresh_token.clone();
+            guard.id_token = refreshed.id_token.clone();
             guard.expires_at = refreshed.expires_at;
-            guard.account_id = refreshed.account_id;
-            guard.email = refreshed.email;
+            guard.account_id = refreshed.account_id.clone();
+            guard.email = refreshed.email.clone();
             guard.last_refresh = Some(refreshed.last_refresh);
         }
+        self.store_codex_tokens(&auth.provider_name, &auth.auth_profile_id, &refreshed)
+            .map_err(ProxyError::Internal)?;
         Ok(())
     }
 
@@ -252,6 +465,134 @@ impl AuthRuntimeManager {
             last_refresh: Utc::now(),
         })
     }
+
+    fn store_path_for_config(config_path: &str) -> PathBuf {
+        let path = PathBuf::from(config_path);
+        let file_name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("config.yaml");
+        path.with_file_name(format!("{file_name}.auth-runtime.json"))
+    }
+
+    fn load_store_file(&self) -> Result<(), String> {
+        let Some(path) = self
+            .store_path
+            .read()
+            .map_err(|e| format!("auth runtime store path lock poisoned: {e}"))?
+            .clone()
+        else {
+            return Ok(());
+        };
+
+        self.oauth_profiles.clear();
+        if !path.exists() {
+            return Ok(());
+        }
+
+        let contents = std::fs::read_to_string(&path).map_err(|e| {
+            format!(
+                "failed to read auth runtime store '{}': {e}",
+                path.display()
+            )
+        })?;
+        let file: RuntimeAuthStoreFile = serde_json::from_str(&contents).map_err(|e| {
+            format!(
+                "failed to parse auth runtime store '{}': {e}",
+                path.display()
+            )
+        })?;
+        for profile in file.oauth_profiles {
+            let key = Self::profile_key(&profile.provider, &profile.profile_id);
+            self.oauth_profiles.insert(
+                key,
+                Arc::new(RwLock::new(OAuthTokenState {
+                    access_token: profile.access_token,
+                    refresh_token: profile.refresh_token,
+                    id_token: profile.id_token,
+                    account_id: profile.account_id,
+                    email: profile.email,
+                    expires_at: parse_timestamp(profile.expires_at.as_deref()),
+                    last_refresh: parse_timestamp(profile.last_refresh.as_deref()),
+                })),
+            );
+        }
+        Ok(())
+    }
+
+    fn persist_store_file(&self) -> Result<(), String> {
+        let Some(path) = self
+            .store_path
+            .read()
+            .map_err(|e| format!("auth runtime store path lock poisoned: {e}"))?
+            .clone()
+        else {
+            return Ok(());
+        };
+
+        let _guard = self
+            .persist_lock
+            .lock()
+            .map_err(|e| format!("auth runtime persist lock poisoned: {e}"))?;
+
+        let profiles = self
+            .oauth_profiles
+            .iter()
+            .filter_map(|entry| {
+                let state = entry.value().read().ok()?;
+                let (provider, profile_id) = split_profile_key(entry.key())?;
+                Some(PersistedOAuthProfileState {
+                    provider: provider.to_string(),
+                    profile_id: profile_id.to_string(),
+                    access_token: state.access_token.clone(),
+                    refresh_token: state.refresh_token.clone(),
+                    id_token: state.id_token.clone(),
+                    expires_at: state.expires_at.map(|dt| dt.to_rfc3339()),
+                    account_id: state.account_id.clone(),
+                    email: state.email.clone(),
+                    last_refresh: state.last_refresh.map(|dt| dt.to_rfc3339()),
+                })
+            })
+            .collect::<Vec<_>>();
+        let file = RuntimeAuthStoreFile {
+            version: AUTH_STORE_VERSION,
+            oauth_profiles: profiles,
+        };
+
+        let bytes = serde_json::to_vec_pretty(&file)
+            .map_err(|e| format!("failed to serialize auth runtime store: {e}"))?;
+        write_atomic(&path, &bytes)
+    }
+}
+
+fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("failed to create auth runtime store dir: {e}"))?;
+    }
+    let tmp_path = path.with_extension(format!("tmp.{}", std::process::id()));
+    std::fs::write(&tmp_path, bytes)
+        .map_err(|e| format!("failed to write auth runtime temp file: {e}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o600);
+        let _ = std::fs::set_permissions(&tmp_path, perms);
+    }
+    std::fs::rename(&tmp_path, path)
+        .map_err(|e| format!("failed to rename auth runtime store: {e}"))?;
+    Ok(())
+}
+
+fn split_profile_key(value: &str) -> Option<(&str, &str)> {
+    let (provider, profile_id) = value.split_once('/')?;
+    Some((provider, profile_id))
+}
+
+fn parse_timestamp(value: Option<&str>) -> Option<chrono::DateTime<Utc>> {
+    value
+        .and_then(|raw| chrono::DateTime::parse_from_rfc3339(raw).ok())
+        .map(|dt| dt.with_timezone(&Utc))
 }
 
 fn parse_id_token_claims(id_token: &str) -> Option<(Option<String>, Option<String>)> {

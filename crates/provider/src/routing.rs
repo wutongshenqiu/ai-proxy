@@ -39,6 +39,7 @@ pub struct CredentialRouter {
     credentials: RwLock<HashMap<String, Vec<AuthRecord>>>,
     /// Index: credential_id → (provider_name, index in Vec) for O(1) lookup.
     credential_index: RwLock<HashMap<String, (String, usize)>>,
+    runtime_oauth_states: RwLock<HashMap<String, OAuthTokenState>>,
     counters: RwLock<HashMap<String, AtomicUsize>>,
     strategy: RwLock<CredentialStrategy>,
     /// EWMA latency per credential_id (ms).
@@ -56,12 +57,19 @@ impl CredentialRouter {
         Self {
             credentials: RwLock::new(HashMap::new()),
             credential_index: RwLock::new(HashMap::new()),
+            runtime_oauth_states: RwLock::new(HashMap::new()),
             counters: RwLock::new(HashMap::new()),
             strategy: RwLock::new(strategy),
             latency_ewma: RwLock::new(HashMap::new()),
             ewma_alpha: RwLock::new(0.3),
             cb_config: RwLock::new(CircuitBreakerConfig::default()),
             cooldowns: DashMap::new(),
+        }
+    }
+
+    pub fn set_oauth_states(&self, states: HashMap<String, OAuthTokenState>) {
+        if let Ok(mut guard) = self.runtime_oauth_states.write() {
+            *guard = states;
         }
     }
 
@@ -252,11 +260,16 @@ impl CredentialRouter {
 
         let cb_config = config.circuit_breaker.clone();
 
+        let runtime_oauth_states = self
+            .runtime_oauth_states
+            .read()
+            .map(|guard| guard.clone())
+            .unwrap_or_default();
         let mut map: HashMap<String, Vec<AuthRecord>> = HashMap::new();
 
         for entry in &config.providers {
             for profile in entry.expanded_auth_profiles() {
-                let auth = build_auth_record(entry, &profile, &cb_config);
+                let auth = build_auth_record(entry, &profile, &cb_config, &runtime_oauth_states);
                 map.entry(entry.name.clone()).or_default().push(auth);
             }
         }
@@ -271,7 +284,17 @@ impl CredentialRouter {
                             .find(|o| o.auth_profile_id == new_auth.auth_profile_id)
                         {
                             new_auth.circuit_breaker = old_auth.circuit_breaker.clone();
-                            new_auth.oauth_state = old_auth.oauth_state.clone();
+                            let oauth_key = format!("{provider_name}/{}", new_auth.auth_profile_id);
+                            if let Some(runtime_state) = runtime_oauth_states.get(&oauth_key) {
+                                if let Some(shared) = old_auth.oauth_state.clone() {
+                                    if let Ok(mut guard) = shared.write() {
+                                        *guard = runtime_state.clone();
+                                    }
+                                    new_auth.oauth_state = Some(shared);
+                                }
+                            } else {
+                                new_auth.oauth_state = old_auth.oauth_state.clone();
+                            }
                         }
                     }
                 }
@@ -376,6 +399,7 @@ fn build_auth_record(
     entry: &prism_core::config::ProviderKeyEntry,
     profile: &AuthProfileEntry,
     cb_config: &CircuitBreakerConfig,
+    runtime_oauth_states: &HashMap<String, OAuthTokenState>,
 ) -> AuthRecord {
     let models = entry
         .models
@@ -404,6 +428,12 @@ fn build_auth_record(
         || !profile.upstream_presentation.sensitive_words.is_empty()
         || profile.upstream_presentation.cache_user_id;
 
+    let oauth_key = format!("{}/{}", entry.name, profile.id);
+    let runtime_oauth_state = runtime_oauth_states.get(&oauth_key).cloned();
+    let effective_oauth_state = runtime_oauth_state
+        .clone()
+        .or_else(|| OAuthTokenState::from_profile(profile));
+
     AuthRecord {
         id: uuid::Uuid::new_v4().to_string(),
         provider: entry.format,
@@ -411,6 +441,11 @@ fn build_auth_record(
         api_key: profile
             .secret
             .clone()
+            .or_else(|| {
+                effective_oauth_state
+                    .as_ref()
+                    .map(|state| state.access_token.clone())
+            })
             .or_else(|| profile.access_token.clone())
             .unwrap_or_default(),
         base_url: entry.base_url.clone(),
@@ -436,8 +471,7 @@ fn build_auth_record(
             }
             explicit => explicit,
         },
-        oauth_state: OAuthTokenState::from_profile(profile)
-            .map(|state| Arc::new(RwLock::new(state))),
+        oauth_state: effective_oauth_state.map(|state| Arc::new(RwLock::new(state))),
         weight: profile.weight.max(1),
         region: profile.region.clone().or_else(|| entry.region.clone()),
         upstream_presentation: if use_profile_presentation {

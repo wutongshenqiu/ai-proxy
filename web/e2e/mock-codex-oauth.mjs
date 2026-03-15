@@ -35,7 +35,17 @@ const server = createServer((req, res) => {
   }
 
   if (req.method === 'GET' && url.pathname === '/oauth/authorize') {
-    sendJson(res, 200, { ok: true, state: url.searchParams.get('state') });
+    const redirectUri = url.searchParams.get('redirect_uri');
+    const state = url.searchParams.get('state');
+    if (redirectUri && state) {
+      const redirectUrl = new URL(redirectUri);
+      redirectUrl.searchParams.set('code', 'playwright-code');
+      redirectUrl.searchParams.set('state', state);
+      res.writeHead(302, { location: redirectUrl.toString() });
+      res.end();
+      return;
+    }
+    sendJson(res, 200, { ok: true, state });
     return;
   }
 

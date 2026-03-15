@@ -62,8 +62,13 @@ fn create_test_harness_with_auth_runtime(
     let yaml = config.to_yaml().expect("failed to serialize config");
     std::fs::write(&config_path, &yaml).expect("failed to write config");
 
+    auth_runtime
+        .initialize(config_path.to_str().unwrap(), &config)
+        .expect("failed to initialize auth runtime");
+
     let config_arc = Arc::new(ArcSwap::new(Arc::new(config.clone())));
     let credential_router = Arc::new(CredentialRouter::new(Default::default()));
+    credential_router.set_oauth_states(auth_runtime.oauth_snapshot());
     credential_router.update_from_config(&config);
 
     let http_client_pool = Arc::new(prism_core::proxy::HttpClientPool::new());
@@ -104,12 +109,41 @@ fn create_test_harness_with_auth_runtime(
 fn reload_runtime_config(harness: &TestHarness) {
     let config_path = harness.state.config_path.lock().unwrap().clone();
     let new_config = Config::load(&config_path).expect("failed to reload config");
+    harness
+        .state
+        .auth_runtime
+        .sync_with_config(&new_config)
+        .expect("failed to sync auth runtime");
+    harness
+        .state
+        .router
+        .set_oauth_states(harness.state.auth_runtime.oauth_snapshot());
     harness.state.router.update_from_config(&new_config);
     harness
         .state
         .catalog
         .update_from_credentials(&harness.state.router.credential_map());
     harness.state.config.store(Arc::new(new_config));
+}
+
+fn read_auth_runtime_store(harness: &TestHarness) -> Value {
+    let config_path = harness.state.config_path.lock().unwrap().clone();
+    let config_path = std::path::PathBuf::from(config_path);
+    let file_name = config_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("config.yaml");
+    let store_path = config_path.with_file_name(format!("{file_name}.auth-runtime.json"));
+    if !store_path.exists() {
+        return json!({
+            "version": 1,
+            "oauth_profiles": []
+        });
+    }
+
+    let contents =
+        std::fs::read_to_string(store_path).expect("failed to read auth runtime store file");
+    serde_json::from_str(&contents).expect("failed to parse auth runtime store file")
 }
 
 #[derive(Clone)]
@@ -621,8 +655,15 @@ async fn test_create_provider_with_empty_api_key() {
     });
     let req = authed_post("/api/dashboard/providers", &token, create_body);
     let (status, body) = send_request(&harness, req).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(body["error"], "validation_failed");
+    assert_eq!(status, StatusCode::CREATED, "create failed: {body:?}");
+
+    reload_runtime_config(&harness);
+
+    let req = authed_get("/api/dashboard/providers/Empty%20Key%20Provider", &token);
+    let (status, body) = send_request(&harness, req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["api_key_masked"], "");
+    assert_eq!(body["auth_profiles"].as_array().unwrap().len(), 0);
 }
 
 #[tokio::test]
@@ -719,6 +760,19 @@ async fn test_create_provider_with_auth_profiles() {
     let raw_config = Config::from_yaml_raw(&raw_contents).unwrap();
     assert_eq!(raw_config.providers[0].auth_profiles.len(), 2);
     assert_eq!(raw_config.providers[0].api_key, "");
+    assert_eq!(raw_config.providers[0].auth_profiles[1].access_token, None);
+    assert_eq!(raw_config.providers[0].auth_profiles[1].refresh_token, None);
+
+    let runtime_store = read_auth_runtime_store(&harness);
+    let oauth_profiles = runtime_store["oauth_profiles"].as_array().unwrap();
+    assert_eq!(oauth_profiles.len(), 1);
+    assert_eq!(oauth_profiles[0]["provider"], "Codex Gateway");
+    assert_eq!(oauth_profiles[0]["profile_id"], "codex-user");
+    assert_eq!(oauth_profiles[0]["access_token"], "access-token-1234567890");
+    assert_eq!(
+        oauth_profiles[0]["refresh_token"],
+        "refresh-token-1234567890"
+    );
 }
 
 #[tokio::test]
@@ -879,15 +933,29 @@ async fn test_complete_codex_oauth_persists_profile() {
         .find(|provider| provider.name == "codex-complete")
         .unwrap();
     assert_eq!(provider.api_key, "");
-    assert_eq!(provider.auth_profiles.len(), 1);
+    assert_eq!(provider.auth_profiles.len(), 2);
+    let oauth_profile = provider
+        .auth_profiles
+        .iter()
+        .find(|profile| profile.id == "codex-user")
+        .unwrap();
+    assert_eq!(oauth_profile.access_token, None);
+    assert_eq!(oauth_profile.refresh_token, None);
+    let legacy_profile = provider
+        .auth_profiles
+        .iter()
+        .find(|profile| profile.id == "codex-complete")
+        .unwrap();
     assert_eq!(
-        provider.auth_profiles[0].access_token.as_deref(),
-        Some("new-access-token")
+        legacy_profile.secret.as_deref(),
+        Some("sk-legacy-1234567890abcdef")
     );
-    assert_eq!(
-        provider.auth_profiles[0].refresh_token.as_deref(),
-        Some("new-refresh-token")
-    );
+
+    let runtime_store = read_auth_runtime_store(&harness);
+    let oauth_profiles = runtime_store["oauth_profiles"].as_array().unwrap();
+    assert_eq!(oauth_profiles.len(), 1);
+    assert_eq!(oauth_profiles[0]["access_token"], "new-access-token");
+    assert_eq!(oauth_profiles[0]["refresh_token"], "new-refresh-token");
 }
 
 #[tokio::test]
@@ -949,13 +1017,16 @@ async fn test_refresh_codex_oauth_profile() {
         .iter()
         .find(|provider| provider.name == "codex-refresh")
         .unwrap();
+    assert_eq!(provider.auth_profiles[0].access_token, None);
+    assert_eq!(provider.auth_profiles[0].refresh_token, None);
+
+    let runtime_store = read_auth_runtime_store(&harness);
+    let oauth_profiles = runtime_store["oauth_profiles"].as_array().unwrap();
+    assert_eq!(oauth_profiles.len(), 1);
+    assert_eq!(oauth_profiles[0]["access_token"], "refreshed-access-token");
     assert_eq!(
-        provider.auth_profiles[0].access_token.as_deref(),
-        Some("refreshed-access-token")
-    );
-    assert_eq!(
-        provider.auth_profiles[0].refresh_token.as_deref(),
-        Some("refreshed-refresh-token")
+        oauth_profiles[0]["refresh_token"],
+        "refreshed-refresh-token"
     );
 }
 
