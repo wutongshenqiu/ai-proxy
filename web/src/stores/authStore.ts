@@ -13,6 +13,19 @@ interface AuthState {
   initialize: () => void;
 }
 
+// Single point of truth for persisting and updating token state.
+// All paths (login, refresh, interceptor) converge here.
+function applyToken(token: string | null) {
+  if (token) {
+    localStorage.setItem('auth_token', token);
+    useAuthStore.setState({ token, isAuthenticated: true });
+  } else {
+    localStorage.removeItem('auth_token');
+    destroyWebSocketManager();
+    useAuthStore.setState({ token: null, isAuthenticated: false });
+  }
+}
+
 // Read token synchronously so ProtectedRoute sees it on first render
 const savedToken = localStorage.getItem('auth_token');
 
@@ -33,9 +46,8 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ isLoading: true, error: null });
     try {
       const response = await authApi.login(username, password);
-      const { token } = response.data;
-      localStorage.setItem('auth_token', token);
-      set({ token, isAuthenticated: true, isLoading: false });
+      applyToken(response.data.token);
+      set({ isLoading: false });
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Login failed';
@@ -45,31 +57,19 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   logout: () => {
-    localStorage.removeItem('auth_token');
-    destroyWebSocketManager();
-    set({ token: null, isAuthenticated: false });
+    applyToken(null);
   },
 
   refreshToken: async () => {
     try {
       const response = await authApi.refresh();
-      const { token } = response.data;
-      localStorage.setItem('auth_token', token);
-      set({ token });
+      applyToken(response.data.token);
     } catch {
-      localStorage.removeItem('auth_token');
-      set({ token: null, isAuthenticated: false });
+      applyToken(null);
     }
   },
 }));
 
-// Register the Zustand store as the token setter so the Axios interceptor
-// can update auth state on token refresh (avoiding circular imports).
-setTokenSetter((token) => {
-  if (token) {
-    useAuthStore.setState({ token, isAuthenticated: true });
-  } else {
-    destroyWebSocketManager();
-    useAuthStore.setState({ token: null, isAuthenticated: false });
-  }
-});
+// Register the unified setter so the Axios interceptor can update auth state
+// on token refresh (avoiding circular imports).
+setTokenSetter(applyToken);

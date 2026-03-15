@@ -64,6 +64,9 @@ pub struct LogPage {
     pub page: usize,
     pub page_size: usize,
     pub total_pages: usize,
+    /// Monotonic counter incremented on each push. Allows clients to detect
+    /// stale pagination state across requests.
+    pub snapshot_version: u64,
 }
 
 // ── Stats ──

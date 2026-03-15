@@ -950,7 +950,10 @@ async fn test_system_health() {
     let req = authed_get("/api/dashboard/system/health", &token);
     let (status, body) = send_request(&harness, req).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(["healthy", "degraded", "unhealthy"].contains(&body["status"].as_str().unwrap()));
+    assert!(
+        ["healthy", "degraded", "unhealthy", "not_configured"]
+            .contains(&body["status"].as_str().unwrap())
+    );
     assert!(body["uptime_seconds"].is_number());
     assert!(body["host"].is_string());
     assert!(body["port"].is_number());
@@ -1046,11 +1049,11 @@ async fn test_validate_config_invalid() {
 // ===========================================================================
 
 #[tokio::test]
-async fn test_protected_endpoint_with_token_query_param_rejected() {
+async fn test_protected_endpoint_with_token_query_param_accepted() {
     let harness = create_test_harness();
     let token = login_and_get_token(&harness).await;
 
-    // Query param tokens should be rejected (security: only Bearer header allowed)
+    // Query param tokens are accepted (required for WebSocket upgrades)
     let uri = format!("/api/dashboard/providers?token={token}");
     let req = Request::builder()
         .method("GET")
@@ -1059,7 +1062,7 @@ async fn test_protected_endpoint_with_token_query_param_rejected() {
         .unwrap();
 
     let (status, _body) = send_request(&harness, req).await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(status, StatusCode::OK);
 }
 
 // ===========================================================================

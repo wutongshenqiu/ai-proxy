@@ -85,10 +85,30 @@ export interface ProviderUpdateRequest {
   models?: string[];
   excluded_models?: string[];
   headers?: Record<string, string>;
-  wire_api?: string;
+  wire_api?: string | null;
   weight?: number;
   region?: string | null;
-  upstream_presentation?: UpstreamPresentation;
+  upstream_presentation?: UpstreamPresentation | null;
+}
+
+// ── Provider Capabilities ──
+
+export interface ProviderCapabilities {
+  supports_stream: boolean;
+  supports_tools: boolean;
+  supports_parallel_tools: boolean;
+  supports_json_schema: boolean;
+  supports_reasoning: boolean;
+  supports_images: boolean;
+  supports_count_tokens: boolean;
+}
+
+export interface ProviderCapabilityEntry {
+  name: string;
+  upstream_protocol: string;
+  models: string[];
+  capabilities: ProviderCapabilities;
+  disabled: boolean;
 }
 
 // ── Auth Keys ──

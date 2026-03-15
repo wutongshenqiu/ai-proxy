@@ -7,25 +7,80 @@ use serde_json::json;
 
 /// POST /api/dashboard/config/validate — dry-run config validation.
 /// Accepts either `{"yaml": "..."}` (YAML string) or a raw JSON config object.
+///
+/// Performs two validation phases:
+/// 1. Structural parsing (YAML/JSON → Config)
+/// 2. Full resolution including secrets (env://, file://)
 pub async fn validate_config(
     State(_state): State<AppState>,
     Json(body): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let result = if let Some(yaml_str) = body.get("yaml").and_then(|v| v.as_str()) {
-        prism_core::config::Config::load_from_str(yaml_str).map(|_| ())
+    let yaml_str;
+    let parse_result = if let Some(s) = body.get("yaml").and_then(|v| v.as_str()) {
+        yaml_str = s.to_string();
+        // Phase 1: raw parse — catches structural/schema errors
+        prism_core::config::Config::from_yaml_raw(&yaml_str)
     } else {
-        serde_json::from_value::<prism_core::config::Config>(body)
-            .map(|_| ())
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        match serde_json::from_value::<prism_core::config::Config>(body) {
+            Ok(_cfg) => {
+                return (StatusCode::OK, Json(json!({"valid": true, "errors": []})));
+            }
+            Err(e) => {
+                return (
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(json!({"valid": false, "errors": [e.to_string()]})),
+                );
+            }
+        }
     };
-    match result {
-        Ok(()) => (StatusCode::OK, Json(json!({"valid": true, "errors": []}))),
+
+    let mut errors = Vec::new();
+
+    match parse_result {
+        Ok(raw_cfg) => {
+            // Phase 1 passed. Phase 2: full resolution (secrets, validation)
+            // Check for auth fields that reference unresolvable secrets
+            for (i, p) in raw_cfg.providers.iter().enumerate() {
+                if (p.api_key.starts_with("env://") || p.api_key.starts_with("file://"))
+                    && let Err(e) = prism_core::secret::resolve(&p.api_key)
+                {
+                    errors.push(format!(
+                        "providers[{}] '{}': api_key secret resolution failed: {}",
+                        i, p.name, e
+                    ));
+                }
+            }
+            for (i, ak) in raw_cfg.auth_keys.iter().enumerate() {
+                if (ak.key.starts_with("env://") || ak.key.starts_with("file://"))
+                    && let Err(e) = prism_core::secret::resolve(&ak.key)
+                {
+                    errors.push(format!(
+                        "auth-keys[{}]: key secret resolution failed: {}",
+                        i, e
+                    ));
+                }
+            }
+
+            if !errors.is_empty() {
+                return (
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(json!({"valid": false, "errors": errors})),
+                );
+            }
+
+            // Full validation with resolution
+            match prism_core::config::Config::load_from_str(&raw_cfg.to_yaml().unwrap_or_default())
+            {
+                Ok(_) => (StatusCode::OK, Json(json!({"valid": true, "errors": []}))),
+                Err(e) => (
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    Json(json!({"valid": false, "errors": [e.to_string()]})),
+                ),
+            }
+        }
         Err(e) => (
             StatusCode::UNPROCESSABLE_ENTITY,
-            Json(json!({
-                "valid": false,
-                "errors": [e.to_string()],
-            })),
+            Json(json!({"valid": false, "errors": [e.to_string()]})),
         ),
     }
 }
@@ -109,14 +164,16 @@ pub async fn apply_config(
     let dir = std::path::Path::new(&config_path)
         .parent()
         .unwrap_or(std::path::Path::new("."));
-    let tmp_path = dir.join(".config.yaml.tmp");
+    let tmp_path = dir.join(format!(".config.yaml.tmp.{}", std::process::id()));
     if let Err(e) = std::fs::write(&tmp_path, &yaml_str) {
+        let _ = std::fs::remove_file(&tmp_path);
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": "write_failed", "message": e.to_string()})),
         );
     }
     if let Err(e) = std::fs::rename(&tmp_path, &config_path) {
+        let _ = std::fs::remove_file(&tmp_path);
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": "write_failed", "message": e.to_string()})),

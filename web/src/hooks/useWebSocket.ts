@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useCallback } from 'react';
 import { getWebSocketManager, destroyWebSocketManager } from '../services/websocket';
 import { useAuthStore } from '../stores/authStore';
 import { useMetricsStore } from '../stores/metricsStore';
@@ -10,11 +10,16 @@ export function useWebSocket(): void {
   const setSnapshot = useMetricsStore((s) => s.setSnapshot);
   const addLog = useLogsStore((s) => s.addLog);
 
+  // Stable token provider that always reads the latest token
+  const tokenProvider = useCallback(
+    () => useAuthStore.getState().token,
+    [],
+  );
+
   useEffect(() => {
     if (!token) return;
 
-    // getWebSocketManager detects token changes and rebuilds the connection
-    const manager = getWebSocketManager(token);
+    const manager = getWebSocketManager(tokenProvider);
     manager.connect();
 
     const unsubscribe = manager.subscribe((message: WsMessage) => {
@@ -33,7 +38,7 @@ export function useWebSocket(): void {
     return () => {
       unsubscribe();
     };
-  }, [token, setSnapshot, addLog]);
+  }, [token, tokenProvider, setSnapshot, addLog]);
 
   useEffect(() => {
     return () => {

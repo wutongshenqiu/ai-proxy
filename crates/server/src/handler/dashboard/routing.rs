@@ -33,8 +33,9 @@ pub async fn update_routing(
     State(state): State<AppState>,
     Json(body): Json<UpdateRoutingRequest>,
 ) -> impl IntoResponse {
-    // Validate before applying
-    if let Err(errors) = validate_routing_update(&body) {
+    // Validate before applying — pass current config for cross-field consistency
+    let current_routing = state.config.load().routing.clone();
+    if let Err(errors) = validate_routing_update(&body, &current_routing) {
         return (
             StatusCode::UNPROCESSABLE_ENTITY,
             Json(json!({"error": "validation_failed", "details": errors})),
@@ -126,7 +127,7 @@ pub struct PreviewRequest {
 }
 
 fn default_endpoint() -> String {
-    "chat-completions".to_string()
+    "chat-completions".into()
 }
 
 fn default_source_format() -> String {
@@ -141,6 +142,9 @@ impl PreviewRequest {
         let endpoint = match self.endpoint.as_str() {
             "messages" => RouteEndpoint::Messages,
             "responses" => RouteEndpoint::Responses,
+            "generate-content" => RouteEndpoint::GenerateContent,
+            "stream-generate-content" => RouteEndpoint::StreamGenerateContent,
+            "models" => RouteEndpoint::Models,
             _ => RouteEndpoint::ChatCompletions,
         };
 
@@ -164,8 +168,12 @@ impl PreviewRequest {
     }
 }
 
-/// Validate a routing update request. Returns Ok(()) if valid, Err(details) if invalid.
-fn validate_routing_update(body: &UpdateRoutingRequest) -> Result<(), Vec<String>> {
+/// Validate a routing update request against the current config.
+/// Returns Ok(()) if valid, Err(details) if invalid.
+fn validate_routing_update(
+    body: &UpdateRoutingRequest,
+    current: &prism_core::routing::config::RoutingConfig,
+) -> Result<(), Vec<String>> {
     let mut errors = Vec::new();
 
     // Validate profiles
@@ -179,10 +187,13 @@ fn validate_routing_update(body: &UpdateRoutingRequest) -> Result<(), Vec<String
         }
     }
 
-    // Validate rules reference existing profiles
-    if let (Some(rules), Some(profiles)) = (&body.rules, &body.profiles) {
+    // The effective profiles after this update: request profiles override current
+    let effective_profiles = body.profiles.as_ref().unwrap_or(&current.profiles);
+
+    // Validate rules reference profiles that will exist after update
+    if let Some(rules) = &body.rules {
         for rule in rules {
-            if !profiles.contains_key(&rule.use_profile) {
+            if !effective_profiles.contains_key(&rule.use_profile) {
                 errors.push(format!(
                     "rule '{}' references non-existent profile '{}'",
                     rule.name, rule.use_profile
@@ -191,13 +202,15 @@ fn validate_routing_update(body: &UpdateRoutingRequest) -> Result<(), Vec<String
         }
     }
 
-    // Validate default_profile exists in profiles
-    if let (Some(dp), Some(profiles)) = (&body.default_profile, &body.profiles)
-        && !profiles.contains_key(dp.as_str())
-    {
+    // Validate default_profile exists in effective profiles
+    let effective_dp = body
+        .default_profile
+        .as_deref()
+        .unwrap_or(&current.default_profile);
+    if !effective_profiles.contains_key(effective_dp) {
         errors.push(format!(
             "default-profile '{}' does not exist in profiles",
-            dp
+            effective_dp
         ));
     }
 

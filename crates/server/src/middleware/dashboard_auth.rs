@@ -53,23 +53,37 @@ pub async fn dashboard_auth_middleware(
         )
     })?;
 
-    // Extract token from Authorization: Bearer header only
+    // Extract token from Authorization: Bearer header, falling back to ?token= query param.
+    // The query-param path is required for WebSocket upgrades (browser WebSocket API
+    // does not support custom headers).
     let token = request
         .headers()
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
-        .map(|s| s.to_string());
+        .map(|s| s.to_string())
+        .or_else(|| {
+            request.uri().query().and_then(|q| {
+                q.split('&').find_map(|pair| {
+                    let (k, v) = pair.split_once('=')?;
+                    if k == "token" {
+                        Some(v.to_string())
+                    } else {
+                        None
+                    }
+                })
+            })
+        });
 
     let token = token.ok_or_else(|| {
         tracing::warn!(
             path = %request.uri().path(),
-            "Dashboard auth failed: missing Authorization header"
+            "Dashboard auth failed: missing Authorization header or token query parameter"
         );
         error_response(
             StatusCode::UNAUTHORIZED,
             "missing_token",
-            "Authorization header required",
+            "Authorization header or token query parameter required",
         )
     })?;
 

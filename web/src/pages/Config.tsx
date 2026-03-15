@@ -107,9 +107,16 @@ export default function Config() {
       await fetchConfig();
     } catch (err) {
       if (err && typeof err === 'object' && 'response' in err) {
-        const axiosErr = err as { response?: { data?: { message?: string } } };
+        const axiosErr = err as { response?: { data?: { error?: string; message?: string } } };
+        const errorCode = axiosErr.response?.data?.error;
         const errMsg = axiosErr.response?.data?.message || 'Failed to apply configuration';
-        setMessage({ type: 'error', text: errMsg });
+        // Surface specific error semantics to the user
+        const prefix = errorCode === 'write_failed'
+          ? 'Write conflict: '
+          : errorCode === 'validation_failed'
+            ? 'Validation error: '
+            : '';
+        setMessage({ type: 'error', text: `${prefix}${errMsg}` });
       } else {
         setMessage({
           type: 'error',

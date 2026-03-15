@@ -75,12 +75,17 @@ pub async fn system_health(State(state): State<AppState>) -> impl IntoResponse {
         .iter()
         .filter(|p| p["status"] != "unconfigured")
         .all(|p| p["status"] == "healthy");
+    let any_healthy = providers
+        .iter()
+        .any(|p| p["status"] == "healthy" || p["status"] == "degraded");
     let status = if !has_any_provider {
-        "unhealthy"
+        "not_configured"
     } else if all_healthy {
         "healthy"
-    } else {
+    } else if any_healthy {
         "degraded"
+    } else {
+        "unhealthy"
     };
 
     // Collect metrics summary
@@ -176,6 +181,8 @@ pub async fn system_logs(
     // Read only the tail of the log file to avoid OOM on large files.
     // We read the last 2MB which is sufficient for recent log viewing.
     const MAX_READ_BYTES: u64 = 2 * 1024 * 1024;
+    let file_size = file_path.metadata().map(|m| m.len()).unwrap_or(0);
+    let truncated = file_size > MAX_READ_BYTES;
     let contents = match read_file_tail(&file_path, MAX_READ_BYTES) {
         Ok(c) => c,
         Err(e) => {
@@ -260,6 +267,7 @@ pub async fn system_logs(
             "page": query.page,
             "page_size": query.page_size,
             "file": file_path.display().to_string(),
+            "truncated": truncated,
         })),
     )
 }

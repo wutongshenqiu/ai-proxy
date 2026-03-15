@@ -34,7 +34,7 @@ pub async fn protocol_matrix(State(state): State<AppState>) -> Json<ProtocolMatr
                 ingress_protocol: protocol,
                 upstream_protocol: up,
                 execution_mode: exec_mode,
-                supports_generate: true,
+                supports_generate: !provider.disabled,
                 supports_stream: caps.supports_stream,
                 supports_count_tokens: caps.supports_count_tokens,
             });
