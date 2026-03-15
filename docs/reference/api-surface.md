@@ -210,7 +210,7 @@ Claude Messages API passthrough. Accepts Claude-format requests and routes only 
 
 OpenAI Responses API passthrough. Forwards directly to upstream OpenAI or OpenAI-compatible providers. No format translation.
 
-**Allowed formats:** `Format::OpenAI` or `Format::OpenAICompat` only
+**Allowed formats:** `Format::OpenAI` only
 
 **Behavior:** Resolves provider, picks credential, builds direct HTTP request to `{base_url}/v1/responses`. Does not go through the translation or retry dispatch loop.
 
@@ -257,7 +257,7 @@ Lists providers with masked secrets and summarized auth profile state.
 
 #### POST /api/dashboard/providers
 
-Creates a provider. Exactly one of `api_key` or `auth_profiles[]` is required.
+Creates a logical provider family. `api_key` and `auth_profiles[]` are mutually exclusive, but both may be omitted so auth profiles can be attached later through the dedicated auth profile APIs.
 
 #### GET /api/dashboard/providers/{name}
 
@@ -277,7 +277,19 @@ Deletes a provider.
 
 #### GET /api/dashboard/auth-profiles
 
-Lists flattened auth profile state across all providers. This includes mode, header kind, masked secret/access token state, refresh-token presence, expiry, account metadata, and upstream presentation config.
+Lists flattened auth profile state across all providers. This includes mode, header kind, masked secret or runtime access-token state, refresh-token presence, expiry, account metadata, and upstream presentation config.
+
+#### POST /api/dashboard/auth-profiles
+
+Creates a new auth profile under an existing provider.
+
+#### PUT /api/dashboard/auth-profiles/{provider}/{profile}
+
+Replaces an existing auth profile in place. For static auth modes, omitting `secret` preserves the existing secret when the mode is unchanged.
+
+#### DELETE /api/dashboard/auth-profiles/{provider}/{profile}
+
+Deletes an auth profile and clears any persisted runtime OAuth state for that profile.
 
 #### POST /api/dashboard/auth-profiles/codex/oauth/start
 
@@ -285,11 +297,11 @@ Starts a Codex OAuth PKCE flow and returns `{ state, auth_url, provider, profile
 
 #### POST /api/dashboard/auth-profiles/codex/oauth/complete
 
-Completes the OAuth code exchange and persists the resulting auth profile into the provider config.
+Completes the OAuth code exchange, hydrates the auth profile, and persists runtime OAuth tokens into the auth runtime sidecar store (`*.auth-runtime.json`) rather than the YAML config.
 
 #### POST /api/dashboard/auth-profiles/{provider}/{profile}/refresh
 
-Refreshes an existing `openai-codex-oauth` auth profile and persists the updated tokens.
+Refreshes an existing `openai-codex-oauth` auth profile and persists the updated runtime tokens into the auth runtime sidecar store.
 
 **Source:** `crates/server/src/handler/dashboard/auth_profiles.rs`
 

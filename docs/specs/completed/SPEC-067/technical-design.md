@@ -5,7 +5,7 @@
 | Spec ID   | SPEC-067       |
 | Title     | Provider Families & Auth Profiles |
 | Author    | AI Agent       |
-| Status    | Draft          |
+| Status    | Completed      |
 | Created   | 2026-03-15     |
 | Updated   | 2026-03-15     |
 
@@ -21,6 +21,9 @@ Reference: [PRD](prd.md)
 
 ```
 GET  /api/dashboard/auth-profiles
+POST /api/dashboard/auth-profiles
+PUT  /api/dashboard/auth-profiles/{provider}/{profile}
+DELETE /api/dashboard/auth-profiles/{provider}/{profile}
 POST /api/dashboard/auth-profiles/codex/oauth/start
 POST /api/dashboard/auth-profiles/codex/oauth/complete
 POST /api/dashboard/auth-profiles/{provider}/{profile}/refresh
@@ -98,7 +101,8 @@ pub struct AuthProfileEntry {
 3. `CredentialRouter` flattens those into `AuthRecord`s grouped by provider name.
 4. Dispatch plans routes across providers, then credentials within a provider.
 5. Before execution, auth runtime resolves the current request secret and refreshes Codex OAuth tokens when needed.
-6. Executors apply the resolved auth header kind instead of assuming auth from base URL alone.
+6. Runtime OAuth material is persisted into a sidecar auth runtime store (`*.auth-runtime.json`) instead of being rewritten into YAML config.
+7. Executors apply the resolved auth header kind instead of assuming auth from base URL alone.
 
 ## Configuration Changes
 
@@ -124,9 +128,13 @@ providers:
     auth-profiles:
       - id: personal
         mode: openai-codex-oauth
-        access-token: ""
-        refresh-token: ""
-        expires-at: ""
+```
+
+Runtime OAuth material is stored outside YAML in a sidecar file derived from the config path:
+
+```text
+config.yaml
+config.auth-runtime.json
 ```
 
 ## Provider Compatibility
@@ -147,22 +155,24 @@ providers:
 
 ## Task Breakdown
 
-- [ ] Add auth profile core types and config parsing
-- [ ] Flatten provider families into runtime `AuthRecord`s
-- [ ] Add auth header kind and Codex OAuth token refresh runtime
-- [ ] Update executors and count-tokens path to use resolved auth headers
-- [ ] Add dashboard auth profile APIs
-- [ ] Add config, routing, dashboard, and request-path tests
+- [x] Add auth profile core types and config parsing
+- [x] Flatten provider families into runtime `AuthRecord`s
+- [x] Add auth header kind and Codex OAuth token refresh runtime
+- [x] Update executors and count-tokens path to use resolved auth headers
+- [x] Add dashboard auth profile APIs
+- [x] Add dashboard UI pages for auth profile management and OAuth callback handling
+- [x] Add config, routing, dashboard, web, and request-path tests
 
 ## Test Strategy
 
 - **Unit tests:** config normalization, auth profile expansion, auth runtime refresh, executor auth header selection
 - **Integration tests:** dashboard auth profile APIs, provider create/update with nested auth profiles, route selection across multiple profiles
-- **Manual verification:** local Codex OAuth start/complete flow and Anthropic bearer-token profile request
+- **Web E2E:** Playwright coverage for login, auth profile CRUD, OAuth callback, provider flows, and system/routing pages
+- **Manual verification:** local and remote-machine Codex OAuth start/complete flow and Anthropic bearer-token profile request
 
-## Rollout Plan
+## Rollout Outcome
 
-1. Land core auth profile data model and runtime resolver.
-2. Land dashboard endpoints and nested config persistence.
-3. Add tests for multi-profile routing and OAuth refresh.
-4. Follow up with web dashboard UX once backend surface is stable.
+1. Landed core auth profile data model and runtime resolver.
+2. Landed dashboard endpoints, auth runtime sidecar persistence, and provider writeback migration.
+3. Added multi-profile routing, OAuth refresh, dashboard API, frontend unit, and Playwright coverage.
+4. Shipped web dashboard auth profile management and OAuth callback UX in the same iteration.

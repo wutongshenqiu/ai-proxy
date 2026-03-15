@@ -5,7 +5,7 @@
 | Spec ID   | SPEC-067       |
 | Title     | Provider Families & Auth Profiles |
 | Author    | AI Agent       |
-| Status    | Draft          |
+| Status    | Completed      |
 | Created   | 2026-03-15     |
 | Updated   | 2026-03-15     |
 
@@ -24,8 +24,8 @@ Prism's current unified `providers[]` config collapses logical provider identity
 ## Non-Goals
 
 - Full browser-based OAuth orchestration for every provider on day one.
-- Web dashboard UX redesign in this iteration.
 - Replacing the existing route planner or translator architecture.
+- Changing the public `/v1/*` request protocols to force provider-qualified model IDs.
 
 ## User Stories
 
@@ -40,6 +40,7 @@ Prism's current unified `providers[]` config collapses logical provider identity
 - Static API key and refreshable Codex OAuth auth material can both be exercised by tests.
 - Route planner and credential router select among providers and auth profiles deterministically.
 - Dashboard APIs can create, inspect, and update auth profiles without editing raw YAML manually.
+- Dashboard UI exposes auth profile CRUD and Codex OAuth flows end-to-end.
 
 ## Constraints
 
@@ -47,10 +48,10 @@ Prism's current unified `providers[]` config collapses logical provider identity
 - Existing transport executors stay responsible for protocol invariants.
 - Config reload and dashboard writeback must remain atomic.
 
-## Open Questions
+## Resolved For This Iteration
 
-- [ ] Should Anthropic subscription tokens remain static bearer tokens only, or do we add provider-specific exchange flows later?
-- [ ] Should `/v1/models` eventually expose fully-qualified provider/model IDs when duplicates exist?
+- Anthropic subscription-style auth remains a static bearer-token profile in this iteration; provider-specific exchange flows are deferred.
+- `/v1/models` remains flat and de-duplicated by exposed model ID in this iteration; provider-qualified IDs remain a future product decision.
 
 ## Design Decisions
 
