@@ -222,6 +222,79 @@ OpenAI Responses API passthrough. Forwards directly to upstream OpenAI or OpenAI
 
 ---
 
+### Dashboard routes
+
+Dashboard login is public; all other dashboard routes require a dashboard JWT.
+
+#### POST /api/dashboard/auth/login
+
+Authenticates the dashboard user with bcrypt password verification and returns a JWT.
+
+**Response:**
+```json
+{
+  "token": "<jwt>",
+  "expires_in": 3600,
+  "token_type": "Bearer"
+}
+```
+
+**Source:** `crates/server/src/handler/dashboard/auth.rs`
+
+---
+
+#### POST /api/dashboard/auth/refresh
+
+Refreshes a valid dashboard JWT and returns a new token with the configured TTL.
+
+**Source:** `crates/server/src/handler/dashboard/auth.rs`
+
+---
+
+#### GET /api/dashboard/providers
+
+Lists providers with masked secrets and summarized auth profile state.
+
+#### POST /api/dashboard/providers
+
+Creates a provider. Exactly one of `api_key` or `auth_profiles[]` is required.
+
+#### GET /api/dashboard/providers/{name}
+
+Returns the full provider definition with masked auth profile state.
+
+#### PATCH /api/dashboard/providers/{name}
+
+Updates shared provider settings and optionally replaces `auth_profiles[]`.
+
+#### DELETE /api/dashboard/providers/{name}
+
+Deletes a provider.
+
+**Source:** `crates/server/src/handler/dashboard/providers.rs`
+
+---
+
+#### GET /api/dashboard/auth-profiles
+
+Lists flattened auth profile state across all providers. This includes mode, header kind, masked secret/access token state, refresh-token presence, expiry, account metadata, and upstream presentation config.
+
+#### POST /api/dashboard/auth-profiles/codex/oauth/start
+
+Starts a Codex OAuth PKCE flow and returns `{ state, auth_url, provider, profile_id, expires_in }`.
+
+#### POST /api/dashboard/auth-profiles/codex/oauth/complete
+
+Completes the OAuth code exchange and persists the resulting auth profile into the provider config.
+
+#### POST /api/dashboard/auth-profiles/{provider}/{profile}/refresh
+
+Refreshes an existing `openai-codex-oauth` auth profile and persists the updated tokens.
+
+**Source:** `crates/server/src/handler/dashboard/auth_profiles.rs`
+
+---
+
 ## Authentication
 
 **Source:** `crates/server/src/auth.rs`
@@ -325,13 +398,19 @@ pub struct AppState {
     pub executors: Arc<ExecutorRegistry>,
     pub translators: Arc<TranslatorRegistry>,
     pub metrics: Arc<Metrics>,
-    pub request_logs: Arc<RequestLogStore>,
+    pub log_store: Arc<dyn LogStore>,
     pub config_path: Arc<Mutex<String>>,
     pub rate_limiter: Arc<CompositeRateLimiter>,
     pub cost_calculator: Arc<CostCalculator>,
     pub response_cache: Option<Arc<dyn ResponseCacheBackend>>,
-    pub audit: Arc<dyn AuditBackend>,
+    pub http_client_pool: Arc<HttpClientPool>,
+    pub thinking_cache: Option<Arc<ThinkingCache>>,
     pub start_time: Instant,
+    pub login_limiter: Arc<LoginRateLimiter>,
+    pub catalog: Arc<ProviderCatalog>,
+    pub health_manager: Arc<HealthManager>,
+    pub auth_runtime: Arc<AuthRuntimeManager>,
+    pub oauth_sessions: Arc<DashMap<String, PendingCodexOauthSession>>,
 }
 ```
 
@@ -342,10 +421,16 @@ pub struct AppState {
 | `executors` | `Arc<ExecutorRegistry>` | Provider executor instances. |
 | `translators` | `Arc<TranslatorRegistry>` | Format translation functions. |
 | `metrics` | `Arc<Metrics>` | In-memory metrics counters. |
-| `request_logs` | `Arc<RequestLogStore>` | Ring buffer for recent request/response logs (dashboard). |
+| `log_store` | `Arc<dyn LogStore>` | Dashboard request log backend. |
 | `config_path` | `Arc<Mutex<String>>` | Path to config file (for hot-reload). |
 | `rate_limiter` | `Arc<CompositeRateLimiter>` | Per-key and global rate limiter. |
 | `cost_calculator` | `Arc<CostCalculator>` | Token cost calculation. |
 | `response_cache` | `Option<Arc<dyn ResponseCacheBackend>>` | Optional response cache (Moka). |
-| `audit` | `Arc<dyn AuditBackend>` | Audit log backend (file or noop). |
+| `http_client_pool` | `Arc<HttpClientPool>` | Shared outbound HTTP client pool. |
+| `thinking_cache` | `Option<Arc<ThinkingCache>>` | Optional reasoning/thinking cache. |
 | `start_time` | `Instant` | Server start time (for uptime calculation). |
+| `login_limiter` | `Arc<LoginRateLimiter>` | Dashboard login brute-force protection. |
+| `catalog` | `Arc<ProviderCatalog>` | Provider inventory snapshot for dashboard/control plane. |
+| `health_manager` | `Arc<HealthManager>` | Runtime provider health and outlier state. |
+| `auth_runtime` | `Arc<AuthRuntimeManager>` | Runtime OAuth/PCKE helper and token refresher. |
+| `oauth_sessions` | `Arc<DashMap<...>>` | Pending dashboard OAuth sessions keyed by `state`. |

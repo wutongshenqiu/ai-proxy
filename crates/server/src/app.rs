@@ -155,6 +155,8 @@ impl Application {
             login_limiter: Arc::new(crate::handler::dashboard::auth::LoginRateLimiter::new()),
             catalog: catalog.clone(),
             health_manager: health_manager.clone(),
+            auth_runtime: Arc::new(crate::auth_runtime::AuthRuntimeManager::new()),
+            oauth_sessions: Arc::new(dashmap::DashMap::new()),
         };
         let app_router = crate::build_router(state);
 

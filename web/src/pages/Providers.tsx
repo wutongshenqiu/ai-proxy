@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { providersApi } from '../services/api';
-import type { Provider, ProviderCreateRequest, FormatType, ProfileKind, ActivationMode, PresentationPreviewResponse } from '../types';
+import type { Provider, ProviderAuthProfile, ProviderCreateRequest, FormatType, ProfileKind, ActivationMode, PresentationPreviewResponse } from '../types';
 import StatusBadge from '../components/StatusBadge';
 import TagList from '../components/TagList';
 import { Server, Plus, Pencil, Trash2, X, RefreshCw, HeartPulse, PlusCircle, MinusCircle, Copy, Eye, ChevronDown, ChevronUp } from 'lucide-react';
@@ -94,6 +94,20 @@ export default function Providers() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [previewResult, setPreviewResult] = useState<PresentationPreviewResponse | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [currentAuthProfiles, setCurrentAuthProfiles] = useState<ProviderAuthProfile[]>([]);
+
+  const formatAuthProfileMode = (mode: ProviderAuthProfile['mode']) => {
+    switch (mode) {
+      case 'api-key':
+        return 'API key';
+      case 'bearer-token':
+        return 'Bearer token';
+      case 'openai-codex-oauth':
+        return 'Codex OAuth';
+      default:
+        return mode;
+    }
+  };
 
   const extractErrorMessage = (err: unknown, fallback: string) => {
     if (typeof err === 'object' && err !== null) {
@@ -139,6 +153,7 @@ export default function Providers() {
   const openCreate = () => {
     setEditName(null);
     setForm(emptyForm);
+    setCurrentAuthProfiles([]);
     setError('');
     setShowAdvanced(false);
     setPreviewResult(null);
@@ -171,6 +186,7 @@ export default function Providers() {
     const presHeaders: HeaderPair[] = pres?.['custom-headers']
       ? Object.entries(pres['custom-headers']).map(([key, value]) => ({ key, value }))
       : [];
+    setCurrentAuthProfiles(detail.auth_profiles ?? provider.auth_profiles ?? []);
 
     setForm({
       name: detail.name,
@@ -445,7 +461,18 @@ export default function Providers() {
               ) : (
                 providers.map((provider) => (
                   <tr key={provider.name}>
-                    <td className="text-bold">{provider.name}</td>
+                    <td>
+                      <div className="text-bold">{provider.name}</div>
+                      {provider.auth_profiles && provider.auth_profiles.length > 0 && (
+                        <div
+                          className="text-muted"
+                          data-testid={`provider-auth-profiles-${provider.name}`}
+                          style={{ fontSize: '0.8rem', marginTop: 4 }}
+                        >
+                          Auth profiles: {provider.auth_profiles.map((profile) => profile.id).join(', ')}
+                        </div>
+                      )}
+                    </td>
                     <td>
                       <span className="type-badge">
                         {FORMAT_OPTIONS.find((t) => t.value === provider.format)?.label ?? provider.format}
@@ -544,6 +571,27 @@ export default function Providers() {
             </div>
             <div className="modal-body">
               {error && <div className="form-error">{error}</div>}
+              {editName && currentAuthProfiles.length > 0 && (
+                <div className="alert alert-warning" style={{ marginBottom: '1rem' }}>
+                  <div style={{ fontWeight: 600, marginBottom: 6 }}>
+                    This provider uses managed auth profiles
+                  </div>
+                  <div style={{ fontSize: '0.9rem', opacity: 0.9, marginBottom: 8 }}>
+                    Shared provider fields can be edited here. Auth profile credential material is currently managed through the auth profile API/YAML flow.
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {currentAuthProfiles.map((profile) => (
+                      <span
+                        key={profile.qualified_name}
+                        className="type-badge"
+                        title={`${profile.qualified_name} · ${formatAuthProfileMode(profile.mode)}`}
+                      >
+                        {profile.id} · {formatAuthProfileMode(profile.mode)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="form-group">
                 <label>Name</label>

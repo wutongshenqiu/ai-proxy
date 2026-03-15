@@ -54,6 +54,7 @@ All specifications for the AI Proxy Gateway project.
 
 | ID       | Title                                          | Status    | Location                        |
 |----------|------------------------------------------------|-----------|---------------------------------|
+| SPEC-067 | Provider Families & Auth Profiles              | Draft     | [active/SPEC-067/](active/SPEC-067/) |
 
 ## Retroactively Completed
 
