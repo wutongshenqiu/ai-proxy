@@ -21,7 +21,7 @@ The redesign is organized around one shell and five operator workspaces:
 4. `Route Studio` for route planning, explanation, and fallback reasoning
 5. `Change Studio` for config diffs, rollout sequencing, and post-change observation
 
-The prototype package lives under `docs/design/prism-control-plane-v2/` and includes:
+The prototype package lives under `docs/design/prism-control-plane/` and includes:
 
 - a high-fidelity standalone HTML prototype
 - CSS tokens and component styling
@@ -34,9 +34,9 @@ Reference: [PRD](prd.md)
 
 Related implementation notes:
 
-- [../../design/prism-control-plane-v2/frontend-implementation-plan.md](/Users/qiufeng/work/proxy/prism/docs/design/prism-control-plane-v2/frontend-implementation-plan.md)
-- [../../design/prism-control-plane-v2/backend-control-plane-model.md](/Users/qiufeng/work/proxy/prism/docs/design/prism-control-plane-v2/backend-control-plane-model.md)
-- [../../design/prism-control-plane-v2/rollout-strategy.md](/Users/qiufeng/work/proxy/prism/docs/design/prism-control-plane-v2/rollout-strategy.md)
+- [../../design/prism-control-plane/frontend-implementation-plan.md](/Users/qiufeng/work/proxy/prism/docs/design/prism-control-plane/frontend-implementation-plan.md)
+- [../../design/prism-control-plane/backend-control-plane-model.md](/Users/qiufeng/work/proxy/prism/docs/design/prism-control-plane/backend-control-plane-model.md)
+- [../../design/prism-control-plane/rollout-strategy.md](/Users/qiufeng/work/proxy/prism/docs/design/prism-control-plane/rollout-strategy.md)
 
 ## API Design
 
@@ -201,8 +201,8 @@ Implementation phase should keep backend responsibilities unchanged and focus re
 
 Additional implementation detail now lives in:
 
-- [../../design/prism-control-plane-v2/frontend-implementation-plan.md](/Users/qiufeng/work/proxy/prism/docs/design/prism-control-plane-v2/frontend-implementation-plan.md)
-- [../../design/prism-control-plane-v2/backend-control-plane-model.md](/Users/qiufeng/work/proxy/prism/docs/design/prism-control-plane-v2/backend-control-plane-model.md)
+- [../../design/prism-control-plane/frontend-implementation-plan.md](/Users/qiufeng/work/proxy/prism/docs/design/prism-control-plane/frontend-implementation-plan.md)
+- [../../design/prism-control-plane/backend-control-plane-model.md](/Users/qiufeng/work/proxy/prism/docs/design/prism-control-plane/backend-control-plane-model.md)
 
 ### Proposed Frontend Module Structure
 
@@ -309,7 +309,7 @@ No user-facing configuration changes are needed for the prototype phase.
 ## Task Breakdown
 
 - [ ] Capture research and UX decisions in SPEC-071 docs.
-- [ ] Produce a standalone prototype package under `docs/design/prism-control-plane-v2/`.
+- [ ] Produce a standalone prototype package under `docs/design/prism-control-plane/`.
 - [ ] Validate the prototype visually in a browser and capture review screenshots.
 - [ ] Convert the approved prototype into an implementation spec for `web/`.
 - [ ] Rebuild the production dashboard shell and migrate pages into workspace modules.
@@ -323,7 +323,7 @@ No user-facing configuration changes are needed for the prototype phase.
 ## Rollout Plan
 
 1. Approve the prototype direction and information architecture.
-2. Recreate the prototype as a greenfield production shell in `web/`.
-3. Build all required workspaces and shared patterns behind internal routes or feature flags while the old dashboard remains the production UI.
+2. Recreate the prototype as the canonical production shell in `web/`.
+3. Build all required workspaces and shared patterns directly in that shell until the control plane is ready for cutover.
 4. Validate the new control plane end-to-end before operator cutover.
 5. Switch the production entry point to the new control plane in one release.

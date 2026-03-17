@@ -25,8 +25,8 @@ The user asked for a redesign of Prism's UI panel with reference to `cliproxy-ma
 
 Additional durable benchmark note:
 
-- [gateway-benchmark-analysis.md](/Users/qiufeng/work/proxy/prism/docs/design/prism-control-plane-v2/gateway-benchmark-analysis.md)
-- [remaining-additions-roadmap.md](/Users/qiufeng/work/proxy/prism/docs/design/prism-control-plane-v2/remaining-additions-roadmap.md)
+- [gateway-benchmark-analysis.md](/Users/qiufeng/work/proxy/prism/docs/design/prism-control-plane/gateway-benchmark-analysis.md)
+- [remaining-additions-roadmap.md](/Users/qiufeng/work/proxy/prism/docs/design/prism-control-plane/remaining-additions-roadmap.md)
 
 ### 1. Adjacent control planes center analytics, runtime truth, and drill-down
 
@@ -107,8 +107,8 @@ Implication for Prism:
 - Use one interaction model everywhere: global context bar, main workspace canvas, unified inspector, and embedded workbench for long flows.
 - Build the prototype outside the production app first, then convert it into React primitives.
 - Treat the current backend as a strong primitive layer, not as the upper bound on the product model.
-- Before reusing any shell or workspace patterns, review the code-linked benchmark in [gateway-benchmark-analysis.md](/Users/qiufeng/work/proxy/prism/docs/design/prism-control-plane-v2/gateway-benchmark-analysis.md).
-- Use [remaining-additions-roadmap.md](/Users/qiufeng/work/proxy/prism/docs/design/prism-control-plane-v2/remaining-additions-roadmap.md) as the complete checklist for what still must be added before the redesign is implementation-ready.
+- Before reusing any shell or workspace patterns, review the code-linked benchmark in [gateway-benchmark-analysis.md](/Users/qiufeng/work/proxy/prism/docs/design/prism-control-plane/gateway-benchmark-analysis.md).
+- Use [remaining-additions-roadmap.md](/Users/qiufeng/work/proxy/prism/docs/design/prism-control-plane/remaining-additions-roadmap.md) as the complete checklist for what still must be added before the redesign is implementation-ready.
 - In Figma, use native variable collections, component variants, and ready-for-dev sections instead of ad hoc frame copies.
 - Design workspace composition so future data sources like SLS can plug into Traffic Lab and Command Center without forcing a new navigation model.
 - Model the product around requests, investigations, entities, signals, and changes rather than around today's page inventory.

@@ -69,7 +69,7 @@ The user explicitly wants a prototype before implementation and does not want co
 - The UX must remain data-dense and operationally useful, not marketing-like.
 - The design system must map cleanly into CSS variables, component variants, and inspectable states.
 - Extensibility is required: the shell must not assume all observability and analytics stay inside Prism forever.
-- The old dashboard may remain in production until the new control plane is fully ready.
+- The production entry should remain stable until the control plane is fully ready.
 - Production release should switch to the new control plane in one cutover, not workspace by workspace.
 
 ## Open Questions
@@ -88,4 +88,4 @@ The user explicitly wants a prototype before implementation and does not want co
 | Detail display | Per-page custom detail UI vs shared inspector | Shared inspector | Reduces repeated patterns and preserves context |
 | Workflow editing | Blocking modals vs embedded workbench/sheets | Embedded workbench/sheets | Better for complex provider, routing, and config flows |
 | Design handoff | Code-first styling vs Figma-native system | Figma-native system with code token mapping | Creates a cleaner bridge between prototype and implementation |
-| Implementation posture | Incremental page migration vs greenfield control-plane shell | Greenfield shell with full cutover after readiness | Avoids legacy UX baggage while keeping one clean production switch |
+| Implementation posture | Incremental page migration vs canonical control-plane shell | Canonical shell with full cutover after readiness | Keeps one clean production switch without preserving transitional UI structure |

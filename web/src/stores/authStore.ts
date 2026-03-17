@@ -1,6 +1,6 @@
 import { create } from 'zustand';
+import { getApiErrorMessage } from '../services/errors';
 import { authApi, setSessionSetter } from '../services/api';
-import { destroyWebSocketManager } from '../services/websocket';
 
 interface AuthState {
   username: string | null;
@@ -8,21 +8,18 @@ interface AuthState {
   isLoading: boolean;
   initialized: boolean;
   error: string | null;
+  initialize: () => Promise<void>;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
-  refreshToken: () => Promise<boolean>;
-  initialize: () => Promise<void>;
 }
 
 function applySession(authenticated: boolean, username?: string | null) {
-  if (!authenticated) {
-    destroyWebSocketManager();
-  }
   useAuthStore.setState((state) => ({
     username: authenticated ? (username ?? state.username) : null,
     isAuthenticated: authenticated,
     initialized: true,
     isLoading: false,
+    error: authenticated ? null : state.error,
   }));
 }
 
@@ -48,30 +45,24 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const response = await authApi.login(username, password);
       applySession(response.data.authenticated, response.data.username);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Login failed';
-      set({ error: message, isLoading: false, initialized: true, isAuthenticated: false });
-      throw err;
+    } catch (error) {
+      const message = getApiErrorMessage(error, 'Login failed');
+      set({
+        username: null,
+        isAuthenticated: false,
+        isLoading: false,
+        initialized: true,
+        error: message,
+      });
+      throw error;
     }
   },
 
   logout: async () => {
     try {
       await authApi.logout();
-    } catch {
-      // Best effort cookie clear; local state should still be dropped.
-    }
-    applySession(false, null);
-  },
-
-  refreshToken: async () => {
-    try {
-      const response = await authApi.refresh();
-      applySession(response.data.authenticated, response.data.username);
-      return true;
-    } catch {
+    } finally {
       applySession(false, null);
-      return false;
     }
   },
 }));
