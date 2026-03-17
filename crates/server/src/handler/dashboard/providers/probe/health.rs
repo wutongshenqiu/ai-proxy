@@ -7,12 +7,12 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use serde_json::json;
 
+use super::super::{ProbeStatus, ProviderProbeResult};
 use super::codex::run_codex_probe;
 use super::common::{
     build_reqwest_client, client_error_response, probe_check, provider_name_from_config,
 };
 use super::models::build_models_request;
-use super::super::{ProbeStatus, ProviderProbeResult};
 
 fn select_health_auth(
     state: &AppState,

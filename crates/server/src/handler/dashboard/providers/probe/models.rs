@@ -7,6 +7,7 @@ use serde_json::json;
 
 use super::FetchModelsRequest;
 use super::common::{build_reqwest_client, client_error_response};
+use crate::handler::dashboard::providers::helpers::{is_valid_format, parse_upstream_kind};
 
 fn default_base_url(upstream: prism_core::provider::UpstreamKind) -> &'static str {
     upstream.default_base_url()
@@ -86,7 +87,7 @@ pub async fn fetch_models(
 ) -> impl IntoResponse {
     let format = body.format.as_str();
 
-    if !super::super::is_valid_format(format) {
+    if !is_valid_format(format) {
         return (
             StatusCode::UNPROCESSABLE_ENTITY,
             Json(
@@ -98,8 +99,7 @@ pub async fn fetch_models(
         Ok(value) => value,
         Err(_) => prism_core::provider::Format::OpenAI,
     };
-    let upstream = match super::super::parse_upstream_kind(parsed_format, body.upstream.as_deref())
-    {
+    let upstream = match parse_upstream_kind(parsed_format, body.upstream.as_deref()) {
         Ok(value) => value,
         Err(response) => return response,
     };

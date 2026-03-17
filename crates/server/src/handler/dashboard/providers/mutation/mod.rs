@@ -1,10 +1,12 @@
 mod entry;
 mod request;
 
-use super::{
-    config_tx_error_response, is_valid_format, normalize_auth_profiles, parse_upstream_kind,
-    seed_runtime_oauth_states, strip_runtime_oauth_data, validate_auth_shape,
-    validate_provider_auth_profiles, validation_error,
+use super::auth_profile_state::{
+    normalize_auth_profiles, seed_runtime_oauth_states, strip_runtime_oauth_data,
+    validate_auth_shape, validate_provider_auth_profiles,
+};
+use super::helpers::{
+    config_tx_error_response, is_valid_format, parse_upstream_kind, validation_error,
 };
 use crate::AppState;
 use axum::Json;

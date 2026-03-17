@@ -4,8 +4,8 @@ use prism_provider::sse::parse_sse_stream;
 use serde_json::json;
 use tokio_stream::StreamExt;
 
-use super::common::probe_check;
 use super::super::{ProbeStatus, ProviderProbeResult};
+use super::common::probe_check;
 
 const CODEX_HEALTH_USER_AGENT: &str =
     "codex_cli_rs/0.101.0 (Mac OS 26.0.1; arm64) Apple_Terminal/464";

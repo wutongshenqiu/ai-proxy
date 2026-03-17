@@ -1,30 +1,16 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  type Dispatch,
-  type SetStateAction,
-} from 'react';
+import { useState, type Dispatch, type SetStateAction } from 'react';
 import { confirmAction, navigateTo } from '../../lib/browser';
-import {
-  emptyProfileForm,
-  isManagedMode,
-  profileKey,
-  resolveDeviceFlowProfileLabel,
-  type AuthProfileFormState,
-  type DeviceFlowState,
-} from '../../lib/authProfileDraft';
-import { reconcileSelection } from '../../lib/selection';
+import { isManagedMode, profileKey } from '../../lib/authProfileDraft';
 import { authProfilesApi } from '../../services/authProfiles';
 import { getApiErrorMessage } from '../../services/errors';
 import { providersApi } from '../../services/providers';
 import type {
-  AuthProfileSummary,
   AuthProfilesRuntimeResponse,
   ProviderDetail,
 } from '../../types/backend';
 import type { ProviderAtlasResponse } from '../../types/controlPlane';
+import { useProviderAtlasAuthSelection } from './useProviderAtlasAuthSelection';
+import { useProviderAtlasDeviceFlow } from './useProviderAtlasDeviceFlow';
 
 interface UseProviderAtlasAuthWorkbenchOptions {
   providers: ProviderAtlasResponse['providers'];
@@ -41,122 +27,57 @@ export function useProviderAtlasAuthWorkbench({
   setDetail,
   setRuntimeInfo,
 }: UseProviderAtlasAuthWorkbenchOptions) {
-  const [authWorkbenchOpen, setAuthWorkbenchOpen] = useState(false);
-  const [profiles, setProfiles] = useState<AuthProfileSummary[]>([]);
   const [refreshingProfileId, setRefreshingProfileId] = useState<string | null>(null);
-  const [selectedAuthProfileId, setSelectedAuthProfileId] = useState<string | null>(null);
   const [importingProfileId, setImportingProfileId] = useState<string | null>(null);
-  const [authForm, setAuthForm] = useState<AuthProfileFormState>(emptyProfileForm);
   const [authStatus, setAuthStatus] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [authLoading, setAuthLoading] = useState(false);
   const [authSaving, setAuthSaving] = useState(false);
-  const [authEditorMode, setAuthEditorMode] = useState<'create' | 'edit'>('create');
-  const [connectSecret, setConnectSecret] = useState('');
-  const [importPath, setImportPath] = useState('');
   const [connectingProfileId, setConnectingProfileId] = useState<string | null>(null);
-  const [deviceFlow, setDeviceFlow] = useState<DeviceFlowState | null>(null);
+  const selection = useProviderAtlasAuthSelection({
+    providers,
+    selectedProvider,
+    setRuntimeInfo,
+  });
 
-  const loadProfiles = useCallback(async () => {
-    const [runtime, profileList] = await Promise.all([
-      authProfilesApi.runtime(),
-      authProfilesApi.list(),
-    ]);
-    setRuntimeInfo(runtime);
-    setProfiles(profileList.profiles);
-    return profileList.profiles;
-  }, [setRuntimeInfo]);
+  const {
+    authWorkbenchOpen,
+    setAuthWorkbenchOpen,
+    authLoading,
+    authEditorMode,
+    authForm,
+    setAuthForm,
+    selectedProfiles,
+    selectedAuthProfile,
+    selectedAuthProfileId,
+    setSelectedAuthProfileId,
+    selectedAuthProfileMode,
+    connectSecret,
+    setConnectSecret,
+    importPath,
+    setImportPath,
+    deviceFlow,
+    setDeviceFlow,
+    loadProfiles,
+    openAuthWorkbench: openSelectionWorkbench,
+    startNewAuthProfileDraft: resetAuthDraft,
+  } = selection;
 
-  useEffect(() => {
-    let active = true;
-
-    void loadProfiles().catch(() => {
-      if (!active) {
-        return;
-      }
-      setProfiles([]);
-    });
-
-    return () => {
-      active = false;
-    };
-  }, [loadProfiles]);
-
-  useEffect(() => {
-    setAuthForm((current) => ({
-      ...current,
-      provider: current.provider || selectedProvider || providers[0]?.provider || '',
-    }));
-  }, [providers, selectedProvider]);
-
-  const selectedProfiles = useMemo(
-    () => profiles.filter((profile) => profile.provider === (authForm.provider || selectedProvider)),
-    [authForm.provider, profiles, selectedProvider],
-  );
-  const selectedAuthProfile = useMemo(
-    () =>
-      selectedProfiles.find((profile) => profileKey(profile.provider, profile.id) === selectedAuthProfileId) ??
-      null,
-    [selectedAuthProfileId, selectedProfiles],
-  );
-  const selectedProviderName = authForm.provider || selectedProvider || providers[0]?.provider || '';
-  const selectedAuthProfileMode = selectedAuthProfile?.mode ?? authForm.mode;
-
-  useEffect(() => {
-    setSelectedAuthProfileId((current) =>
-      reconcileSelection(current, selectedProfiles, (profile) =>
-        profileKey(profile.provider, profile.id),
-      ),
-    );
-  }, [selectedProfiles]);
-
-  useEffect(() => {
-    if (!selectedAuthProfile) {
-      return;
-    }
-    setAuthEditorMode('edit');
-    setAuthForm({
-      provider: selectedAuthProfile.provider,
-      id: selectedAuthProfile.id,
-      mode: selectedAuthProfile.mode,
-      secret: '',
-      disabled: selectedAuthProfile.disabled,
-      weight: String(selectedAuthProfile.weight ?? 1),
-      region: selectedAuthProfile.region ?? '',
-      prefix: selectedAuthProfile.prefix ?? '',
-    });
-    setConnectSecret('');
-  }, [selectedAuthProfile]);
+  useProviderAtlasDeviceFlow({
+    deviceFlow,
+    loadProfiles,
+    reload,
+    setDeviceFlow,
+    setAuthStatus,
+    setAuthError,
+  });
 
   const openAuthWorkbench = async () => {
-    setAuthWorkbenchOpen(true);
     setAuthStatus(null);
     setAuthError(null);
-    setAuthEditorMode('create');
-    setConnectSecret('');
-    setImportPath('');
-    setDeviceFlow(null);
-    setSelectedAuthProfileId(null);
-    setAuthLoading(true);
     try {
-      const profileList = await loadProfiles();
-      const preferredProvider =
-        selectedProvider ?? profileList[0]?.provider ?? providers[0]?.provider ?? '';
-      const preferredProfile =
-        profileList.find((profile) => profile.provider === preferredProvider) ??
-        profileList[0] ??
-        null;
-      setSelectedAuthProfileId(
-        preferredProfile ? profileKey(preferredProfile.provider, preferredProfile.id) : null,
-      );
-      setAuthForm({
-        ...emptyProfileForm,
-        provider: preferredProvider,
-      });
+      await openSelectionWorkbench();
     } catch (loadError) {
       setAuthError(getApiErrorMessage(loadError, 'Failed to load auth profiles'));
-    } finally {
-      setAuthLoading(false);
     }
   };
 
@@ -226,17 +147,9 @@ export function useProviderAtlasAuthWorkbench({
   };
 
   const startNewAuthProfileDraft = () => {
-    setAuthEditorMode('create');
-    setSelectedAuthProfileId(null);
-    setConnectSecret('');
-    setImportPath('');
-    setDeviceFlow(null);
     setAuthError(null);
     setAuthStatus(null);
-    setAuthForm({
-      ...emptyProfileForm,
-      provider: selectedProviderName,
-    });
+    resetAuthDraft();
   };
 
   const saveAuthProfile = async () => {
@@ -383,42 +296,6 @@ export function useProviderAtlasAuthWorkbench({
       setConnectingProfileId(null);
     }
   };
-
-  useEffect(() => {
-    if (!deviceFlow) {
-      return;
-    }
-
-    let cancelled = false;
-    const interval = window.setInterval(() => {
-      if (cancelled) {
-        return;
-      }
-      void authProfilesApi
-        .pollCodexDevice(deviceFlow.state)
-        .then(async (result) => {
-          if (cancelled || result.status !== 'completed') {
-            return;
-          }
-          const profileLabel = resolveDeviceFlowProfileLabel(deviceFlow, result.profile);
-          setAuthStatus(`Connected ${profileLabel} via device flow.`);
-          setDeviceFlow(null);
-          await loadProfiles();
-          await reload();
-        })
-        .catch((pollError) => {
-          if (cancelled) {
-            return;
-          }
-          setAuthError(getApiErrorMessage(pollError, 'Device flow polling failed'));
-        });
-    }, Math.max(deviceFlow.interval_secs, 2) * 1000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [deviceFlow, loadProfiles, reload]);
 
   return {
     authWorkbenchOpen,
