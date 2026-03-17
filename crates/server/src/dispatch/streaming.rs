@@ -148,6 +148,7 @@ pub(super) struct StreamDoneContext {
     pub metrics: Arc<prism_core::metrics::Metrics>,
     pub rate_limiter: Arc<prism_core::rate_limit::CompositeRateLimiter>,
     pub api_key: Option<String>,
+    pub tenant_id: Option<String>,
 }
 
 /// Wrap an upstream `StreamChunk` stream to capture token usage from SSE events.
@@ -182,6 +183,9 @@ pub(super) fn with_usage_capture(
     impl Drop for State {
         fn drop(&mut self) {
             if let Some(ctx) = self.ctx.take() {
+                if let Some(ref tenant_id) = ctx.tenant_id {
+                    ctx.metrics.record_tenant_request(tenant_id);
+                }
                 if let Some(ref usage) = self.usage {
                     let cost = ctx
                         .model
@@ -189,8 +193,17 @@ pub(super) fn with_usage_capture(
                         .and_then(|m| ctx.cost_calculator.calculate(m, usage));
                     ctx.metrics
                         .record_tokens(usage.total_input(), usage.output_tokens);
+                    if let Some(ref tenant_id) = ctx.tenant_id {
+                        ctx.metrics.record_tenant_tokens(
+                            tenant_id,
+                            usage.total_input() + usage.output_tokens,
+                        );
+                    }
                     if let (Some(m), Some(c)) = (ctx.model.as_deref(), cost) {
                         ctx.metrics.record_cost(m, c);
+                        if let Some(ref tenant_id) = ctx.tenant_id {
+                            ctx.metrics.record_tenant_cost(tenant_id, c);
+                        }
                     }
                     // Record tokens and cost in rate limiter
                     let total_tokens = usage.total_input() + usage.output_tokens;

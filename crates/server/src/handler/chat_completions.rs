@@ -14,5 +14,14 @@ pub async fn chat_completions(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, ProxyError> {
-    super::dispatch_api_request(&state, &ctx, &headers, body, Format::OpenAI, None).await
+    super::dispatch_api_request(
+        &state,
+        &ctx,
+        &headers,
+        body,
+        "/v1/chat/completions",
+        Format::OpenAI,
+        None,
+    )
+    .await
 }

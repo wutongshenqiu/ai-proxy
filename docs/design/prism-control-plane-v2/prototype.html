@@ -1,0 +1,1515 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Prism Control Plane V2 Prototype</title>
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="stylesheet" href="./prototype.css" />
+  </head>
+  <body>
+    <div class="prototype-shell">
+      <aside class="nav-rail">
+        <div class="brand-lockup">
+          <div class="brand-mark">P</div>
+          <div>
+            <div class="brand-title">Prism</div>
+            <div class="brand-subtitle">Control Plane V2</div>
+          </div>
+        </div>
+
+        <div class="nav-section">
+          <div class="nav-section-label" data-i18n="nav.section.operate">Operate</div>
+          <button class="nav-item nav-item--active" type="button" data-screen-target="command-center">
+            <span class="nav-item__name" data-i18n="nav.commandCenter.label">Command Center</span>
+            <span class="nav-item__meta" data-i18n="nav.commandCenter.meta">Runtime posture</span>
+          </button>
+          <button class="nav-item" type="button" data-screen-target="traffic-lab">
+            <span class="nav-item__name" data-i18n="nav.trafficLab.label">Traffic Lab</span>
+            <span class="nav-item__meta" data-i18n="nav.trafficLab.meta">Logs, traces, lenses</span>
+          </button>
+        </div>
+
+        <div class="nav-section">
+          <div class="nav-section-label" data-i18n="nav.section.design">Design &amp; Route</div>
+          <button class="nav-item" type="button" data-screen-target="provider-atlas">
+            <span class="nav-item__name" data-i18n="nav.providerAtlas.label">Provider Atlas</span>
+            <span class="nav-item__meta" data-i18n="nav.providerAtlas.meta">Coverage and auth</span>
+          </button>
+          <button class="nav-item" type="button" data-screen-target="route-studio">
+            <span class="nav-item__name" data-i18n="nav.routeStudio.label">Route Studio</span>
+            <span class="nav-item__meta" data-i18n="nav.routeStudio.meta">Decision simulator</span>
+          </button>
+        </div>
+
+        <div class="nav-section">
+          <div class="nav-section-label" data-i18n="nav.section.ship">Ship</div>
+          <button class="nav-item" type="button" data-screen-target="change-studio">
+            <span class="nav-item__name" data-i18n="nav.changeStudio.label">Change Studio</span>
+            <span class="nav-item__meta" data-i18n="nav.changeStudio.meta">Diff, rollout, observe</span>
+          </button>
+        </div>
+
+        <div class="nav-footer">
+          <div class="nav-footer__label" data-i18n="nav.footer.label">Prototype principle</div>
+          <p data-i18n="nav.footer.body">One shell. One context bar. One inspector. No generic blocking modals.</p>
+        </div>
+      </aside>
+
+      <div class="main-shell">
+        <header class="topbar">
+          <div class="context-cluster">
+            <span class="context-pill context-pill--strong">prod-cn</span>
+            <span class="context-pill" data-i18n="topbar.realtimeHealthy">Realtime healthy</span>
+            <span class="context-pill" data-i18n="topbar.window1h">1h window</span>
+            <span class="context-pill" data-i18n="topbar.tenantAll">Tenant: all</span>
+            <span class="context-pill" data-i18n="topbar.providerMixed">Provider: mixed</span>
+            <span class="context-pill" data-i18n="topbar.sourceHybrid">Source: hybrid</span>
+          </div>
+
+          <div class="topbar-actions">
+            <div class="locale-switch" aria-label="language switch">
+              <button class="locale-pill locale-pill--active" data-locale="en" type="button">EN</button>
+              <button class="locale-pill" data-locale="zh-CN" type="button">中文</button>
+            </div>
+            <button class="topbar-button topbar-button--ghost" type="button" data-i18n="topbar.filters">Global Filters</button>
+            <button class="topbar-button" id="open-command-palette" type="button" data-i18n="topbar.jumpToTask">Jump to Task</button>
+          </div>
+        </header>
+
+        <div class="workspace-header">
+          <div>
+            <p class="eyebrow" id="workspace-kicker">Prototype-first redesign</p>
+            <h1 id="workspace-title">Command Center</h1>
+            <p class="workspace-summary" id="workspace-summary">
+              A runtime-first shell for traffic, auth, providers, routing, and change control.
+            </p>
+          </div>
+
+          <div class="workspace-callouts">
+            <div class="callout-card">
+              <div class="callout-card__label" data-i18n="callout.livePosture.label">Live posture</div>
+              <div class="callout-card__value">98.6%</div>
+              <div class="callout-card__meta" data-i18n="callout.livePosture.meta">healthy requests over the last hour</div>
+            </div>
+            <div class="callout-card callout-card--accent">
+              <div class="callout-card__label" data-i18n="callout.operatorQueue.label">Open operator queue</div>
+              <div class="callout-card__value">05</div>
+              <div class="callout-card__meta" data-i18n="callout.operatorQueue.meta">items requiring review</div>
+            </div>
+          </div>
+        </div>
+
+        <main class="workspace-canvas">
+          <section class="screen screen--active" data-screen="command-center">
+            <section class="hero-panel">
+              <div class="hero-panel__copy">
+                <span class="hero-badge">Runtime-first dashboard</span>
+                <h2>Operate gateway trust, traffic, and changes from one control plane.</h2>
+                <p>
+                  The shell keeps environment, time range, provider, tenant, and live context pinned. Workspaces change,
+                  but operator context does not.
+                </p>
+              </div>
+
+              <div class="hero-panel__stats">
+                <article class="metric-panel">
+                  <div class="metric-panel__label">Live Requests / min</div>
+                  <div class="metric-panel__value">1,284</div>
+                  <div class="metric-panel__meta">+9.4% vs previous hour</div>
+                </article>
+                <article class="metric-panel">
+                  <div class="metric-panel__label">Auth Profiles Ready</div>
+                  <div class="metric-panel__value">23 / 25</div>
+                  <div class="metric-panel__meta">2 need rotation in 24h</div>
+                </article>
+                <article class="metric-panel">
+                  <div class="metric-panel__label">Config Drift</div>
+                  <div class="metric-panel__value">02</div>
+                  <div class="metric-panel__meta">pending publish review</div>
+                </article>
+                <article class="metric-panel metric-panel--critical">
+                  <div class="metric-panel__label">Route Incidents</div>
+                  <div class="metric-panel__value">01</div>
+                  <div class="metric-panel__meta">claude-sub failover spike</div>
+                </article>
+              </div>
+            </section>
+
+            <div class="workspace-grid workspace-grid--command">
+              <article class="panel panel--wide">
+                <div class="panel-header">
+                  <div>
+                    <div class="panel-kicker">Signal Board</div>
+                    <h3>Signals and active investigations</h3>
+                  </div>
+                  <div class="panel-chip">Unified action feed</div>
+                </div>
+                <div class="action-stack">
+                  <button class="action-row action-row--active" type="button" data-inspector-id="incident-auth-expiry">
+                    <span class="action-row__state action-row__state--danger"></span>
+                    <span class="action-row__text">
+                      Anthropic subscription token expires in 43 minutes and backs 2 production providers.
+                    </span>
+                    <span class="action-row__meta">Auth Profiles</span>
+                  </button>
+                  <button class="action-row" type="button" data-inspector-id="incident-route-pressure">
+                    <span class="action-row__state action-row__state--warning"></span>
+                    <span class="action-row__text">
+                      Route pressure changed for `gpt-5-mini` after provider weight adjustment.
+                    </span>
+                    <span class="action-row__meta">Route Studio</span>
+                  </button>
+                  <button class="action-row" type="button" data-inspector-id="investigation-fallback-regression">
+                    <span class="action-row__state action-row__state--info"></span>
+                    <span class="action-row__text">
+                      Investigation `fallback-regression-cn` is open with route, provider, and change evidence already pinned.
+                    </span>
+                    <span class="action-row__meta">Investigation</span>
+                  </button>
+                </div>
+              </article>
+
+              <article class="panel">
+                <div class="panel-header">
+                  <div>
+                    <div class="panel-kicker">Coverage</div>
+                    <h3>Runtime lanes</h3>
+                  </div>
+                </div>
+                <div class="lane-stack">
+                  <div class="lane-row">
+                    <span>Providers</span>
+                    <strong>12 healthy / 14 total</strong>
+                    <div class="lane-bar"><span style="width: 86%"></span></div>
+                  </div>
+                  <div class="lane-row">
+                    <span>Protocols</span>
+                    <strong>9 verified surfaces</strong>
+                    <div class="lane-bar"><span style="width: 94%"></span></div>
+                  </div>
+                  <div class="lane-row">
+                    <span>Tenants</span>
+                    <strong>18 active / 3 capped</strong>
+                    <div class="lane-bar"><span style="width: 71%"></span></div>
+                  </div>
+                  <div class="lane-row">
+                    <span>Changes</span>
+                    <strong>2 staged / 0 blocked</strong>
+                    <div class="lane-bar"><span style="width: 38%"></span></div>
+                  </div>
+                </div>
+              </article>
+
+              <article class="panel">
+                <div class="panel-header">
+                  <div>
+                    <div class="panel-kicker">Observability fabric</div>
+                    <h3>Native and external sources</h3>
+                  </div>
+                  <div class="panel-chip">Stable shell, pluggable evidence</div>
+                </div>
+                <div class="action-stack">
+                  <button class="action-row action-row--active" type="button" data-inspector-id="integration-runtime-plane">
+                    <span class="action-row__state action-row__state--success"></span>
+                    <span class="action-row__text">
+                      Prism runtime is the primary source for live actions, route explain, auth posture, and publish state.
+                    </span>
+                    <span class="action-row__meta">Primary</span>
+                  </button>
+                  <button class="action-row" type="button" data-inspector-id="integration-sls-plane">
+                    <span class="action-row__state action-row__state--info"></span>
+                    <span class="action-row__text">
+                      SLS provides long-range log analytics and request correlation without changing the Traffic Lab mental model.
+                    </span>
+                    <span class="action-row__meta">External logs</span>
+                  </button>
+                  <button class="action-row" type="button" data-inspector-id="integration-otel-plane">
+                    <span class="action-row__state action-row__state--warning"></span>
+                    <span class="action-row__text">
+                      OTLP traces, audit files, or warehouses extend evidence and history, but do not replace runtime truth.
+                    </span>
+                    <span class="action-row__meta">Hybrid</span>
+                  </button>
+                </div>
+              </article>
+
+              <article class="panel panel--wide">
+                <div class="panel-header">
+                  <div>
+                    <div class="panel-kicker">Realtime tape</div>
+                    <h3>Live signal stream</h3>
+                  </div>
+                  <div class="panel-chip panel-chip--success">Filter aware</div>
+                </div>
+                <div class="signal-tape">
+                  <div class="signal-tape__row">
+                    <span class="signal-tag signal-tag--success">200</span>
+                    <span>OpenAI → `gpt-5-mini` | tenant-red | 421 ms</span>
+                    <span class="signal-time">12:41:09</span>
+                  </div>
+                  <div class="signal-tape__row">
+                    <span class="signal-tag signal-tag--warning">429</span>
+                    <span>Claude subscription pool rotated to backup auth profile</span>
+                    <span class="signal-time">12:40:55</span>
+                  </div>
+                  <div class="signal-tape__row">
+                    <span class="signal-tag signal-tag--danger">503</span>
+                    <span>Route fallback triggered for `claude-sonnet-4-5`</span>
+                    <span class="signal-time">12:40:31</span>
+                  </div>
+                  <div class="signal-tape__row">
+                    <span class="signal-tag signal-tag--info">diff</span>
+                    <span>Routing draft updated by operator `root`</span>
+                    <span class="signal-time">12:39:48</span>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section class="screen" data-screen="traffic-lab">
+            <div class="workspace-grid workspace-grid--traffic">
+              <article class="panel panel--wide">
+                <div class="panel-header">
+                  <div>
+                    <div class="panel-kicker">Saved lenses</div>
+                    <h3>Traffic drill-down</h3>
+                  </div>
+                  <div class="lens-cluster">
+                    <button class="lens-pill lens-pill--active" type="button">Latency &gt; 2s</button>
+                    <button class="lens-pill" type="button">5xx bursts</button>
+                    <button class="lens-pill" type="button">Tool traffic</button>
+                    <button class="lens-pill" type="button">Top cost tenants</button>
+                  </div>
+                </div>
+                <div class="chart-panel">
+                  <div class="chart-axis chart-axis--left">
+                    <span>1.8k</span>
+                    <span>1.2k</span>
+                    <span>600</span>
+                    <span>0</span>
+                  </div>
+                  <div class="chart-bars" aria-label="traffic chart">
+                    <span style="height: 38%"></span>
+                    <span style="height: 54%"></span>
+                    <span style="height: 42%"></span>
+                    <span style="height: 79%"></span>
+                    <span style="height: 65%"></span>
+                    <span class="chart-bars__critical" style="height: 92%"></span>
+                    <span style="height: 58%"></span>
+                    <span style="height: 44%"></span>
+                    <span style="height: 73%"></span>
+                    <span style="height: 49%"></span>
+                    <span style="height: 35%"></span>
+                    <span style="height: 61%"></span>
+                  </div>
+                </div>
+                <div class="source-cluster">
+                  <div class="panel-kicker">Data source mode</div>
+                  <div class="lens-cluster">
+                    <button class="lens-pill lens-pill--active" type="button">Runtime</button>
+                    <button class="lens-pill" type="button">Hybrid</button>
+                    <button class="lens-pill" type="button">SLS</button>
+                  </div>
+                </div>
+              </article>
+
+              <article class="panel">
+                <div class="panel-header">
+                  <div>
+                    <div class="panel-kicker">Flow health</div>
+                    <h3>By path</h3>
+                  </div>
+                </div>
+                <div class="mini-stats">
+                  <div class="mini-stat">
+                    <span>/v1/chat/completions</span>
+                    <strong>94.1%</strong>
+                  </div>
+                  <div class="mini-stat">
+                    <span>/v1/messages</span>
+                    <strong>97.3%</strong>
+                  </div>
+                  <div class="mini-stat">
+                    <span>/v1/responses</span>
+                    <strong>99.1%</strong>
+                  </div>
+                  <div class="mini-stat">
+                    <span>WS responses</span>
+                    <strong>88.4%</strong>
+                  </div>
+                </div>
+              </article>
+
+              <article class="panel panel--full">
+                <div class="panel-header">
+                  <div>
+                    <div class="panel-kicker">Live request grid</div>
+                    <h3>Selected filter set: `prod-cn`, live, all providers</h3>
+                  </div>
+                  <div class="panel-chip">Inspector replaces drawer</div>
+                </div>
+                <div class="table-wrapper">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Status</th>
+                        <th>Provider</th>
+                        <th>Model</th>
+                        <th>Tenant</th>
+                        <th>Latency</th>
+                        <th>Cost</th>
+                        <th>Mode</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr class="is-selected" tabindex="0" data-inspector-id="request-cld-3471">
+                        <td><span class="signal-tag signal-tag--danger">503</span></td>
+                        <td>claude-sub-01</td>
+                        <td>claude-sonnet-4-5</td>
+                        <td>team-red</td>
+                        <td>3,284 ms</td>
+                        <td>$0.083</td>
+                        <td>stream</td>
+                      </tr>
+                      <tr tabindex="0" data-inspector-id="request-oai-9021">
+                        <td><span class="signal-tag signal-tag--success">200</span></td>
+                        <td>openai-prod</td>
+                        <td>gpt-5-mini</td>
+                        <td>sdk-app</td>
+                        <td>428 ms</td>
+                        <td>$0.017</td>
+                        <td>responses</td>
+                      </tr>
+                      <tr tabindex="0" data-inspector-id="request-gmi-2203">
+                        <td><span class="signal-tag signal-tag--warning">429</span></td>
+                        <td>gemini-cn</td>
+                        <td>gemini-2.5-pro</td>
+                        <td>mobile-red</td>
+                        <td>1,911 ms</td>
+                        <td>$0.024</td>
+                        <td>stream</td>
+                      </tr>
+                      <tr tabindex="0" data-inspector-id="request-cdx-7122">
+                        <td><span class="signal-tag signal-tag--info">ws</span></td>
+                        <td>codex-main</td>
+                        <td>gpt-5-codex</td>
+                        <td>agent-lab</td>
+                        <td>684 ms</td>
+                        <td>$0.031</td>
+                        <td>websocket</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+
+              <article class="panel panel--full">
+                <div class="panel-header">
+                  <div>
+                    <div class="panel-kicker">Debug workbench</div>
+                    <h3>Investigate, compare, and inspect the full request chain</h3>
+                  </div>
+                  <div class="panel-chip panel-chip--success">Built for debugging first</div>
+                </div>
+                <div class="debug-workbench">
+                  <div class="debug-main">
+                    <div class="debug-tabs">
+                      <button class="debug-tab debug-tab--active" type="button">Request Session</button>
+                      <button class="debug-tab" type="button">Evidence Graph</button>
+                      <button class="debug-tab" type="button">Time Compare</button>
+                      <button class="debug-tab" type="button">Replay Controls</button>
+                    </div>
+
+                    <div class="debug-columns">
+                      <section class="debug-card">
+                        <div class="debug-card__title">Normalized request</div>
+                        <div class="code-list">
+                          <div class="code-row"><span class="code-key">ingress</span><span class="code-value">claude.messages</span></div>
+                          <div class="code-row"><span class="code-key">model</span><span class="code-value">claude-sonnet-4-5</span></div>
+                          <div class="code-row"><span class="code-key">features</span><span class="code-value">stream, tools, reasoning</span></div>
+                          <div class="code-row"><span class="code-key">tenant</span><span class="code-value">team-red</span></div>
+                          <div class="code-row"><span class="code-key">trace</span><span class="code-value">req_cld_3471</span></div>
+                        </div>
+                      </section>
+
+                      <section class="debug-card">
+                        <div class="debug-card__title">Upstream request preview</div>
+                        <div class="code-list">
+                          <div class="code-row"><span class="code-key">provider</span><span class="code-value">claude-sub-01</span></div>
+                          <div class="code-row"><span class="code-key">auth</span><span class="code-value">subscription-main</span></div>
+                          <div class="code-row"><span class="code-key">presentation</span><span class="code-value">claude-code profile</span></div>
+                          <div class="code-row"><span class="code-key">headers</span><span class="code-value">7 normalized, 1 blocked</span></div>
+                          <div class="code-row"><span class="code-key">body delta</span><span class="code-value">system + user_id injected</span></div>
+                        </div>
+                      </section>
+
+                      <section class="debug-card">
+                        <div class="debug-card__title">Response and fallback</div>
+                        <div class="code-list">
+                          <div class="code-row"><span class="code-key">status</span><span class="code-value">503 upstream_unavailable</span></div>
+                          <div class="code-row"><span class="code-key">retry hop</span><span class="code-value">2 / 3</span></div>
+                          <div class="code-row"><span class="code-key">fallback</span><span class="code-value">openai-prod rejected</span></div>
+                          <div class="code-row"><span class="code-key">reason</span><span class="code-value">reasoning parity mismatch</span></div>
+                          <div class="code-row"><span class="code-key">latency</span><span class="code-value">3,284 ms total</span></div>
+                        </div>
+                      </section>
+                    </div>
+
+                    <div class="debug-action-row">
+                      <button class="action-pill" type="button">Create Investigation</button>
+                      <button class="action-pill" type="button">Replay same route</button>
+                      <button class="action-pill" type="button">Replay with backup auth</button>
+                      <button class="action-pill" type="button">Copy cURL</button>
+                      <button class="action-pill" type="button">Open route explain</button>
+                    </div>
+                  </div>
+
+                  <div class="debug-side">
+                    <div class="debug-side__card">
+                      <div class="debug-side__title">Investigation journal</div>
+                      <div class="summary-stack">
+                        <div class="summary-row"><span>title</span><strong>fallback-regression-cn</strong></div>
+                        <div class="summary-row"><span>owner</span><strong>gateway-oncall</strong></div>
+                        <div class="summary-row"><span>status</span><strong>watching</strong></div>
+                        <div class="summary-row"><span>evidence</span><strong>request, route, change, SLS</strong></div>
+                      </div>
+                    </div>
+
+                    <div class="debug-side__card">
+                      <div class="debug-side__title">Evidence graph</div>
+                      <p class="debug-copy">
+                        A north-star Prism should let operators pin the full relationship graph: request session, provider, auth profile, route decision, and linked change.
+                      </p>
+                      <div class="compare-chip-row">
+                        <span class="signal-tag signal-tag--info">request</span>
+                        <span class="signal-tag signal-tag--warning">route</span>
+                        <span class="signal-tag signal-tag--success">change</span>
+                      </div>
+                    </div>
+
+                    <div class="debug-side__card">
+                      <div class="debug-side__title">Time compare</div>
+                      <p class="debug-copy">
+                        Keep the failing request pinned while comparing a healthy baseline, yesterday's 15m window, or post-change runtime.
+                      </p>
+                      <div class="compare-chip-row">
+                        <span class="signal-tag signal-tag--danger">current</span>
+                        <span class="signal-tag signal-tag--success">baseline</span>
+                        <span class="signal-tag signal-tag--info">24h ago</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section class="screen" data-screen="provider-atlas">
+            <div class="workspace-grid workspace-grid--atlas">
+              <article class="panel panel--wide">
+                <div class="panel-header">
+                  <div>
+                    <div class="panel-kicker">Provider cards</div>
+                    <h3>Runtime catalog</h3>
+                  </div>
+                  <div class="panel-chip panel-chip--success">Truthful runtime coverage</div>
+                </div>
+                <div class="provider-grid">
+                  <button class="provider-card provider-card--selected" type="button" data-inspector-id="provider-openai-prod">
+                    <div class="provider-card__top">
+                      <strong>openai-prod</strong>
+                      <span class="signal-tag signal-tag--success">ready</span>
+                    </div>
+                    <p>OpenAI / responses / 6 auth profiles / us-east</p>
+                    <div class="provider-card__meta">74 models · tools · reasoning · json schema</div>
+                  </button>
+                  <button class="provider-card" type="button" data-inspector-id="provider-claude-sub">
+                    <div class="provider-card__top">
+                      <strong>claude-sub-01</strong>
+                      <span class="signal-tag signal-tag--warning">rotating</span>
+                    </div>
+                    <p>Claude / messages / 2 subscription auth profiles / cn</p>
+                    <div class="provider-card__meta">8 models · tools · prompt cache · thinking</div>
+                  </button>
+                  <button class="provider-card" type="button" data-inspector-id="provider-gemini-cn">
+                    <div class="provider-card__top">
+                      <strong>gemini-cn</strong>
+                      <span class="signal-tag signal-tag--success">ready</span>
+                    </div>
+                    <p>Gemini / native / 3 auth profiles / asia-east</p>
+                    <div class="provider-card__meta">11 models · multimodal · count tokens</div>
+                  </button>
+                  <button class="provider-card" type="button" data-inspector-id="provider-codex-main">
+                    <div class="provider-card__top">
+                      <strong>codex-main</strong>
+                      <span class="signal-tag signal-tag--info">partial</span>
+                    </div>
+                    <p>Codex upstream / websocket / managed oauth / us-west</p>
+                    <div class="provider-card__meta">4 models · agents · responses ws</div>
+                  </button>
+                </div>
+              </article>
+
+              <article class="panel">
+                <div class="panel-header">
+                  <div>
+                    <div class="panel-kicker">Onboarding runway</div>
+                    <h3>Auth posture</h3>
+                  </div>
+                </div>
+                <div class="mini-stats">
+                  <div class="mini-stat">
+                    <span>Connected profiles</span>
+                    <strong>23</strong>
+                  </div>
+                  <div class="mini-stat">
+                    <span>Rotating soon</span>
+                    <strong>2</strong>
+                  </div>
+                  <div class="mini-stat">
+                    <span>Runtime blocked</span>
+                    <strong>1</strong>
+                  </div>
+                  <div class="mini-stat">
+                    <span>Presentation rules</span>
+                    <strong>7</strong>
+                  </div>
+                </div>
+              </article>
+
+              <article class="panel panel--full">
+                <div class="panel-header">
+                  <div>
+                    <div class="panel-kicker">Capability matrix</div>
+                    <h3>Protocol surface by provider</h3>
+                  </div>
+                </div>
+                <div class="matrix">
+                  <div class="matrix__row matrix__row--head">
+                    <span>Provider</span>
+                    <span>Chat</span>
+                    <span>Responses</span>
+                    <span>Messages</span>
+                    <span>Tools</span>
+                    <span>Reasoning</span>
+                    <span>Images</span>
+                    <span>Count Tokens</span>
+                  </div>
+                  <div class="matrix__row">
+                    <span>openai-prod</span>
+                    <span class="matrix__cell matrix__cell--good">native</span>
+                    <span class="matrix__cell matrix__cell--good">native</span>
+                    <span class="matrix__cell">adapted</span>
+                    <span class="matrix__cell matrix__cell--good">yes</span>
+                    <span class="matrix__cell matrix__cell--good">yes</span>
+                    <span class="matrix__cell matrix__cell--good">yes</span>
+                    <span class="matrix__cell">no</span>
+                  </div>
+                  <div class="matrix__row">
+                    <span>claude-sub-01</span>
+                    <span class="matrix__cell">adapted</span>
+                    <span class="matrix__cell">partial</span>
+                    <span class="matrix__cell matrix__cell--good">native</span>
+                    <span class="matrix__cell matrix__cell--good">yes</span>
+                    <span class="matrix__cell matrix__cell--good">yes</span>
+                    <span class="matrix__cell">no</span>
+                    <span class="matrix__cell matrix__cell--good">yes</span>
+                  </div>
+                  <div class="matrix__row">
+                    <span>gemini-cn</span>
+                    <span class="matrix__cell">adapted</span>
+                    <span class="matrix__cell">no</span>
+                    <span class="matrix__cell">no</span>
+                    <span class="matrix__cell">partial</span>
+                    <span class="matrix__cell">no</span>
+                    <span class="matrix__cell matrix__cell--good">yes</span>
+                    <span class="matrix__cell matrix__cell--good">yes</span>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section class="screen" data-screen="route-studio">
+            <div class="workspace-grid workspace-grid--route">
+              <article class="panel">
+                <div class="panel-header">
+                  <div>
+                    <div class="panel-kicker">Scenario builder</div>
+                    <h3>Explain this request</h3>
+                  </div>
+                </div>
+                <div class="builder-stack">
+                  <div class="builder-group">
+                    <span class="builder-label">Ingress</span>
+                    <div class="choice-row">
+                      <button class="choice-pill choice-pill--active" type="button">Claude</button>
+                      <button class="choice-pill" type="button">OpenAI</button>
+                      <button class="choice-pill" type="button">Gemini</button>
+                    </div>
+                  </div>
+                  <div class="builder-group">
+                    <span class="builder-label">Features</span>
+                    <div class="choice-row">
+                      <button class="choice-pill choice-pill--active" type="button">Stream</button>
+                      <button class="choice-pill choice-pill--active" type="button">Tools</button>
+                      <button class="choice-pill choice-pill--active" type="button">Reasoning</button>
+                      <button class="choice-pill" type="button">Images</button>
+                    </div>
+                  </div>
+                  <div class="builder-group">
+                    <span class="builder-label">Operator context</span>
+                    <div class="context-summary">
+                      tenant = team-red<br />
+                      region = cn<br />
+                      target model = claude-sonnet-4-5
+                    </div>
+                  </div>
+                </div>
+              </article>
+
+              <article class="panel panel--wide">
+                <div class="panel-header">
+                  <div>
+                    <div class="panel-kicker">Decision ladder</div>
+                    <h3>Planner outcome</h3>
+                  </div>
+                  <div class="panel-chip">Selected via same truth source as runtime</div>
+                </div>
+                <div class="route-ladder">
+                  <button class="route-card route-card--winner" type="button" data-inspector-id="route-claude-sub">
+                    <div class="route-card__rank">01</div>
+                    <div>
+                      <strong>claude-sub-01 → claude-sonnet-4-5</strong>
+                      <p>native execution · cn region · backup auth available</p>
+                    </div>
+                    <div class="route-card__score">chosen</div>
+                  </button>
+                  <button class="route-card" type="button" data-inspector-id="route-openai-adapted">
+                    <div class="route-card__rank">02</div>
+                    <div>
+                      <strong>openai-prod → gpt-5-mini</strong>
+                      <p>rejected: reasoning parity mismatch for this request</p>
+                    </div>
+                    <div class="route-card__score">rejected</div>
+                  </button>
+                  <button class="route-card" type="button" data-inspector-id="route-gemini-reject">
+                    <div class="route-card__rank">03</div>
+                    <div>
+                      <strong>gemini-cn → gemini-2.5-pro</strong>
+                      <p>rejected: messages surface unavailable, would be lossy</p>
+                    </div>
+                    <div class="route-card__score">rejected</div>
+                  </button>
+                </div>
+              </article>
+
+              <article class="panel panel--full">
+                <div class="panel-header">
+                  <div>
+                    <div class="panel-kicker">Route draft workbench</div>
+                    <h3>Edit, simulate, and prepare publish without leaving Route Studio</h3>
+                  </div>
+                  <div class="panel-chip">Same planner truth, but now attached to a draft object</div>
+                </div>
+                <div class="route-builder-workbench">
+                  <section class="route-builder-main">
+                    <div class="debug-action-row">
+                      <button class="action-pill" type="button" data-inspector-id="route-draft-profile">Profile shell</button>
+                      <button class="action-pill" type="button" data-inspector-id="route-draft-matchers">Matchers</button>
+                      <button class="action-pill" type="button" data-inspector-id="route-draft-preview">Preview &amp; explain</button>
+                      <button class="action-pill" type="button" data-inspector-id="route-draft-publish">Publish linkage</button>
+                    </div>
+
+                    <div class="route-draft-grid">
+                      <section class="debug-card">
+                        <div class="debug-card__title">Draft profile shell</div>
+                        <div class="summary-stack">
+                          <div class="summary-row"><span>Draft id</span><strong>reasoning-cn-default-v2</strong></div>
+                          <div class="summary-row"><span>Based on</span><strong>balanced</strong></div>
+                          <div class="summary-row"><span>Intent</span><strong>prefer Claude for cn reasoning traffic</strong></div>
+                          <div class="summary-row"><span>Status</span><strong>ready to simulate</strong></div>
+                        </div>
+                      </section>
+                      <section class="debug-card">
+                        <div class="debug-card__title">Provider policy</div>
+                        <div class="summary-stack">
+                          <div class="summary-row"><span>Primary target</span><strong>claude-sub-01</strong></div>
+                          <div class="summary-row"><span>Fallback order</span><strong>openai-prod → gemini-cn</strong></div>
+                          <div class="summary-row"><span>Credential policy</span><strong>prefer region match</strong></div>
+                          <div class="summary-row"><span>Rollback anchor</span><strong>profile v18</strong></div>
+                        </div>
+                      </section>
+                    </div>
+
+                    <section class="debug-card">
+                      <div class="debug-card__title">Matchers and expected outcomes</div>
+                      <div class="table-wrapper">
+                        <table class="data-table">
+                          <thead>
+                            <tr>
+                              <th>Scenario</th>
+                              <th>Key matchers</th>
+                              <th>Expected target</th>
+                              <th>Notes</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr class="is-selected">
+                              <td><button class="table-button" type="button" data-inspector-id="route-draft-matchers">Reasoning CN</button></td>
+                              <td>region=cn · reasoning=true · ingress=messages</td>
+                              <td>claude-sub-01</td>
+                              <td>prefer native messages path</td>
+                            </tr>
+                            <tr>
+                              <td><button class="table-button" type="button" data-inspector-id="route-draft-preview">Standard chat CN</button></td>
+                              <td>region=cn · reasoning=false</td>
+                              <td>openai-prod</td>
+                              <td>lower latency default</td>
+                            </tr>
+                            <tr>
+                              <td><button class="table-button" type="button" data-inspector-id="route-draft-impact">Claude auth degraded</button></td>
+                              <td>auth=warning · region=cn</td>
+                              <td>openai-prod fallback</td>
+                              <td>watch investigation linked</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </section>
+
+                    <section class="debug-card">
+                      <div class="debug-card__title">Semantic draft diff</div>
+                      <div class="diff-stack">
+                        <button class="diff-card diff-card--selected" type="button" data-inspector-id="route-draft-profile">
+                          <strong>Profile shell</strong>
+                          <p>Create `reasoning-cn-default-v2` from `balanced` and pin cn reasoning as a first-class scenario.</p>
+                          <span>Object-first editing instead of patching anonymous YAML blocks</span>
+                        </button>
+                        <button class="diff-card" type="button" data-inspector-id="route-draft-matchers">
+                          <strong>Matcher update</strong>
+                          <p>Add `region=cn && reasoning=true && ingress=messages` rule ahead of generic chat routing.</p>
+                          <span>Expected effect: lower fallback rate for cn reasoning traffic</span>
+                        </button>
+                        <button class="diff-card" type="button" data-inspector-id="route-draft-publish">
+                          <strong>Publish plan</strong>
+                          <p>Attach 5% canary and 15m watch window before promoting this route profile to default.</p>
+                          <span>Linked to `fallback-regression-cn` investigation</span>
+                        </button>
+                      </div>
+                    </section>
+                  </section>
+
+                  <aside class="route-builder-side">
+                    <button class="provider-card provider-card--selected" type="button" data-inspector-id="route-draft-preview">
+                      <div class="provider-card__top">
+                        <strong>Explain snapshot</strong>
+                        <span class="signal-tag signal-tag--success">pass</span>
+                      </div>
+                      <p>claude-sub-01 wins for native messages + reasoning; openai-prod remains clean fallback.</p>
+                      <div class="provider-card__meta">preview · explain · compare baseline</div>
+                    </button>
+                    <button class="provider-card" type="button" data-inspector-id="route-draft-impact">
+                      <div class="provider-card__top">
+                        <strong>Blast radius</strong>
+                        <span class="signal-tag signal-tag--warning">8 rules</span>
+                      </div>
+                      <p>Touches 7 tenants, 2 providers, 1 active investigation, and 1 watch window.</p>
+                      <div class="provider-card__meta">tenants · providers · investigations · rollback</div>
+                    </button>
+                    <button class="provider-card" type="button" data-inspector-id="route-draft-publish">
+                      <div class="provider-card__top">
+                        <strong>Change linkage</strong>
+                        <span class="signal-tag signal-tag--info">canary</span>
+                      </div>
+                      <p>Draft is already attached to Change Studio review, rollout path, and post-change observation.</p>
+                      <div class="provider-card__meta">draft → review → canary → observe</div>
+                    </button>
+                  </aside>
+                </div>
+              </article>
+
+              <article class="panel panel--full">
+                <div class="panel-header">
+                  <div>
+                    <div class="panel-kicker">Guardrails</div>
+                    <h3>Why this interaction model helps</h3>
+                  </div>
+                </div>
+                <div class="principle-grid">
+                  <div class="principle-card">
+                    <strong>Scenario stays visible</strong>
+                    <p>The builder, ladder, draft, and inspector stay in one frame. No route-preview modal needed.</p>
+                  </div>
+                  <div class="principle-card">
+                    <strong>Reject reasons are comparable</strong>
+                    <p>Alternates are not hidden. Operators can compare selected and rejected candidates side by side.</p>
+                  </div>
+                  <div class="principle-card">
+                    <strong>Drafts are publishable objects</strong>
+                    <p>Route edits connect directly to canary, watch windows, and rollback instead of ending at “save”.</p>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section class="screen" data-screen="change-studio">
+            <div class="workspace-grid workspace-grid--changes">
+              <article class="panel panel--wide">
+                <div class="panel-header">
+                  <div>
+                    <div class="panel-kicker">Change queue</div>
+                    <h3>Draft, review, publish, observe</h3>
+                  </div>
+                  <div class="panel-chip panel-chip--warning">Replace raw config page with workflow</div>
+                </div>
+                <div class="stage-row">
+                  <div class="stage-card stage-card--active">
+                    <span>Draft</span>
+                    <strong>Provider weight edit</strong>
+                    <p>`openai-prod` 4 → 3, `claude-sub-01` 2 → 3</p>
+                  </div>
+                  <div class="stage-card">
+                    <span>Review</span>
+                    <strong>Tenant limit patch</strong>
+                    <p>team-red rpm cap raised for incident mitigation</p>
+                  </div>
+                  <div class="stage-card">
+                    <span>Publish</span>
+                    <strong>Auth profile rotation</strong>
+                    <p>waiting for second approver</p>
+                  </div>
+                  <div class="stage-card">
+                    <span>Observe</span>
+                    <strong>Post-change watch</strong>
+                    <p>15 minute watch window, anomalies pinned to shell</p>
+                  </div>
+                </div>
+              </article>
+
+              <article class="panel">
+                <div class="panel-header">
+                  <div>
+                    <div class="panel-kicker">Diff quality</div>
+                    <h3>Publish readiness</h3>
+                  </div>
+                </div>
+                <div class="mini-stats">
+                  <div class="mini-stat">
+                    <span>Schema clean</span>
+                    <strong>Yes</strong>
+                  </div>
+                  <div class="mini-stat">
+                    <span>Runtime conflicts</span>
+                    <strong>0</strong>
+                  </div>
+                  <div class="mini-stat">
+                    <span>Secrets preserved</span>
+                    <strong>Yes</strong>
+                  </div>
+                  <div class="mini-stat">
+                    <span>Blast radius</span>
+                    <strong>Low</strong>
+                  </div>
+                </div>
+              </article>
+
+              <article class="panel panel--full">
+                <div class="panel-header">
+                  <div>
+                    <div class="panel-kicker">Config registry</div>
+                    <h3>Query, create, edit, clone, disable, delete</h3>
+                  </div>
+                  <div class="panel-chip">Structured config, not YAML-only</div>
+                </div>
+                <div class="provider-grid">
+                  <button class="provider-card provider-card--selected" type="button" data-inspector-id="crud-providers-registry">
+                    <div class="provider-card__top">
+                      <strong>Providers</strong>
+                      <span class="signal-tag signal-tag--success">14</span>
+                    </div>
+                    <p>Upstreams, models, auth binding, presentation, health posture</p>
+                    <div class="provider-card__meta">query · create · edit · clone · disable · delete</div>
+                  </button>
+                  <button class="provider-card" type="button" data-inspector-id="crud-auth-profiles-registry">
+                    <div class="provider-card__top">
+                      <strong>Auth Profiles</strong>
+                      <span class="signal-tag signal-tag--warning">25</span>
+                    </div>
+                    <p>API keys, OAuth, device flow, subscription auth, routing identity</p>
+                    <div class="provider-card__meta">query · create · connect · rotate · disable · delete</div>
+                  </button>
+                  <button class="provider-card" type="button" data-inspector-id="crud-route-registry">
+                    <div class="provider-card__top">
+                      <strong>Route Profiles &amp; Rules</strong>
+                      <span class="signal-tag signal-tag--info">35</span>
+                    </div>
+                    <p>Profiles, match rules, fallbacks, model resolution, scenario templates</p>
+                    <div class="provider-card__meta">query · create · edit · clone · archive · rollback</div>
+                  </button>
+                  <button class="provider-card" type="button" data-inspector-id="crud-policy-registry">
+                    <div class="provider-card__top">
+                      <strong>Policies &amp; Runtime Objects</strong>
+                      <span class="signal-tag signal-tag--success">62</span>
+                    </div>
+                    <p>Auth keys, tenant policies, data sources, alerts, watch windows</p>
+                    <div class="provider-card__meta">query · create · bulk edit · suspend · delete · audit</div>
+                  </button>
+                </div>
+              </article>
+
+              <article class="panel panel--full">
+                <div class="panel-header">
+                  <div>
+                    <div class="panel-kicker">CRUD coverage</div>
+                    <h3>Every config object should expose clear verbs</h3>
+                  </div>
+                </div>
+                <div class="matrix">
+                  <div class="matrix__row matrix__row--head">
+                    <span>Object</span>
+                    <span>Query</span>
+                    <span>Create</span>
+                    <span>Edit</span>
+                    <span>Clone</span>
+                    <span>Disable</span>
+                    <span>Delete</span>
+                    <span>History</span>
+                  </div>
+                  <div class="matrix__row">
+                    <span>Providers</span>
+                    <span class="matrix__cell matrix__cell--good">search</span>
+                    <span class="matrix__cell matrix__cell--good">template</span>
+                    <span class="matrix__cell matrix__cell--good">structured</span>
+                    <span class="matrix__cell matrix__cell--good">yes</span>
+                    <span class="matrix__cell matrix__cell--good">soft</span>
+                    <span class="matrix__cell">guarded</span>
+                    <span class="matrix__cell matrix__cell--good">versions</span>
+                  </div>
+                  <div class="matrix__row">
+                    <span>Auth Profiles</span>
+                    <span class="matrix__cell matrix__cell--good">search</span>
+                    <span class="matrix__cell matrix__cell--good">wizard</span>
+                    <span class="matrix__cell matrix__cell--good">structured</span>
+                    <span class="matrix__cell">future</span>
+                    <span class="matrix__cell matrix__cell--good">soft</span>
+                    <span class="matrix__cell">guarded</span>
+                    <span class="matrix__cell matrix__cell--good">rotation log</span>
+                  </div>
+                  <div class="matrix__row">
+                    <span>Route Profiles / Rules</span>
+                    <span class="matrix__cell matrix__cell--good">graph</span>
+                    <span class="matrix__cell matrix__cell--good">wizard</span>
+                    <span class="matrix__cell matrix__cell--good">simulated</span>
+                    <span class="matrix__cell matrix__cell--good">yes</span>
+                    <span class="matrix__cell">archive</span>
+                    <span class="matrix__cell">guarded</span>
+                    <span class="matrix__cell matrix__cell--good">rollback</span>
+                  </div>
+                  <div class="matrix__row">
+                    <span>Policies / Keys / Sources</span>
+                    <span class="matrix__cell matrix__cell--good">search</span>
+                    <span class="matrix__cell matrix__cell--good">yes</span>
+                    <span class="matrix__cell matrix__cell--good">structured</span>
+                    <span class="matrix__cell">bulk</span>
+                    <span class="matrix__cell matrix__cell--good">suspend</span>
+                    <span class="matrix__cell">guarded</span>
+                    <span class="matrix__cell matrix__cell--good">audit</span>
+                  </div>
+                </div>
+              </article>
+
+              <article class="panel panel--full">
+                <div class="panel-header">
+                  <div>
+                    <div class="panel-kicker">Config operator workbench</div>
+                    <h3>Browse records, inspect dependencies, and act without leaving context</h3>
+                  </div>
+                  <div class="panel-chip panel-chip--success">Registry + detail + history</div>
+                </div>
+                <div class="config-workbench">
+                  <section class="config-surface">
+                    <div class="config-toolbar">
+                      <span class="lens-pill lens-pill--active">Family: providers</span>
+                      <span class="lens-pill">State: active</span>
+                      <span class="lens-pill">Region: cn</span>
+                      <button class="action-pill" type="button" data-inspector-id="crud-create-provider-template">New from template</button>
+                      <button class="action-pill" type="button" data-inspector-id="crud-clone-provider-canary">Clone selected</button>
+                    </div>
+                    <div class="table-wrapper">
+                      <table class="data-table">
+                        <thead>
+                          <tr>
+                            <th>Record</th>
+                            <th>Family</th>
+                            <th>Status</th>
+                            <th>Dependents</th>
+                            <th>Last change</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr class="is-selected">
+                            <td><button class="table-button" type="button" data-inspector-id="crud-openai-prod-detail">openai-prod</button></td>
+                            <td>Provider</td>
+                            <td>active</td>
+                            <td>12 routes</td>
+                            <td>root · 16m ago</td>
+                          </tr>
+                          <tr>
+                            <td><button class="table-button" type="button" data-inspector-id="crud-route-profile-detail">reasoning-cn-default</button></td>
+                            <td>Route profile</td>
+                            <td>draft</td>
+                            <td>8 rules</td>
+                            <td>lin.shen · 24m ago</td>
+                          </tr>
+                          <tr>
+                            <td><button class="table-button" type="button" data-inspector-id="crud-auth-profile-detail">anthropic-subscription-main</button></td>
+                            <td>Auth profile</td>
+                            <td>warning</td>
+                            <td>2 providers</td>
+                            <td>gateway-oncall · 7m ago</td>
+                          </tr>
+                          <tr>
+                            <td><button class="table-button" type="button" data-inspector-id="crud-data-source-detail">sls-cn-runtime</button></td>
+                            <td>Data source</td>
+                            <td>connected</td>
+                            <td>3 lenses</td>
+                            <td>obs-platform · 2h ago</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                    <div class="context-summary">The registry should support search, filters, saved views, and family-specific verbs without forcing a modal jump.</div>
+                  </section>
+
+                  <section class="config-surface">
+                    <div class="config-object-header">
+                      <div>
+                        <div class="panel-kicker">Selected record</div>
+                        <h4>openai-prod</h4>
+                        <p class="config-detail-copy">
+                          Primary OpenAI-compatible upstream for broad chat traffic. Structured fields, runtime posture, dependencies, and change history stay in one place.
+                        </p>
+                      </div>
+                      <span class="signal-tag signal-tag--success">enabled</span>
+                    </div>
+                    <div class="config-toolbar">
+                      <button class="action-pill" type="button" data-inspector-id="crud-openai-prod-detail">Edit structured form</button>
+                      <button class="action-pill" type="button" data-inspector-id="crud-clone-provider-canary">Clone to canary</button>
+                      <button class="action-pill" type="button" data-inspector-id="crud-disable-provider-guard">Disable with watch</button>
+                      <button class="action-pill" type="button" data-inspector-id="crud-delete-provider-guard">Review delete guard</button>
+                    </div>
+                    <div class="config-detail-grid">
+                      <section class="debug-side__card">
+                        <div class="debug-side__title">Key fields</div>
+                        <div class="summary-stack">
+                          <div class="summary-row"><span>Region scope</span><strong>global + cn</strong></div>
+                          <div class="summary-row"><span>Auth binding</span><strong>openai-key-prod</strong></div>
+                          <div class="summary-row"><span>Model coverage</span><strong>18 models</strong></div>
+                          <div class="summary-row"><span>Health posture</span><strong>steady</strong></div>
+                        </div>
+                      </section>
+                      <section class="debug-side__card">
+                        <div class="debug-side__title">Dependency impact</div>
+                        <div class="summary-stack">
+                          <div class="summary-row"><span>Routes</span><strong>12 active</strong></div>
+                          <div class="summary-row"><span>Tenants</span><strong>7 attached</strong></div>
+                          <div class="summary-row"><span>Investigations</span><strong>1 linked</strong></div>
+                          <div class="summary-row"><span>Fallback target</span><strong>claude-sub-01</strong></div>
+                        </div>
+                      </section>
+                      <section class="debug-side__card">
+                        <div class="debug-side__title">Version trail</div>
+                        <div class="config-timeline">
+                          <div class="config-timeline__item">
+                            <strong>v43</strong>
+                            <span>Weight lowered 4 → 3 for reasoning-heavy cn traffic</span>
+                            <em>16m ago · root</em>
+                          </div>
+                          <div class="config-timeline__item">
+                            <strong>v42</strong>
+                            <span>Added backup auth binding for midnight rotation window</span>
+                            <em>1d ago · gateway-oncall</em>
+                          </div>
+                          <div class="config-timeline__item">
+                            <strong>v41</strong>
+                            <span>Cloned from `openai-prod-baseline` during traffic migration</span>
+                            <em>5d ago · lin.shen</em>
+                          </div>
+                        </div>
+                      </section>
+                      <section class="debug-side__card">
+                        <div class="debug-side__title">Delete guard</div>
+                        <div class="summary-stack">
+                          <div class="summary-row"><span>Preferred path</span><strong>disable first</strong></div>
+                          <div class="summary-row"><span>Blocking dependencies</span><strong>12 routes</strong></div>
+                          <div class="summary-row"><span>Watch window</span><strong>required</strong></div>
+                          <div class="summary-row"><span>Hard delete</span><strong>only after cutover</strong></div>
+                        </div>
+                      </section>
+                    </div>
+                  </section>
+                </div>
+              </article>
+
+              <article class="panel panel--full">
+                <div class="panel-header">
+                  <div>
+                    <div class="panel-kicker">Lifecycle patterns</div>
+                    <h3>Create fast, retire safely, and make destructive actions explicit</h3>
+                  </div>
+                </div>
+                <div class="provider-grid">
+                  <button class="provider-card provider-card--selected" type="button" data-inspector-id="crud-create-provider-template">
+                    <div class="provider-card__top">
+                      <strong>Create</strong>
+                      <span class="signal-tag signal-tag--success">template</span>
+                    </div>
+                    <p>Start from a curated template, clone an existing record, or import external definitions into a draft.</p>
+                    <div class="provider-card__meta">template · clone · import · guided wizard</div>
+                  </button>
+                  <button class="provider-card" type="button" data-inspector-id="crud-openai-prod-detail">
+                    <div class="provider-card__top">
+                      <strong>Edit</strong>
+                      <span class="signal-tag signal-tag--info">structured</span>
+                    </div>
+                    <p>Use structured fields, runtime previews, and semantic diffs before dropping into raw YAML or JSON.</p>
+                    <div class="provider-card__meta">form first · diff · simulation · raw escape hatch</div>
+                  </button>
+                  <button class="provider-card" type="button" data-inspector-id="crud-disable-provider-guard">
+                    <div class="provider-card__top">
+                      <strong>Disable / Retire</strong>
+                      <span class="signal-tag signal-tag--warning">soft</span>
+                    </div>
+                    <p>Prefer disable, archive, or retire when traffic still depends on an object or rollback safety is needed.</p>
+                    <div class="provider-card__meta">cutover plan · watch window · ownership handoff</div>
+                  </button>
+                  <button class="provider-card" type="button" data-inspector-id="crud-delete-provider-guard">
+                    <div class="provider-card__top">
+                      <strong>Hard Delete</strong>
+                      <span class="signal-tag signal-tag--danger">guarded</span>
+                    </div>
+                    <p>Only allow destructive delete after dependencies are resolved, investigations are cleared, and rollback targets exist.</p>
+                    <div class="provider-card__meta">blast radius · dependency proof · audit note · approval</div>
+                  </button>
+                </div>
+              </article>
+
+              <article class="panel panel--full">
+                <div class="panel-header">
+                  <div>
+                    <div class="panel-kicker">Family-specific editors</div>
+                    <h3>Provider, auth, and route editing should feel purpose-built</h3>
+                  </div>
+                  <div class="panel-chip">Progressive disclosure, runtime checks, no generic modal sprawl</div>
+                </div>
+                <div class="editor-pattern-grid">
+                  <section class="config-surface">
+                    <div class="config-object-header">
+                      <div>
+                        <div class="panel-kicker">Provider editor</div>
+                        <h4>Identity, connectivity, presentation, validate</h4>
+                        <p class="config-detail-copy">
+                          One workbench should absorb provider creation, model discovery, health check, auth binding, and presentation preview.
+                        </p>
+                      </div>
+                      <span class="signal-tag signal-tag--info">4-step</span>
+                    </div>
+                    <div class="choice-row">
+                      <span class="choice-pill choice-pill--active">Identity</span>
+                      <span class="choice-pill">Connectivity</span>
+                      <span class="choice-pill">Presentation</span>
+                      <span class="choice-pill">Validate</span>
+                    </div>
+                    <div class="summary-stack">
+                      <div class="summary-row"><span>Format / upstream</span><strong>OpenAI / codex</strong></div>
+                      <div class="summary-row"><span>Base URL</span><strong>default + override</strong></div>
+                      <div class="summary-row"><span>Auth path</span><strong>managed profile</strong></div>
+                      <div class="summary-row"><span>Model fetch</span><strong>on demand</strong></div>
+                    </div>
+                    <section class="debug-side__card">
+                      <div class="debug-side__title">Runtime validation</div>
+                      <div class="summary-stack">
+                        <div class="summary-row"><span>Health check</span><strong>inline</strong></div>
+                        <div class="summary-row"><span>Presentation preview</span><strong>inline</strong></div>
+                        <div class="summary-row"><span>Protected headers</span><strong>blocked visibly</strong></div>
+                        <div class="summary-row"><span>Publish target</span><strong>draft change</strong></div>
+                      </div>
+                    </section>
+                    <div class="config-toolbar">
+                      <button class="action-pill" type="button" data-inspector-id="editor-provider-pattern">Open Provider Editor</button>
+                      <button class="action-pill" type="button" data-inspector-id="editor-provider-validate">Run Health &amp; Preview</button>
+                    </div>
+                  </section>
+
+                  <section class="config-surface">
+                    <div class="config-object-header">
+                      <div>
+                        <div class="panel-kicker">Auth profile wizard</div>
+                        <h4>Create shell, choose mode, connect, verify runtime identity</h4>
+                        <p class="config-detail-copy">
+                          Auth configuration should separate stable record fields from volatile runtime credentials, while keeping both in one operator flow.
+                        </p>
+                      </div>
+                      <span class="signal-tag signal-tag--warning">mixed lifecycle</span>
+                    </div>
+                    <div class="choice-row">
+                      <span class="choice-pill choice-pill--active">Create shell</span>
+                      <span class="choice-pill">Mode</span>
+                      <span class="choice-pill">Connect</span>
+                      <span class="choice-pill">Verify</span>
+                    </div>
+                    <div class="summary-stack">
+                      <div class="summary-row"><span>Modes</span><strong>api key / oauth / subscription</strong></div>
+                      <div class="summary-row"><span>Connect paths</span><strong>paste / import / browser / device</strong></div>
+                      <div class="summary-row"><span>Routing knobs</span><strong>weight, region, prefix</strong></div>
+                      <div class="summary-row"><span>Secret storage</span><strong>runtime sidecar</strong></div>
+                    </div>
+                    <section class="debug-side__card">
+                      <div class="debug-side__title">Runtime proof</div>
+                      <div class="summary-stack">
+                        <div class="summary-row"><span>Connected status</span><strong>visible</strong></div>
+                        <div class="summary-row"><span>Expiry</span><strong>visible</strong></div>
+                        <div class="summary-row"><span>Attached providers</span><strong>visible</strong></div>
+                        <div class="summary-row"><span>Refresh / rotate</span><strong>inline</strong></div>
+                      </div>
+                    </section>
+                    <div class="config-toolbar">
+                      <button class="action-pill" type="button" data-inspector-id="editor-auth-wizard">Open Auth Wizard</button>
+                      <button class="action-pill" type="button" data-inspector-id="editor-auth-connect">Choose Connect Flow</button>
+                    </div>
+                  </section>
+
+                  <section class="config-surface">
+                    <div class="config-object-header">
+                      <div>
+                        <div class="panel-kicker">Route profile builder</div>
+                        <h4>Select profile, edit rules, simulate, review impact</h4>
+                        <p class="config-detail-copy">
+                          Route configuration should stay scenario-led: choose policy, edit matchers, preview candidates, and see blast radius before publish.
+                        </p>
+                      </div>
+                      <span class="signal-tag signal-tag--success">simulation-led</span>
+                    </div>
+                    <div class="choice-row">
+                      <span class="choice-pill choice-pill--active">Profile</span>
+                      <span class="choice-pill">Matchers</span>
+                      <span class="choice-pill">Simulate</span>
+                      <span class="choice-pill">Impact</span>
+                    </div>
+                    <div class="summary-stack">
+                      <div class="summary-row"><span>Default profile</span><strong>balanced</strong></div>
+                      <div class="summary-row"><span>Rule source</span><strong>table + advanced policy</strong></div>
+                      <div class="summary-row"><span>Preview engine</span><strong>runtime planner</strong></div>
+                      <div class="summary-row"><span>Publish path</span><strong>draft -> review -> canary</strong></div>
+                    </div>
+                    <section class="debug-side__card">
+                      <div class="debug-side__title">Candidate ladder</div>
+                      <div class="lane-stack">
+                        <div class="lane-row">
+                          <strong>claude-sub-01</strong>
+                          <div class="lane-bar"><span style="width: 74%"></span></div>
+                        </div>
+                        <div class="lane-row">
+                          <strong>openai-prod</strong>
+                          <div class="lane-bar"><span style="width: 58%"></span></div>
+                        </div>
+                        <div class="lane-row">
+                          <strong>gemini-cn</strong>
+                          <div class="lane-bar"><span style="width: 22%"></span></div>
+                        </div>
+                      </div>
+                    </section>
+                    <div class="config-toolbar">
+                      <button class="action-pill" type="button" data-inspector-id="editor-route-builder">Open Route Builder</button>
+                      <button class="action-pill" type="button" data-inspector-id="editor-route-simulate">Run Preview &amp; Explain</button>
+                    </div>
+                  </section>
+                </div>
+              </article>
+
+              <article class="panel panel--full">
+                <div class="panel-header">
+                  <div>
+                    <div class="panel-kicker">Change review</div>
+                    <h3>Readable diffs instead of raw YAML first</h3>
+                  </div>
+                </div>
+                <div class="diff-stack">
+                  <button class="diff-card diff-card--selected" type="button" data-inspector-id="change-routing-diff">
+                    <strong>Routing</strong>
+                    <p>Moved `claude-sub-01` above `openai-prod` for reasoning-heavy traffic in cn.</p>
+                    <span>Expected impact: lower fallback rate, higher average latency by ~4%</span>
+                  </button>
+                  <button class="diff-card" type="button" data-inspector-id="change-auth-rotation">
+                    <strong>Auth</strong>
+                    <p>Rotate Anthropic subscription token and rebind dependent provider profiles.</p>
+                    <span>Expected impact: remove imminent outage risk, no routing change</span>
+                  </button>
+                  <button class="diff-card" type="button" data-inspector-id="change-tenant-limit">
+                    <strong>Tenant limits</strong>
+                    <p>Raise `team-red` rpm cap for 24h and attach automatic rollback reminder.</p>
+                    <span>Expected impact: absorb replay load during incident review</span>
+                  </button>
+                </div>
+              </article>
+
+              <article class="panel panel--full">
+                <div class="panel-header">
+                  <div>
+                    <div class="panel-kicker">Publish workbench</div>
+                    <h3>Preflight, canary, observe, and rollback in one flow</h3>
+                  </div>
+                  <div class="panel-chip">Config power without losing focus</div>
+                </div>
+                <div class="publish-workbench">
+                  <div class="publish-track">
+                    <div class="publish-step publish-step--done">
+                      <span>01</span>
+                      <strong>Preflight</strong>
+                      <p>Schema, conflicts, secrets, route impact</p>
+                    </div>
+                    <div class="publish-step publish-step--active">
+                      <span>02</span>
+                      <strong>Review</strong>
+                      <p>Human-readable diff and approval notes</p>
+                    </div>
+                    <div class="publish-step">
+                      <span>03</span>
+                      <strong>Canary</strong>
+                      <p>5% → 25% → 100% rollout path</p>
+                    </div>
+                    <div class="publish-step">
+                      <span>04</span>
+                      <strong>Observe</strong>
+                      <p>15m watch window and rollback guardrails</p>
+                    </div>
+                  </div>
+
+                <div class="publish-grid">
+                    <section class="publish-card">
+                      <div class="publish-card__title">Preflight checks</div>
+                      <div class="summary-stack">
+                        <div class="summary-row"><span>Config schema</span><strong>pass</strong></div>
+                        <div class="summary-row"><span>Version conflict</span><strong>none</strong></div>
+                        <div class="summary-row"><span>Secret references</span><strong>preserved</strong></div>
+                        <div class="summary-row"><span>Breaking routes</span><strong>0</strong></div>
+                      </div>
+                    </section>
+
+                    <section class="publish-card publish-card--wide">
+                      <div class="publish-card__title">Rollout plan</div>
+                      <div class="rollout-list">
+                        <div class="rollout-row">
+                          <span>Canary</span>
+                          <strong>Apply to 5% of reasoning-heavy cn traffic</strong>
+                          <em>watch fallback rate, p95 latency</em>
+                        </div>
+                        <div class="rollout-row">
+                          <span>Expand</span>
+                          <strong>Raise to 25% if 10m anomaly budget stays clean</strong>
+                          <em>keep backup auth on standby</em>
+                        </div>
+                        <div class="rollout-row">
+                          <span>Promote</span>
+                          <strong>Ship to 100% and pin a 15m observation window</strong>
+                          <em>compare Prism live signals with SLS aggregate evidence</em>
+                        </div>
+                        <div class="rollout-row">
+                          <span>Rollback</span>
+                          <strong>Auto-rollback if fallback rate exceeds 3%</strong>
+                          <em>restore previous routing version hash</em>
+                        </div>
+                      </div>
+                    </section>
+
+                    <section class="publish-card">
+                      <div class="publish-card__title">Linked investigation</div>
+                      <div class="summary-stack">
+                        <div class="summary-row"><span>investigation</span><strong>fallback-regression-cn</strong></div>
+                        <div class="summary-row"><span>owner</span><strong>gateway-oncall</strong></div>
+                        <div class="summary-row"><span>watch source</span><strong>Prism live + SLS</strong></div>
+                        <div class="summary-row"><span>exit rule</span><strong>fallback &lt; 3% for 15m</strong></div>
+                      </div>
+                    </section>
+
+                    <section class="publish-card">
+                      <div class="publish-card__title">Raw preview</div>
+                      <pre class="raw-preview">routing:
+  rules:
+    - match:
+        region: cn
+        reasoning: true
+      target: claude-sub-01
+      fallback: openai-prod</pre>
+                    </section>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </section>
+        </main>
+      </div>
+
+      <aside class="inspector-rail">
+        <div class="inspector-rail__header">
+          <div class="inspector-kicker" id="inspector-kicker">Needs action</div>
+          <h2 id="inspector-title">Anthropic subscription token nearing expiry</h2>
+          <p id="inspector-summary">
+            One right-side inspector replaces many page-specific drawers and modal detail views.
+          </p>
+        </div>
+
+        <div class="inspector-section">
+          <div class="inspector-section__title" data-i18n="inspector.facts">Facts</div>
+          <div class="fact-list" id="inspector-facts"></div>
+        </div>
+
+        <div class="inspector-section">
+          <div class="inspector-section__title" data-i18n="inspector.notes">Notes</div>
+          <div class="note-list" id="inspector-notes"></div>
+        </div>
+
+        <div class="inspector-section">
+          <div class="inspector-section__title" data-i18n="inspector.actions">Actions</div>
+          <div class="inspector-actions" id="inspector-actions"></div>
+        </div>
+      </aside>
+    </div>
+
+    <div class="palette-backdrop" id="palette-backdrop" hidden></div>
+    <section class="command-palette" id="command-palette" hidden aria-label="command palette">
+      <div class="command-palette__search">
+        <span data-i18n="palette.title">Command Palette</span>
+        <button class="palette-close" id="close-command-palette" type="button" data-i18n="palette.close">Close</button>
+      </div>
+      <div class="command-palette__list">
+        <button class="palette-item" type="button" data-screen-target="command-center">
+          <strong data-i18n="palette.commandCenter.title">Go to Command Center</strong>
+          <span data-i18n="palette.commandCenter.meta">Runtime posture, health, urgent signals</span>
+        </button>
+        <button class="palette-item" type="button" data-screen-target="traffic-lab">
+          <strong data-i18n="palette.trafficLab.title">Open Traffic Lab</strong>
+          <span data-i18n="palette.trafficLab.meta">Logs, traces, live filters, saved lenses</span>
+        </button>
+        <button class="palette-item" type="button" data-screen-target="provider-atlas">
+          <strong data-i18n="palette.providerAtlas.title">Inspect Provider Atlas</strong>
+          <span data-i18n="palette.providerAtlas.meta">Provider cards, auth posture, capability truth</span>
+        </button>
+        <button class="palette-item" type="button" data-screen-target="route-studio">
+          <strong data-i18n="palette.routeStudio.title">Simulate a Route</strong>
+          <span data-i18n="palette.routeStudio.meta">Scenario builder and candidate ladder</span>
+        </button>
+        <button class="palette-item" type="button" data-screen-target="change-studio">
+          <strong data-i18n="palette.changeStudio.title">Review Change Queue</strong>
+          <span data-i18n="palette.changeStudio.meta">Draft, review, publish, observe</span>
+        </button>
+      </div>
+    </section>
+
+    <script src="./prototype.js"></script>
+  </body>
+</html>

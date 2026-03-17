@@ -58,6 +58,7 @@ All specifications for the AI Proxy Gateway project.
 
 | ID       | Title                                          | Status    | Location                        |
 |----------|------------------------------------------------|-----------|---------------------------------|
+| SPEC-071 | Prism Dashboard UX System & Prototype-First Redesign | Draft | [active/SPEC-071/](active/SPEC-071/) |
 
 ## Retroactively Completed
 

@@ -11,6 +11,14 @@ impl<'a> RequestSpanVisitor<'a> {
     pub fn new(data: &'a mut RequestSpanData) -> Self {
         Self { data }
     }
+
+    fn set_optional_string(slot: &mut Option<String>, value: &str) {
+        if value.is_empty() {
+            *slot = None;
+        } else {
+            *slot = Some(value.to_string());
+        }
+    }
 }
 
 impl Visit for RequestSpanVisitor<'_> {
@@ -19,22 +27,24 @@ impl Visit for RequestSpanVisitor<'_> {
             "request_id" => self.data.request_id = value.to_string(),
             "method" => self.data.method = value.to_string(),
             "path" => self.data.path = value.to_string(),
-            "requested_model" => self.data.requested_model = Some(value.to_string()),
-            "request_body" => self.data.request_body = Some(value.to_string()),
-            "upstream_request_body" => self.data.upstream_request_body = Some(value.to_string()),
-            "provider" => self.data.provider = Some(value.to_string()),
-            "model" => self.data.model = Some(value.to_string()),
-            "credential_name" => self.data.credential_name = Some(value.to_string()),
-            "response_body" => self.data.response_body = Some(value.to_string()),
-            "stream_content_preview" => {
-                self.data.stream_content_preview = Some(value.to_string());
+            "requested_model" => Self::set_optional_string(&mut self.data.requested_model, value),
+            "request_body" => Self::set_optional_string(&mut self.data.request_body, value),
+            "upstream_request_body" => {
+                Self::set_optional_string(&mut self.data.upstream_request_body, value)
             }
-            "error" => self.data.error = Some(value.to_string()),
-            "error_type" => self.data.error_type = Some(value.to_string()),
-            "api_key_id" => self.data.api_key_id = Some(value.to_string()),
-            "tenant_id" => self.data.tenant_id = Some(value.to_string()),
-            "client_ip" => self.data.client_ip = Some(value.to_string()),
-            "client_region" => self.data.client_region = Some(value.to_string()),
+            "provider" => Self::set_optional_string(&mut self.data.provider, value),
+            "model" => Self::set_optional_string(&mut self.data.model, value),
+            "credential_name" => Self::set_optional_string(&mut self.data.credential_name, value),
+            "response_body" => Self::set_optional_string(&mut self.data.response_body, value),
+            "stream_content_preview" => {
+                Self::set_optional_string(&mut self.data.stream_content_preview, value);
+            }
+            "error" => Self::set_optional_string(&mut self.data.error, value),
+            "error_type" => Self::set_optional_string(&mut self.data.error_type, value),
+            "api_key_id" => Self::set_optional_string(&mut self.data.api_key_id, value),
+            "tenant_id" => Self::set_optional_string(&mut self.data.tenant_id, value),
+            "client_ip" => Self::set_optional_string(&mut self.data.client_ip, value),
+            "client_region" => Self::set_optional_string(&mut self.data.client_region, value),
             _ => {}
         }
     }
@@ -77,8 +87,33 @@ impl Visit for RequestSpanVisitor<'_> {
         }
     }
 
-    fn record_debug(&mut self, _field: &Field, _value: &dyn std::fmt::Debug) {
-        // Ignored — we handle specific types above
+    fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+        let rendered = format!("{value:?}");
+        let rendered = rendered.trim_matches('"');
+        match field.name() {
+            "request_id" => self.data.request_id = rendered.to_string(),
+            "method" => self.data.method = rendered.to_string(),
+            "path" => self.data.path = rendered.to_string(),
+            "requested_model" => {
+                Self::set_optional_string(&mut self.data.requested_model, rendered)
+            }
+            "provider" => Self::set_optional_string(&mut self.data.provider, rendered),
+            "model" => Self::set_optional_string(&mut self.data.model, rendered),
+            "credential_name" => {
+                Self::set_optional_string(&mut self.data.credential_name, rendered)
+            }
+            "response_body" => Self::set_optional_string(&mut self.data.response_body, rendered),
+            "stream_content_preview" => {
+                Self::set_optional_string(&mut self.data.stream_content_preview, rendered)
+            }
+            "error" => Self::set_optional_string(&mut self.data.error, rendered),
+            "error_type" => Self::set_optional_string(&mut self.data.error_type, rendered),
+            "api_key_id" => Self::set_optional_string(&mut self.data.api_key_id, rendered),
+            "tenant_id" => Self::set_optional_string(&mut self.data.tenant_id, rendered),
+            "client_ip" => Self::set_optional_string(&mut self.data.client_ip, rendered),
+            "client_region" => Self::set_optional_string(&mut self.data.client_region, rendered),
+            _ => {}
+        }
     }
 }
 

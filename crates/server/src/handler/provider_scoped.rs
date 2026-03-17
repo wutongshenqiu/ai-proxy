@@ -154,6 +154,7 @@ async fn provider_dispatch(
     dispatch(
         state,
         DispatchRequest {
+            request_path: format!("/api/provider/{provider}/v1/{path_suffix}"),
             source_format,
             model: parsed.model,
             models: parsed.models,

@@ -3,9 +3,7 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use prism_core::routing::config::{
-    CredentialPolicy, ModelResolution, ProviderPolicy, ProviderStrategy, RouteProfile, RouteRule,
-};
+use prism_core::routing::config::{ModelResolution, RouteProfile, RouteRule, RoutingConfig};
 use prism_core::routing::explain::explain;
 use prism_core::routing::planner::RoutePlanner;
 use prism_core::routing::types::RouteRequestFeatures;
@@ -82,12 +80,21 @@ pub async fn preview_route(
     State(state): State<AppState>,
     Json(req): Json<RouteIntrospectionRequest>,
 ) -> impl IntoResponse {
-    let features = req.into_features();
+    let features = req.to_features();
     let config = state.config.load();
     let inventory = state.catalog.snapshot();
     let health = state.health_manager.snapshot();
+    let routing = match resolve_routing_override(req.routing_override, &config.routing) {
+        Ok(routing) => routing,
+        Err(errors) => {
+            return (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({"error": "validation_failed", "details": errors})),
+            );
+        }
+    };
 
-    let plan = RoutePlanner::plan(&features, &config.routing, &inventory, &health);
+    let plan = RoutePlanner::plan(&features, &routing, &inventory, &health);
     let mut explanation = explain(&plan);
     // Preview omits detailed scoring
     explanation.scoring.clear();
@@ -100,12 +107,21 @@ pub async fn explain_route(
     State(state): State<AppState>,
     Json(req): Json<RouteIntrospectionRequest>,
 ) -> impl IntoResponse {
-    let features = req.into_features();
+    let features = req.to_features();
     let config = state.config.load();
     let inventory = state.catalog.snapshot();
     let health = state.health_manager.snapshot();
+    let routing = match resolve_routing_override(req.routing_override, &config.routing) {
+        Ok(routing) => routing,
+        Err(errors) => {
+            return (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({"error": "validation_failed", "details": errors})),
+            );
+        }
+    };
 
-    let plan = RoutePlanner::plan(&features, &config.routing, &inventory, &health);
+    let plan = RoutePlanner::plan(&features, &routing, &inventory, &health);
     let explanation = explain(&plan);
 
     (StatusCode::OK, Json(json!(explanation)))
@@ -127,6 +143,8 @@ pub struct RouteIntrospectionRequest {
     pub stream: bool,
     #[serde(default)]
     pub headers: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub routing_override: Option<RoutingConfig>,
 }
 
 fn default_endpoint() -> String {
@@ -138,7 +156,7 @@ fn default_source_format() -> String {
 }
 
 impl RouteIntrospectionRequest {
-    pub fn into_features(self) -> RouteRequestFeatures {
+    pub fn to_features(&self) -> RouteRequestFeatures {
         use prism_core::provider::Format;
         use prism_core::routing::types::RouteEndpoint;
 
@@ -158,17 +176,30 @@ impl RouteIntrospectionRequest {
         };
 
         RouteRequestFeatures {
-            requested_model: self.model,
+            requested_model: self.model.clone(),
             endpoint,
             source_format,
-            tenant_id: self.tenant_id,
-            api_key_id: self.api_key_id,
-            region: self.region,
+            tenant_id: self.tenant_id.clone(),
+            api_key_id: self.api_key_id.clone(),
+            region: self.region.clone(),
             stream: self.stream,
-            headers: self.headers,
+            headers: self.headers.clone(),
             allowed_credentials: Vec::new(),
             required_capabilities: None,
         }
+    }
+}
+
+fn resolve_routing_override(
+    routing_override: Option<RoutingConfig>,
+    current: &RoutingConfig,
+) -> Result<RoutingConfig, Vec<String>> {
+    match routing_override {
+        Some(routing) => {
+            validate_effective_routing(&routing)?;
+            Ok(routing)
+        }
+        None => Ok(current.clone()),
     }
 }
 
@@ -225,37 +256,42 @@ fn validate_routing_update(
     }
 }
 
-fn validate_profile(name: &str, profile: &RouteProfile, errors: &mut Vec<String>) {
-    validate_provider_policy(name, &profile.provider_policy, errors);
-    validate_credential_policy(name, &profile.credential_policy, errors);
-}
+fn validate_effective_routing(routing: &RoutingConfig) -> Result<(), Vec<String>> {
+    let mut errors = Vec::new();
 
-fn validate_provider_policy(profile_name: &str, policy: &ProviderPolicy, errors: &mut Vec<String>) {
-    match policy.strategy {
-        ProviderStrategy::OrderedFallback => {
-            if policy.order.is_empty() {
-                errors.push(format!(
-                    "profile '{}': ordered-fallback strategy requires non-empty 'order' list",
-                    profile_name
-                ));
-            }
+    if routing.profiles.is_empty() {
+        errors.push("profiles map must not be empty".to_string());
+    }
+
+    for (name, profile) in &routing.profiles {
+        validate_profile(name, profile, &mut errors);
+    }
+
+    if !routing.profiles.contains_key(&routing.default_profile) {
+        errors.push(format!(
+            "default-profile '{}' does not exist in profiles",
+            routing.default_profile
+        ));
+    }
+
+    for rule in &routing.rules {
+        if !routing.profiles.contains_key(&rule.use_profile) {
+            errors.push(format!(
+                "rule '{}' references non-existent profile '{}'",
+                rule.name, rule.use_profile
+            ));
         }
-        ProviderStrategy::WeightedRoundRobin => {
-            if policy.weights.is_empty() {
-                errors.push(format!(
-                    "profile '{}': weighted-round-robin strategy requires non-empty 'weights' map",
-                    profile_name
-                ));
-            }
-        }
-        _ => {}
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
     }
 }
 
-fn validate_credential_policy(
-    _profile_name: &str,
-    _policy: &CredentialPolicy,
-    _errors: &mut Vec<String>,
-) {
-    // No additional validation needed for credential policies currently
+fn validate_profile(name: &str, profile: &RouteProfile, errors: &mut Vec<String>) {
+    if let Err(error) = profile.validate() {
+        errors.push(format!("profile '{}': {}", name, error));
+    }
 }

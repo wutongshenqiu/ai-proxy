@@ -14,7 +14,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 use std::path::Path as FsPath;
-use std::sync::{Arc, RwLock};
 
 const OAUTH_SESSION_TTL_MINUTES: i64 = 10;
 const DEVICE_SESSION_TTL_MINUTES: i64 = 15;
@@ -1072,44 +1071,50 @@ pub async fn refresh_auth_profile(
         return validation_error("refresh is only supported for refreshable managed auth profiles");
     }
 
-    let oauth_state = match state.auth_runtime.state_for_profile(&provider, &profile_id) {
-        Ok(Some(runtime_state)) => runtime_state,
-        Ok(None) => match OAuthTokenState::from_profile(profile) {
-            Some(runtime_state) => runtime_state,
+    let shared_state = match state
+        .auth_runtime
+        .shared_state_for_profile(&provider, &profile_id)
+    {
+        Some(shared) => shared,
+        None => match OAuthTokenState::from_profile(profile) {
+            Some(runtime_state) => {
+                match state
+                    .auth_runtime
+                    .ensure_shared_state(&provider, &profile_id, runtime_state)
+                {
+                    Ok(shared) => shared,
+                    Err(message) => return internal_error(message),
+                }
+            }
             None => {
                 return validation_error(
                     "auth profile is disconnected; reconnect it before refresh",
                 );
             }
         },
-        Err(message) => return internal_error(message),
     };
     drop(config);
 
     let auth_proxy = managed_auth_proxy_url(&state);
-    let tokens = match state
+    match state
         .auth_runtime
-        .refresh_codex_tokens(
+        .refresh_codex_profile(
             &state.http_client_pool,
             auth_proxy.as_deref(),
-            Arc::new(RwLock::new(oauth_state)),
+            &provider,
+            &profile_id,
+            shared_state,
+            true,
         )
         .await
     {
-        Ok(tokens) => tokens,
+        Ok(()) => {}
         Err(err) => {
             return (
                 StatusCode::BAD_GATEWAY,
                 Json(json!({"error": "oauth_refresh_failed", "message": err.to_string()})),
             );
         }
-    };
-
-    if let Err(err) = state
-        .auth_runtime
-        .store_codex_tokens(&provider, &profile_id, &tokens)
-    {
-        return internal_error(err);
     }
     rebuild_router_from_state(&state);
 

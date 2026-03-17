@@ -282,4 +282,112 @@ mod tests {
         assert_eq!(record.attempts[1].status, Some(200));
         assert!(record.attempts[1].error.is_none());
     }
+
+    #[tokio::test]
+    async fn test_display_formatted_request_fields_are_recorded() {
+        let logs: Arc<dyn LogStore> = Arc::new(InMemoryLogStore::new(100, None));
+        let layer = GatewayLogLayer::new(logs.clone());
+
+        let subscriber = tracing_subscriber::registry().with(layer);
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        {
+            let request_id = "display-req-1";
+            let requested_model = "gpt-5";
+            let span = tracing::info_span!(
+                "gateway.request",
+                request_id = %request_id,
+                method = "POST",
+                path = tracing::field::Empty,
+                stream = false,
+                requested_model = %requested_model,
+                request_body = tracing::field::Empty,
+                upstream_request_body = tracing::field::Empty,
+                provider = tracing::field::Empty,
+                model = tracing::field::Empty,
+                credential_name = tracing::field::Empty,
+                total_attempts = 1u64,
+                status = 200u64,
+                latency_ms = 42u64,
+                response_body = tracing::field::Empty,
+                stream_content_preview = tracing::field::Empty,
+                usage_input = tracing::field::Empty,
+                usage_output = tracing::field::Empty,
+                usage_cache_read = tracing::field::Empty,
+                usage_cache_creation = tracing::field::Empty,
+                cost = tracing::field::Empty,
+                error = tracing::field::Empty,
+                error_type = tracing::field::Empty,
+                api_key_id = tracing::field::Empty,
+                tenant_id = tracing::field::Empty,
+                client_ip = tracing::field::Empty,
+                client_region = tracing::field::Empty,
+            );
+            span.record("path", "/v1/responses");
+            let _enter = span.enter();
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        let page = logs
+            .query(&prism_core::request_log::LogQuery::default())
+            .await;
+        assert_eq!(page.total, 1);
+        let record = &page.data[0];
+        assert_eq!(record.request_id, "display-req-1");
+        assert_eq!(record.path, "/v1/responses");
+        assert_eq!(record.requested_model.as_deref(), Some("gpt-5"));
+    }
+
+    #[tokio::test]
+    async fn test_empty_optional_span_fields_do_not_persist_as_empty_strings() {
+        let logs: Arc<dyn LogStore> = Arc::new(InMemoryLogStore::new(100, None));
+        let layer = GatewayLogLayer::new(logs.clone());
+
+        let subscriber = tracing_subscriber::registry().with(layer);
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        {
+            let span = tracing::info_span!(
+                "gateway.request",
+                request_id = "empty-optionals-req",
+                method = "POST",
+                path = "/v1/responses",
+                stream = false,
+                requested_model = "gpt-5",
+                request_body = tracing::field::Empty,
+                upstream_request_body = tracing::field::Empty,
+                provider = tracing::field::Empty,
+                model = tracing::field::Empty,
+                credential_name = tracing::field::Empty,
+                total_attempts = 1u64,
+                status = 200u64,
+                latency_ms = 10u64,
+                response_body = tracing::field::Empty,
+                stream_content_preview = tracing::field::Empty,
+                usage_input = tracing::field::Empty,
+                usage_output = tracing::field::Empty,
+                usage_cache_read = tracing::field::Empty,
+                usage_cache_creation = tracing::field::Empty,
+                cost = tracing::field::Empty,
+                error = tracing::field::Empty,
+                error_type = tracing::field::Empty,
+                api_key_id = "",
+                tenant_id = "",
+                client_ip = tracing::field::Empty,
+                client_region = "",
+            );
+            let _enter = span.enter();
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        let page = logs
+            .query(&prism_core::request_log::LogQuery::default())
+            .await;
+        let record = &page.data[0];
+        assert_eq!(record.api_key_id, None);
+        assert_eq!(record.tenant_id, None);
+        assert_eq!(record.client_region, None);
+    }
 }

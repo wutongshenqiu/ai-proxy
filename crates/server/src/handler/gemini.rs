@@ -82,6 +82,14 @@ async fn dispatch_gemini(
     dispatch(
         state,
         DispatchRequest {
+            request_path: format!(
+                "/v1beta/models/{model}:{}",
+                if stream {
+                    "streamGenerateContent"
+                } else {
+                    "generateContent"
+                }
+            ),
             source_format: Format::Gemini,
             model: model.to_string(),
             models: None,

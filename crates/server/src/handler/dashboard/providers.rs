@@ -654,12 +654,12 @@ pub async fn update_provider(
     {
         return response;
     }
-    let upstream = match parse_upstream_kind(
-        existing_entry.format,
-        body.upstream.as_ref().and_then(|value| value.as_deref()),
-    ) {
-        Ok(value) => value,
-        Err(response) => return response,
+    let upstream = match body.upstream.as_ref() {
+        Some(upstream) => match parse_upstream_kind(existing_entry.format, upstream.as_deref()) {
+            Ok(value) => value,
+            Err(response) => return response,
+        },
+        None => existing_entry.upstream_kind(),
     };
     let mut candidate_entry = existing_entry.clone();
     candidate_entry.upstream = Some(upstream);

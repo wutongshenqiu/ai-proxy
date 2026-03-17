@@ -335,6 +335,7 @@ impl<'a> ExecutionController<'a> {
                             metrics: self.state.metrics.clone(),
                             rate_limiter: self.state.rate_limiter.clone(),
                             api_key: req.api_key.clone(),
+                            tenant_id: req.tenant_id.clone(),
                         },
                         request_span.clone(),
                         detail_level,
@@ -625,16 +626,28 @@ impl<'a> ExecutionController<'a> {
             _ => None,
         };
 
+        if let Some(ref tenant_id) = req.tenant_id {
+            self.state.metrics.record_tenant_request(tenant_id);
+        }
+
         if let Some(ref u) = usage {
             self.state
                 .metrics
                 .record_tokens(u.total_input(), u.output_tokens);
+            if let Some(ref tenant_id) = req.tenant_id {
+                self.state
+                    .metrics
+                    .record_tenant_tokens(tenant_id, u.total_input() + u.output_tokens);
+            }
             self.state
                 .rate_limiter
                 .record_tokens(req.api_key.as_deref(), u.total_input() + u.output_tokens);
         }
         if let Some(c) = cost {
             self.state.metrics.record_cost(model, c);
+            if let Some(ref tenant_id) = req.tenant_id {
+                self.state.metrics.record_tenant_cost(tenant_id, c);
+            }
             self.state
                 .rate_limiter
                 .record_cost(req.api_key.as_deref(), c);
