@@ -1,6 +1,8 @@
 mod device_flow;
 mod managed;
 mod oauth;
+mod response;
+mod view;
 
 pub use device_flow::{poll_codex_device, start_codex_device};
 pub use managed::{connect_auth_profile, import_local_auth_profile, refresh_auth_profile};
@@ -11,37 +13,18 @@ use crate::AppState;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Response};
 use prism_core::auth_profile::{AuthHeaderKind, AuthMode, AuthProfileEntry};
 use prism_core::presentation::UpstreamPresentationConfig;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashMap;
 
-#[derive(Debug, Serialize)]
-pub(super) struct AuthProfileListItem {
-    provider: String,
-    format: String,
-    id: String,
-    qualified_name: String,
-    mode: AuthMode,
-    header: AuthHeaderKind,
-    connected: bool,
-    secret_masked: Option<String>,
-    access_token_masked: Option<String>,
-    refresh_token_present: bool,
-    id_token_present: bool,
-    expires_at: Option<String>,
-    account_id: Option<String>,
-    email: Option<String>,
-    last_refresh: Option<String>,
-    headers: HashMap<String, String>,
-    disabled: bool,
-    weight: u32,
-    region: Option<String>,
-    prefix: Option<String>,
-    upstream_presentation: UpstreamPresentationConfig,
-}
+use self::response::{
+    AuthProfileDeletedResponse, AuthProfileMutationEnvelope, AuthProfilesListResponse,
+    AuthProfilesRuntimeResponse,
+};
+use self::view::{current_profile_response, hydrate_profile, summarize_profile};
 
 #[derive(Debug, Deserialize)]
 pub struct CreateAuthProfileRequest {
@@ -107,36 +90,6 @@ pub(super) fn managed_auth_proxy_url(state: &AppState) -> Option<String> {
     state.config.load().managed_auth.proxy_url.clone()
 }
 
-fn mask_key(key: &str) -> String {
-    if key.len() <= 8 {
-        return "****".to_string();
-    }
-    format!("{}****{}", &key[..4], &key[key.len() - 4..])
-}
-
-fn mask_optional(value: Option<&str>) -> Option<String> {
-    value.filter(|value| !value.is_empty()).map(mask_key)
-}
-
-fn profile_connected(profile: &AuthProfileEntry) -> bool {
-    match profile.mode {
-        AuthMode::ApiKey | AuthMode::BearerToken => profile
-            .secret
-            .as_deref()
-            .is_some_and(|value| !value.is_empty()),
-        AuthMode::CodexOAuth | AuthMode::AnthropicClaudeSubscription => {
-            profile
-                .refresh_token
-                .as_deref()
-                .is_some_and(|value| !value.is_empty())
-                || profile
-                    .access_token
-                    .as_deref()
-                    .is_some_and(|value| !value.is_empty())
-        }
-    }
-}
-
 fn migrate_legacy_provider_auth(entry: &mut prism_core::config::ProviderKeyEntry) {
     if !entry.auth_profiles.is_empty() || entry.api_key.trim().is_empty() {
         return;
@@ -151,53 +104,6 @@ fn migrate_legacy_provider_auth(entry: &mut prism_core::config::ProviderKeyEntry
         ..Default::default()
     });
     entry.api_key.clear();
-}
-
-fn summarize_profile(
-    provider_name: &str,
-    format: prism_core::provider::Format,
-    profile: &AuthProfileEntry,
-) -> AuthProfileListItem {
-    AuthProfileListItem {
-        provider: provider_name.to_string(),
-        format: format.as_str().to_string(),
-        id: profile.id.clone(),
-        qualified_name: format!("{provider_name}/{}", profile.id),
-        mode: profile.mode,
-        header: profile.header,
-        connected: profile_connected(profile),
-        secret_masked: mask_optional(profile.secret.as_deref()),
-        access_token_masked: mask_optional(profile.access_token.as_deref()),
-        refresh_token_present: profile
-            .refresh_token
-            .as_deref()
-            .is_some_and(|value| !value.is_empty()),
-        id_token_present: profile
-            .id_token
-            .as_deref()
-            .is_some_and(|value| !value.is_empty()),
-        expires_at: profile.expires_at.clone(),
-        account_id: profile.account_id.clone(),
-        email: profile.email.clone(),
-        last_refresh: profile.last_refresh.clone(),
-        headers: profile.headers.clone(),
-        disabled: profile.disabled,
-        weight: profile.weight.max(1),
-        region: profile.region.clone(),
-        prefix: profile.prefix.clone(),
-        upstream_presentation: profile.upstream_presentation.clone(),
-    }
-}
-
-fn hydrate_profile(
-    state: &AppState,
-    provider_name: &str,
-    profile: &AuthProfileEntry,
-) -> Result<AuthProfileEntry, (StatusCode, Json<serde_json::Value>)> {
-    state
-        .auth_runtime
-        .apply_runtime_state(provider_name, profile)
-        .map_err(internal_error)
 }
 
 pub(super) fn explicit_profile<'a>(
@@ -217,19 +123,6 @@ pub(super) fn explicit_profile<'a>(
         .iter()
         .find(|profile| profile.id == profile_id)?;
     Some((entry, profile))
-}
-
-pub(super) fn current_profile_response(
-    state: &AppState,
-    provider: &str,
-    profile_id: &str,
-) -> Result<AuthProfileListItem, (StatusCode, Json<serde_json::Value>)> {
-    let config = state.config.load();
-    let Some((entry, profile)) = explicit_profile(&config, provider, profile_id) else {
-        return Err(not_found("Auth profile not found"));
-    };
-    let hydrated = hydrate_profile(state, &entry.name, profile)?;
-    Ok(summarize_profile(&entry.name, entry.format, &hydrated))
 }
 
 fn auth_profile_entry_from_create(
@@ -402,7 +295,7 @@ pub(super) async fn ensure_managed_profile_shape(
 }
 
 /// GET /api/dashboard/auth-profiles
-pub async fn list_auth_profiles(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn list_auth_profiles(State(state): State<AppState>) -> Response {
     let config = state.config.load();
     let mut profiles = Vec::new();
 
@@ -412,47 +305,48 @@ pub async fn list_auth_profiles(State(state): State<AppState>) -> impl IntoRespo
                 Ok(hydrated) => {
                     profiles.push(summarize_profile(&entry.name, entry.format, &hydrated))
                 }
-                Err(response) => return response,
+                Err(response) => return response.into_response(),
             }
         }
     }
 
-    (StatusCode::OK, Json(json!({ "profiles": profiles })))
+    (StatusCode::OK, Json(AuthProfilesListResponse { profiles })).into_response()
 }
 
 /// GET /api/dashboard/auth-profiles/runtime
-pub async fn auth_profiles_runtime(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn auth_profiles_runtime(State(state): State<AppState>) -> Response {
     let storage_dir = match state.auth_runtime.storage_dir() {
         Ok(value) => value.map(|path| path.display().to_string()),
-        Err(message) => return internal_error(message),
+        Err(message) => return internal_error(message).into_response(),
     };
     let codex_auth_file = match state.auth_runtime.codex_auth_file_path() {
         Ok(value) => value.map(|path| path.display().to_string()),
-        Err(message) => return internal_error(message),
+        Err(message) => return internal_error(message).into_response(),
     };
     let proxy_url = managed_auth_proxy_url(&state);
     (
         StatusCode::OK,
-        Json(json!({
-            "storage_dir": storage_dir,
-            "codex_auth_file": codex_auth_file,
-            "proxy_url": proxy_url,
-        })),
+        Json(AuthProfilesRuntimeResponse {
+            storage_dir,
+            codex_auth_file,
+            proxy_url,
+        }),
     )
+        .into_response()
 }
 
 /// POST /api/dashboard/auth-profiles
 pub async fn create_auth_profile(
     State(state): State<AppState>,
     Json(body): Json<CreateAuthProfileRequest>,
-) -> impl IntoResponse {
+) -> Response {
     if body.provider.trim().is_empty() || body.id.trim().is_empty() {
-        return validation_error("provider and id are required");
+        return validation_error("provider and id are required").into_response();
     }
 
     let profile = match auth_profile_entry_from_create(&body) {
         Ok(profile) => profile,
-        Err(response) => return response,
+        Err(response) => return response.into_response(),
     };
 
     let config = state.config.load();
@@ -461,14 +355,14 @@ pub async fn create_auth_profile(
         .iter()
         .find(|entry| entry.name == body.provider)
     else {
-        return not_found("Provider not found");
+        return not_found("Provider not found").into_response();
     };
     if let Err(message) = profile.validate_for_provider(
         entry.format,
         entry.upstream_kind(),
         entry.base_url.as_deref(),
     ) {
-        return validation_error(&message);
+        return validation_error(&message).into_response();
     }
     let duplicate_after_migration = entry.api_key.trim().is_empty()
         && entry.auth_profiles.iter().any(|item| item.id == profile.id);
@@ -482,7 +376,8 @@ pub async fn create_auth_profile(
                 "error": "duplicate_auth_profile",
                 "message": "auth profile id already exists for provider"
             })),
-        );
+        )
+            .into_response();
     }
     drop(config);
 
@@ -503,16 +398,21 @@ pub async fn create_auth_profile(
         Ok(_) => {
             rebuild_router_from_state(&state);
             match current_profile_response(&state, &body.provider, &profile_id) {
-                Ok(profile) => (StatusCode::CREATED, Json(json!({ "profile": profile }))),
-                Err(response) => response,
+                Ok(profile) => (
+                    StatusCode::CREATED,
+                    Json(AuthProfileMutationEnvelope { profile }),
+                )
+                    .into_response(),
+                Err(response) => response.into_response(),
             }
         }
         Err(ConfigTxError::Conflict { current_version }) => (
             StatusCode::CONFLICT,
             Json(json!({"error": "config_conflict", "current_version": current_version})),
-        ),
-        Err(ConfigTxError::Validation(message)) => validation_error(&message),
-        Err(ConfigTxError::Internal(message)) => internal_error(message),
+        )
+            .into_response(),
+        Err(ConfigTxError::Validation(message)) => validation_error(&message).into_response(),
+        Err(ConfigTxError::Internal(message)) => internal_error(message).into_response(),
     }
 }
 
@@ -521,10 +421,10 @@ pub async fn replace_auth_profile(
     State(state): State<AppState>,
     Path((provider, profile_id)): Path<(String, String)>,
     Json(body): Json<ReplaceAuthProfileRequest>,
-) -> impl IntoResponse {
+) -> Response {
     let config = state.config.load();
     let Some(entry) = config.providers.iter().find(|entry| entry.name == provider) else {
-        return not_found("Auth profile not found");
+        return not_found("Auth profile not found").into_response();
     };
     let Some(existing_profile) = entry
         .auth_profiles
@@ -532,7 +432,7 @@ pub async fn replace_auth_profile(
         .find(|profile| profile.id == profile_id)
         .cloned()
     else {
-        return not_found("Auth profile not found");
+        return not_found("Auth profile not found").into_response();
     };
 
     let effective_secret = body.secret.clone().or_else(|| {
@@ -556,7 +456,7 @@ pub async fn replace_auth_profile(
         },
     ) {
         Ok(profile) => profile,
-        Err(response) => return response,
+        Err(response) => return response.into_response(),
     };
 
     if let Err(message) = replacement.validate_for_provider(
@@ -564,7 +464,7 @@ pub async fn replace_auth_profile(
         entry.upstream_kind(),
         entry.base_url.as_deref(),
     ) {
-        return validation_error(&message);
+        return validation_error(&message).into_response();
     }
     drop(config);
 
@@ -594,20 +494,25 @@ pub async fn replace_auth_profile(
                     .auth_runtime
                     .clear_profile_state(&provider, &profile_id)
             {
-                return internal_error(err);
+                return internal_error(err).into_response();
             }
             rebuild_router_from_state(&state);
             match current_profile_response(&state, &provider, &profile_id) {
-                Ok(profile) => (StatusCode::OK, Json(json!({ "profile": profile }))),
-                Err(response) => response,
+                Ok(profile) => (
+                    StatusCode::OK,
+                    Json(AuthProfileMutationEnvelope { profile }),
+                )
+                    .into_response(),
+                Err(response) => response.into_response(),
             }
         }
         Err(ConfigTxError::Conflict { current_version }) => (
             StatusCode::CONFLICT,
             Json(json!({"error": "config_conflict", "current_version": current_version})),
-        ),
-        Err(ConfigTxError::Validation(message)) => validation_error(&message),
-        Err(ConfigTxError::Internal(message)) => internal_error(message),
+        )
+            .into_response(),
+        Err(ConfigTxError::Validation(message)) => validation_error(&message).into_response(),
+        Err(ConfigTxError::Internal(message)) => internal_error(message).into_response(),
     }
 }
 
@@ -615,10 +520,10 @@ pub async fn replace_auth_profile(
 pub async fn delete_auth_profile(
     State(state): State<AppState>,
     Path((provider, profile_id)): Path<(String, String)>,
-) -> impl IntoResponse {
+) -> Response {
     let existed = explicit_profile(&state.config.load(), &provider, &profile_id).is_some();
     if !existed {
-        return not_found("Auth profile not found");
+        return not_found("Auth profile not found").into_response();
     }
 
     let provider_for_delete = provider.clone();
@@ -641,16 +546,21 @@ pub async fn delete_auth_profile(
                 .auth_runtime
                 .clear_profile_state(&provider, &profile_id)
             {
-                return internal_error(err);
+                return internal_error(err).into_response();
             }
             rebuild_router_from_state(&state);
-            (StatusCode::OK, Json(json!({ "deleted": true })))
+            (
+                StatusCode::OK,
+                Json(AuthProfileDeletedResponse { deleted: true }),
+            )
+                .into_response()
         }
         Err(ConfigTxError::Conflict { current_version }) => (
             StatusCode::CONFLICT,
             Json(json!({"error": "config_conflict", "current_version": current_version})),
-        ),
-        Err(ConfigTxError::Validation(message)) => validation_error(&message),
-        Err(ConfigTxError::Internal(message)) => internal_error(message),
+        )
+            .into_response(),
+        Err(ConfigTxError::Validation(message)) => validation_error(&message).into_response(),
+        Err(ConfigTxError::Internal(message)) => internal_error(message).into_response(),
     }
 }
