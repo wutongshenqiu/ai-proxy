@@ -1,43 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type {
-  ProviderEditorFormState,
-  ProviderRegistryFormState,
-} from '../components/provider-atlas/types';
-import { confirmAction, navigateTo } from '../lib/browser';
-import {
-  emptyProfileForm,
-  isManagedMode,
-  profileKey,
-  resolveDeviceFlowProfileLabel,
-  type AuthProfileFormState,
-  type DeviceFlowState,
-} from '../lib/authProfileDraft';
 import { reconcileSelection } from '../lib/selection';
+import { useProviderAtlasAuthWorkbench } from './provider-atlas/useProviderAtlasAuthWorkbench';
+import { useProviderAtlasRegistryWorkbench } from './provider-atlas/useProviderAtlasRegistryWorkbench';
 import { authProfilesApi } from '../services/authProfiles';
 import { getApiErrorMessage } from '../services/errors';
 import { protocolsApi } from '../services/protocols';
 import { providersApi } from '../services/providers';
 import type {
-  AuthProfileSummary,
   AuthProfilesRuntimeResponse,
   PresentationPreviewResponse,
   ProtocolMatrixResponse,
   ProviderCapabilityEntry,
-  ProviderCreateRequest,
   ProviderDetail,
   ProviderHealthResult,
 } from '../types/backend';
 import type { ProviderAtlasResponse } from '../types/controlPlane';
-
-const emptyRegistryForm: ProviderRegistryFormState = {
-  name: '',
-  format: 'openai',
-  upstream: 'openai',
-  apiKey: '',
-  baseUrl: '',
-  models: '',
-  disabled: true,
-};
 
 interface ProviderAtlasControllerOptions {
   data: ProviderAtlasResponse | null;
@@ -50,8 +27,6 @@ export function useProviderAtlasController({
 }: ProviderAtlasControllerOptions) {
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
-  const [registryOpen, setRegistryOpen] = useState(false);
-  const [authWorkbenchOpen, setAuthWorkbenchOpen] = useState(false);
   const [detail, setDetail] = useState<ProviderDetail | null>(null);
   const [health, setHealth] = useState<ProviderHealthResult | null>(null);
   const [preview, setPreview] = useState<PresentationPreviewResponse | null>(null);
@@ -63,30 +38,6 @@ export function useProviderAtlasController({
   const [runtimeInfo, setRuntimeInfo] = useState<AuthProfilesRuntimeResponse | null>(null);
   const [capabilityEntries, setCapabilityEntries] = useState<ProviderCapabilityEntry[]>([]);
   const [protocolMatrix, setProtocolMatrix] = useState<ProtocolMatrixResponse | null>(null);
-  const [profiles, setProfiles] = useState<AuthProfileSummary[]>([]);
-  const [refreshingProfileId, setRefreshingProfileId] = useState<string | null>(null);
-  const [selectedAuthProfileId, setSelectedAuthProfileId] = useState<string | null>(null);
-  const [importingProfileId, setImportingProfileId] = useState<string | null>(null);
-  const [formState, setFormState] = useState<ProviderEditorFormState>({
-    baseUrl: '',
-    region: '',
-    weight: '1',
-    disabled: false,
-  });
-  const [registryForm, setRegistryForm] = useState<ProviderRegistryFormState>(emptyRegistryForm);
-  const [registryLoading, setRegistryLoading] = useState(false);
-  const [registryStatus, setRegistryStatus] = useState<string | null>(null);
-  const [registryError, setRegistryError] = useState<string | null>(null);
-  const [authForm, setAuthForm] = useState<AuthProfileFormState>(emptyProfileForm);
-  const [authStatus, setAuthStatus] = useState<string | null>(null);
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [authLoading, setAuthLoading] = useState(false);
-  const [authSaving, setAuthSaving] = useState(false);
-  const [authEditorMode, setAuthEditorMode] = useState<'create' | 'edit'>('create');
-  const [connectSecret, setConnectSecret] = useState('');
-  const [importPath, setImportPath] = useState('');
-  const [connectingProfileId, setConnectingProfileId] = useState<string | null>(null);
-  const [deviceFlow, setDeviceFlow] = useState<DeviceFlowState | null>(null);
   const [protocolSearch, setProtocolSearch] = useState('');
   const [modelSearch, setModelSearch] = useState('');
 
@@ -97,14 +48,12 @@ export function useProviderAtlasController({
   }, [data]);
 
   const loadRuntimeSurfaces = useCallback(async () => {
-    const [capabilities, protocols, profileList] = await Promise.all([
+    const [capabilities, protocols] = await Promise.all([
       providersApi.capabilities(),
       protocolsApi.matrix(),
-      authProfilesApi.list(),
     ]);
     setCapabilityEntries(capabilities.providers);
     setProtocolMatrix(protocols);
-    setProfiles(profileList.profiles);
   }, []);
 
   useEffect(() => {
@@ -112,24 +61,21 @@ export function useProviderAtlasController({
 
     void (async () => {
       try {
-        const [capabilities, protocols, profileList] = await Promise.all([
+        const [capabilities, protocols] = await Promise.all([
           providersApi.capabilities(),
           protocolsApi.matrix(),
-          authProfilesApi.list(),
         ]);
         if (!active) {
           return;
         }
         setCapabilityEntries(capabilities.providers);
         setProtocolMatrix(protocols);
-        setProfiles(profileList.profiles);
       } catch {
         if (!active) {
           return;
         }
         setCapabilityEntries([]);
         setProtocolMatrix(null);
-        setProfiles([]);
       }
     })();
 
@@ -137,13 +83,6 @@ export function useProviderAtlasController({
       active = false;
     };
   }, [loadRuntimeSurfaces]);
-
-  useEffect(() => {
-    setAuthForm((current) => ({
-      ...current,
-      provider: current.provider || selectedProvider || data?.providers[0]?.provider || '',
-    }));
-  }, [data?.providers, selectedProvider]);
 
   const selectedRow = useMemo(
     () => data?.providers.find((provider) => provider.provider === selectedProvider) ?? null,
@@ -153,19 +92,6 @@ export function useProviderAtlasController({
     () => capabilityEntries.find((provider) => provider.name === selectedProvider) ?? null,
     [capabilityEntries, selectedProvider],
   );
-  const selectedProfiles = useMemo(
-    () => profiles.filter((profile) => profile.provider === (authForm.provider || selectedProvider)),
-    [authForm.provider, profiles, selectedProvider],
-  );
-  const selectedAuthProfile = useMemo(
-    () =>
-      selectedProfiles.find((profile) => profileKey(profile.provider, profile.id) === selectedAuthProfileId) ??
-      null,
-    [selectedAuthProfileId, selectedProfiles],
-  );
-  const selectedProviderName =
-    authForm.provider || selectedProvider || data?.providers[0]?.provider || '';
-  const selectedAuthProfileMode = selectedAuthProfile?.mode ?? authForm.mode;
   const protocolFacts = useMemo(() => {
     const endpoints = protocolMatrix?.endpoints ?? [];
     const coverage = protocolMatrix?.coverage.filter((entry) => !entry.disabled) ?? [];
@@ -219,31 +145,21 @@ export function useProviderAtlasController({
     });
   }, [modelInventory, modelSearch]);
 
-  useEffect(() => {
-    setSelectedAuthProfileId((current) =>
-      reconcileSelection(current, selectedProfiles, (profile) =>
-        profileKey(profile.provider, profile.id),
-      ),
-    );
-  }, [selectedProfiles]);
+  const registryWorkbench = useProviderAtlasRegistryWorkbench({
+    selectedProvider,
+    reload,
+    loadRuntimeSurfaces,
+    setSelectedProvider,
+    setDetail,
+  });
 
-  useEffect(() => {
-    if (!selectedAuthProfile) {
-      return;
-    }
-    setAuthEditorMode('edit');
-    setAuthForm({
-      provider: selectedAuthProfile.provider,
-      id: selectedAuthProfile.id,
-      mode: selectedAuthProfile.mode,
-      secret: '',
-      disabled: selectedAuthProfile.disabled,
-      weight: String(selectedAuthProfile.weight ?? 1),
-      region: selectedAuthProfile.region ?? '',
-      prefix: selectedAuthProfile.prefix ?? '',
-    });
-    setConnectSecret('');
-  }, [selectedAuthProfile]);
+  const authWorkbench = useProviderAtlasAuthWorkbench({
+    providers: data?.providers ?? [],
+    selectedProvider,
+    reload,
+    setDetail,
+    setRuntimeInfo,
+  });
 
   const openEditor = async () => {
     if (!selectedProvider) {
@@ -263,7 +179,7 @@ export function useProviderAtlasController({
       ]);
       setDetail(provider);
       setRuntimeInfo(runtime);
-      setFormState({
+      registryWorkbench.setFormState({
         baseUrl: provider.base_url ?? '',
         region: provider.region ?? '',
         weight: String(provider.weight ?? 1),
@@ -275,310 +191,6 @@ export function useProviderAtlasController({
       setLoadingDetail(false);
     }
   };
-
-  const openRegistryWorkbench = () => {
-    setRegistryOpen(true);
-    setRegistryStatus(null);
-    setRegistryError(null);
-    setRegistryForm(emptyRegistryForm);
-  };
-
-  const openAuthWorkbench = async () => {
-    setAuthWorkbenchOpen(true);
-    setAuthStatus(null);
-    setAuthError(null);
-    setAuthEditorMode('create');
-    setConnectSecret('');
-    setImportPath('');
-    setDeviceFlow(null);
-    setSelectedAuthProfileId(null);
-    setAuthLoading(true);
-    try {
-      const [runtime, profileList] = await Promise.all([
-        authProfilesApi.runtime(),
-        authProfilesApi.list(),
-      ]);
-      setRuntimeInfo(runtime);
-      setProfiles(profileList.profiles);
-      const preferredProvider =
-        selectedProvider ?? profileList.profiles[0]?.provider ?? data?.providers[0]?.provider ?? '';
-      const preferredProfile =
-        profileList.profiles.find((profile) => profile.provider === preferredProvider) ??
-        profileList.profiles[0] ??
-        null;
-      setSelectedAuthProfileId(
-        preferredProfile ? profileKey(preferredProfile.provider, preferredProfile.id) : null,
-      );
-      setAuthForm({
-        ...emptyProfileForm,
-        provider: preferredProvider,
-      });
-    } catch (loadError) {
-      setAuthError(getApiErrorMessage(loadError, 'Failed to load auth profiles'));
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const refreshAuthProfile = async (provider: string, profileId: string) => {
-    setRefreshingProfileId(profileKey(provider, profileId));
-    setAuthError(null);
-    setAuthStatus(null);
-    try {
-      const response = await authProfilesApi.refresh(provider, profileId);
-      setAuthStatus(`Refreshed auth profile ${response.profile.qualified_name}.`);
-      await loadRuntimeSurfaces();
-      if (selectedProvider === provider) {
-        const refreshed = await providersApi.get(provider);
-        setDetail(refreshed);
-      }
-    } catch (refreshError) {
-      setAuthError(getApiErrorMessage(refreshError, 'Failed to refresh auth profile'));
-    } finally {
-      setRefreshingProfileId(null);
-    }
-  };
-
-  const importSelectedProfile = async () => {
-    if (!selectedAuthProfile) {
-      setAuthError('Select an auth profile first.');
-      return;
-    }
-
-    setImportingProfileId(profileKey(selectedAuthProfile.provider, selectedAuthProfile.id));
-    setAuthError(null);
-    setAuthStatus(null);
-    try {
-      const response = await authProfilesApi.importLocal(
-        selectedAuthProfile.provider,
-        selectedAuthProfile.id,
-        importPath.trim() || undefined,
-      );
-      setAuthStatus(`Imported local credentials into ${response.profile.qualified_name}.`);
-      await loadRuntimeSurfaces();
-    } catch (importError) {
-      setAuthError(getApiErrorMessage(importError, 'Failed to import local auth state'));
-    } finally {
-      setImportingProfileId(null);
-    }
-  };
-
-  const deleteSelectedProfile = async () => {
-    if (!selectedAuthProfile) {
-      setAuthError('Select an auth profile first.');
-      return;
-    }
-    if (!confirmAction(`Delete auth profile "${selectedAuthProfile.qualified_name}"?`)) {
-      return;
-    }
-
-    setAuthError(null);
-    setAuthStatus(null);
-    try {
-      await authProfilesApi.remove(selectedAuthProfile.provider, selectedAuthProfile.id);
-      setAuthStatus(`Deleted auth profile ${selectedAuthProfile.qualified_name}.`);
-      setSelectedAuthProfileId(null);
-      await loadRuntimeSurfaces();
-      await reload();
-    } catch (deleteError) {
-      setAuthError(getApiErrorMessage(deleteError, 'Failed to delete auth profile'));
-    }
-  };
-
-  const startNewAuthProfileDraft = () => {
-    setAuthEditorMode('create');
-    setSelectedAuthProfileId(null);
-    setConnectSecret('');
-    setImportPath('');
-    setDeviceFlow(null);
-    setAuthError(null);
-    setAuthStatus(null);
-    setAuthForm({
-      ...emptyProfileForm,
-      provider: selectedProviderName,
-    });
-  };
-
-  const saveAuthProfile = async () => {
-    if (!authForm.provider.trim() || !authForm.id.trim()) {
-      setAuthError('Provider and profile id are required.');
-      return;
-    }
-
-    if (!isManagedMode(authForm.mode) && authEditorMode === 'create' && !authForm.secret.trim()) {
-      setAuthError('Secret is required for API key and bearer token auth profiles.');
-      return;
-    }
-
-    setAuthSaving(true);
-    setAuthError(null);
-    setAuthStatus(null);
-    try {
-      const payload = {
-        mode: authForm.mode,
-        secret: isManagedMode(authForm.mode) ? undefined : authForm.secret.trim() || undefined,
-        disabled: authForm.disabled,
-        weight: Number(authForm.weight) || 1,
-        region: authForm.region.trim() || null,
-        prefix: authForm.prefix.trim() || null,
-      };
-
-      const response =
-        authEditorMode === 'edit' && selectedAuthProfile
-          ? await authProfilesApi.replace(
-              selectedAuthProfile.provider,
-              selectedAuthProfile.id,
-              payload,
-            )
-          : await authProfilesApi.create({
-              provider: authForm.provider.trim(),
-              id: authForm.id.trim(),
-              ...payload,
-            });
-
-      setAuthStatus(
-        `${authEditorMode === 'edit' ? 'Saved' : 'Created'} auth profile ${response.profile.qualified_name}.`,
-      );
-      setSelectedAuthProfileId(profileKey(response.profile.provider, response.profile.id));
-      setAuthForm((current) => ({ ...current, secret: '' }));
-      await loadRuntimeSurfaces();
-      await reload();
-    } catch (createError) {
-      setAuthError(getApiErrorMessage(createError, 'Failed to save auth profile'));
-    } finally {
-      setAuthSaving(false);
-    }
-  };
-
-  const connectSelectedProfile = async () => {
-    if (!selectedAuthProfile) {
-      setAuthError('Select an auth profile first.');
-      return;
-    }
-    if (selectedAuthProfile.mode !== 'anthropic-claude-subscription') {
-      setAuthError('Secret connect is only supported for Claude subscription profiles.');
-      return;
-    }
-    if (!connectSecret.trim()) {
-      setAuthError('Enter the subscription token first.');
-      return;
-    }
-
-    const currentKey = profileKey(selectedAuthProfile.provider, selectedAuthProfile.id);
-    setConnectingProfileId(currentKey);
-    setAuthError(null);
-    setAuthStatus(null);
-    try {
-      const response = await authProfilesApi.connect(selectedAuthProfile.provider, selectedAuthProfile.id, {
-        secret: connectSecret.trim(),
-      });
-      setAuthStatus(`Connected ${response.profile.qualified_name}.`);
-      setConnectSecret('');
-      await loadRuntimeSurfaces();
-      await reload();
-    } catch (connectError) {
-      setAuthError(getApiErrorMessage(connectError, 'Failed to connect auth profile'));
-    } finally {
-      setConnectingProfileId(null);
-    }
-  };
-
-  const startBrowserOauth = async () => {
-    if (!selectedAuthProfile) {
-      setAuthError('Select an auth profile first.');
-      return;
-    }
-    if (selectedAuthProfile.mode !== 'codex-oauth') {
-      setAuthError('Browser OAuth is only available for Codex OAuth profiles.');
-      return;
-    }
-
-    const currentKey = profileKey(selectedAuthProfile.provider, selectedAuthProfile.id);
-    setConnectingProfileId(currentKey);
-    setAuthError(null);
-    setAuthStatus(null);
-    try {
-      const redirectUri = `${window.location.origin}/provider-atlas/callback`;
-      const response = await authProfilesApi.startCodexOauth({
-        provider: selectedAuthProfile.provider,
-        profile_id: selectedAuthProfile.id,
-        redirect_uri: redirectUri,
-      });
-      navigateTo(response.auth_url);
-    } catch (startError) {
-      setAuthError(getApiErrorMessage(startError, 'Failed to start browser OAuth'));
-      setConnectingProfileId(null);
-    }
-  };
-
-  const startDeviceFlow = async () => {
-    if (!selectedAuthProfile) {
-      setAuthError('Select an auth profile first.');
-      return;
-    }
-    if (selectedAuthProfile.mode !== 'codex-oauth') {
-      setAuthError('Device flow is only available for Codex OAuth profiles.');
-      return;
-    }
-
-    const currentKey = profileKey(selectedAuthProfile.provider, selectedAuthProfile.id);
-    setConnectingProfileId(currentKey);
-    setAuthError(null);
-    setAuthStatus(null);
-    try {
-      const response = await authProfilesApi.startCodexDevice({
-        provider: selectedAuthProfile.provider,
-        profile_id: selectedAuthProfile.id,
-      });
-      setDeviceFlow({
-        ...response,
-        status: 'pending',
-        target_profile_key: currentKey,
-        target_qualified_name: selectedAuthProfile.qualified_name,
-      });
-      setAuthStatus(`Started device flow for ${selectedAuthProfile.qualified_name}.`);
-    } catch (startError) {
-      setAuthError(getApiErrorMessage(startError, 'Failed to start device flow'));
-    } finally {
-      setConnectingProfileId(null);
-    }
-  };
-
-  useEffect(() => {
-    if (!deviceFlow) {
-      return;
-    }
-
-    let cancelled = false;
-    const interval = window.setInterval(() => {
-      if (cancelled) {
-        return;
-      }
-      void authProfilesApi
-        .pollCodexDevice(deviceFlow.state)
-        .then(async (result) => {
-          if (cancelled || result.status !== 'completed') {
-            return;
-          }
-          const profileLabel = resolveDeviceFlowProfileLabel(deviceFlow, result.profile);
-          setAuthStatus(`Connected ${profileLabel} via device flow.`);
-          setDeviceFlow(null);
-          await loadRuntimeSurfaces();
-          await reload();
-        })
-        .catch((pollError) => {
-          if (cancelled) {
-            return;
-          }
-          setAuthError(getApiErrorMessage(pollError, 'Device flow polling failed'));
-        });
-    }, Math.max(deviceFlow.interval_secs, 2) * 1000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [deviceFlow, loadRuntimeSurfaces, reload]);
 
   const runHealthCheck = async () => {
     if (!selectedProvider) {
@@ -629,10 +241,10 @@ export function useProviderAtlasController({
     setActionStatus(null);
     try {
       await providersApi.update(selectedProvider, {
-        base_url: formState.baseUrl.trim() || null,
-        region: formState.region.trim() || null,
-        weight: Number(formState.weight) || 1,
-        disabled: formState.disabled,
+        base_url: registryWorkbench.formState.baseUrl.trim() || null,
+        region: registryWorkbench.formState.region.trim() || null,
+        weight: Number(registryWorkbench.formState.weight) || 1,
+        disabled: registryWorkbench.formState.disabled,
       });
       setActionStatus(`Saved provider ${selectedProvider}.`);
       await reload();
@@ -646,102 +258,11 @@ export function useProviderAtlasController({
     }
   };
 
-  const fetchModelsIntoDraft = async () => {
-    if (!registryForm.apiKey.trim()) {
-      setRegistryError('An API key is required to fetch models.');
-      return;
-    }
-
-    setRegistryLoading(true);
-    setRegistryError(null);
-    setRegistryStatus(null);
-    try {
-      const result = await providersApi.fetchModels({
-        format: registryForm.format,
-        upstream: registryForm.upstream,
-        api_key: registryForm.apiKey.trim(),
-        base_url: registryForm.baseUrl.trim() || undefined,
-      });
-      setRegistryForm((current) => ({ ...current, models: result.models.join(', ') }));
-      setRegistryStatus(`Fetched ${result.models.length} models from upstream.`);
-    } catch (fetchError) {
-      setRegistryError(getApiErrorMessage(fetchError, 'Failed to fetch models'));
-    } finally {
-      setRegistryLoading(false);
-    }
-  };
-
-  const createProvider = async () => {
-    if (!registryForm.name.trim()) {
-      setRegistryError('Provider name is required.');
-      return;
-    }
-
-    const body: ProviderCreateRequest = {
-      name: registryForm.name.trim(),
-      format: registryForm.format,
-      upstream: registryForm.upstream,
-      api_key: registryForm.apiKey.trim() || undefined,
-      base_url: registryForm.baseUrl.trim() || null,
-      models: registryForm.models
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean),
-      disabled: registryForm.disabled,
-    };
-
-    setRegistryLoading(true);
-    setRegistryError(null);
-    setRegistryStatus(null);
-    try {
-      await providersApi.create(body);
-      setRegistryStatus(`Created provider ${body.name}.`);
-      setSelectedProvider(body.name);
-      setRegistryForm(emptyRegistryForm);
-      await reload();
-      await loadRuntimeSurfaces();
-    } catch (createError) {
-      setRegistryError(getApiErrorMessage(createError, 'Failed to create provider'));
-    } finally {
-      setRegistryLoading(false);
-    }
-  };
-
-  const deleteSelectedProvider = async () => {
-    if (!selectedProvider) {
-      setRegistryError('Select a provider first.');
-      return;
-    }
-    if (!confirmAction(`Delete provider "${selectedProvider}"?`)) {
-      return;
-    }
-
-    setRegistryLoading(true);
-    setRegistryError(null);
-    setRegistryStatus(null);
-    try {
-      await providersApi.remove(selectedProvider);
-      setRegistryStatus(`Deleted provider ${selectedProvider}.`);
-      setSelectedProvider(null);
-      setDetail(null);
-      await reload();
-      await loadRuntimeSurfaces();
-    } catch (deleteError) {
-      setRegistryError(getApiErrorMessage(deleteError, 'Failed to delete provider'));
-    } finally {
-      setRegistryLoading(false);
-    }
-  };
-
   return {
     selectedProvider,
     setSelectedProvider,
     editorOpen,
     setEditorOpen,
-    registryOpen,
-    setRegistryOpen,
-    authWorkbenchOpen,
-    setAuthWorkbenchOpen,
     detail,
     health,
     preview,
@@ -760,50 +281,12 @@ export function useProviderAtlasController({
     modelSearch,
     setModelSearch,
     selectedRow,
-    registryStatus,
-    registryError,
-    registryLoading,
-    registryForm,
-    setRegistryForm,
-    formState,
-    setFormState,
-    authLoading,
-    authStatus,
-    authError,
-    authSaving,
-    authEditorMode,
     providers: data?.providers ?? [],
-    authForm,
-    setAuthForm,
-    selectedAuthProfile,
-    selectedProfiles,
-    selectedAuthProfileId,
-    setSelectedAuthProfileId,
-    selectedAuthProfileMode,
-    connectSecret,
-    setConnectSecret,
-    importPath,
-    setImportPath,
-    deviceFlow,
-    importingProfileId,
-    refreshingProfileId,
-    connectingProfileId,
     openEditor,
-    openRegistryWorkbench,
-    openAuthWorkbench,
-    refreshAuthProfile,
-    startNewAuthProfileDraft,
-    importSelectedProfile,
-    startBrowserOauth,
-    startDeviceFlow,
-    deleteSelectedProfile,
-    saveAuthProfile,
-    connectSelectedProfile,
     runHealthCheck,
     runPresentationPreview,
     saveProvider,
-    fetchModelsIntoDraft,
-    createProvider,
-    deleteSelectedProvider,
+    ...registryWorkbench,
+    ...authWorkbench,
   };
 }
