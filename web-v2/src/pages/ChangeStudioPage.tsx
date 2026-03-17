@@ -3,6 +3,12 @@ import { Panel } from '../components/Panel';
 import { StatusPill } from '../components/StatusPill';
 import { WorkbenchSheet } from '../components/WorkbenchSheet';
 import { useChangeStudioData } from '../hooks/useWorkspaceData';
+import {
+  buildAuthKeyCreateRequest,
+  emptyAccessForm,
+  formFromAuthKey,
+  type AccessPolicyFormState,
+} from '../lib/authKeyPolicy';
 import { clearRouteDraft, readRouteDraft } from '../lib/routeDraft';
 import { authKeysApi } from '../services/authKeys';
 import { configApi } from '../services/config';
@@ -10,91 +16,13 @@ import { getApiErrorMessage } from '../services/errors';
 import { tenantsApi } from '../services/tenants';
 import type { RouteDraft } from '../lib/routeDraft';
 import type {
-  AuthKeyCreateRequest,
   AuthKeySummary,
   AuthKeyUpdateRequest,
-  BudgetConfig,
   ConfigApplyResponse,
   ConfigValidateResponse,
-  KeyRateLimitConfig,
   TenantMetricsResponse,
   TenantSummary,
 } from '../types/backend';
-
-interface AccessPolicyFormState {
-  name: string;
-  tenantId: string;
-  allowedModels: string;
-  allowedCredentials: string;
-  rpm: string;
-  tpm: string;
-  costPerDayUsd: string;
-  budgetEnabled: boolean;
-  budgetTotalUsd: string;
-  budgetPeriod: 'daily' | 'monthly';
-  expiresAt: string;
-}
-
-const emptyAccessForm: AccessPolicyFormState = {
-  name: 'e2e-temp-key',
-  tenantId: '',
-  allowedModels: '',
-  allowedCredentials: '',
-  rpm: '',
-  tpm: '',
-  costPerDayUsd: '',
-  budgetEnabled: false,
-  budgetTotalUsd: '',
-  budgetPeriod: 'daily',
-  expiresAt: '',
-};
-
-function parseListField(value: string) {
-  return value
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function formFromAuthKey(key: AuthKeySummary): AccessPolicyFormState {
-  return {
-    name: key.name ?? '',
-    tenantId: key.tenant_id ?? '',
-    allowedModels: key.allowed_models.join(', '),
-    allowedCredentials: key.allowed_credentials.join(', '),
-    rpm: key.rate_limit?.rpm?.toString() ?? '',
-    tpm: key.rate_limit?.tpm?.toString() ?? '',
-    costPerDayUsd: key.rate_limit?.cost_per_day_usd?.toString() ?? '',
-    budgetEnabled: key.budget != null,
-    budgetTotalUsd: key.budget?.total_usd?.toString() ?? '',
-    budgetPeriod: key.budget?.period ?? 'daily',
-    expiresAt: key.expires_at ? key.expires_at.slice(0, 16) : '',
-  };
-}
-
-function buildRateLimit(form: AccessPolicyFormState): KeyRateLimitConfig | undefined {
-  const rpm = form.rpm ? Number(form.rpm) : undefined;
-  const tpm = form.tpm ? Number(form.tpm) : undefined;
-  const cost = form.costPerDayUsd ? Number(form.costPerDayUsd) : undefined;
-  if (rpm === undefined && tpm === undefined && cost === undefined) {
-    return undefined;
-  }
-  return {
-    rpm,
-    tpm,
-    cost_per_day_usd: cost,
-  };
-}
-
-function buildBudget(form: AccessPolicyFormState): BudgetConfig | undefined {
-  if (!form.budgetEnabled || !form.budgetTotalUsd) {
-    return undefined;
-  }
-  return {
-    total_usd: Number(form.budgetTotalUsd),
-    period: form.budgetPeriod,
-  };
-}
 
 export function ChangeStudioPage() {
   const { data, error, loading, reload } = useChangeStudioData();
@@ -297,15 +225,7 @@ export function ChangeStudioPage() {
     setAccessStatus(null);
     setRevealedKey(null);
     try {
-      const body = {
-        name: accessForm.name.trim() || undefined,
-        tenant_id: accessForm.tenantId.trim() || undefined,
-        allowed_models: parseListField(accessForm.allowedModels),
-        allowed_credentials: parseListField(accessForm.allowedCredentials),
-        rate_limit: buildRateLimit(accessForm),
-        budget: buildBudget(accessForm),
-        expires_at: accessForm.expiresAt ? new Date(accessForm.expiresAt).toISOString() : undefined,
-      } satisfies AuthKeyCreateRequest;
+      const body = buildAuthKeyCreateRequest(accessForm);
 
       if (accessEditorMode === 'edit' && selectedAuthKeyId !== null) {
         const update: AuthKeyUpdateRequest = {

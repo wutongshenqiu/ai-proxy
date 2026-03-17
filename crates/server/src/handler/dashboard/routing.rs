@@ -31,9 +31,9 @@ pub async fn update_routing(
     State(state): State<AppState>,
     Json(body): Json<UpdateRoutingRequest>,
 ) -> impl IntoResponse {
-    // Validate before applying — pass current config for cross-field consistency
     let current_routing = state.config.load().routing.clone();
-    if let Err(errors) = validate_routing_update(&body, &current_routing) {
+    let effective_routing = materialize_routing_update(&body, &current_routing);
+    if let Err(errors) = validate_effective_routing(&effective_routing) {
         return (
             StatusCode::UNPROCESSABLE_ENTITY,
             Json(json!({"error": "validation_failed", "details": errors})),
@@ -203,57 +203,24 @@ fn resolve_routing_override(
     }
 }
 
-/// Validate a routing update request against the current config.
-/// Returns Ok(()) if valid, Err(details) if invalid.
-fn validate_routing_update(
+fn materialize_routing_update(
     body: &UpdateRoutingRequest,
-    current: &prism_core::routing::config::RoutingConfig,
-) -> Result<(), Vec<String>> {
-    let mut errors = Vec::new();
-
-    // Validate profiles
-    if let Some(ref profiles) = body.profiles {
-        if profiles.is_empty() {
-            errors.push("profiles map must not be empty".to_string());
-        }
-
-        for (name, profile) in profiles {
-            validate_profile(name, profile, &mut errors);
-        }
+    current: &RoutingConfig,
+) -> RoutingConfig {
+    let mut next = current.clone();
+    if let Some(default_profile) = &body.default_profile {
+        next.default_profile = default_profile.clone();
     }
-
-    // The effective profiles after this update: request profiles override current
-    let effective_profiles = body.profiles.as_ref().unwrap_or(&current.profiles);
-
-    // Validate rules reference profiles that will exist after update
+    if let Some(profiles) = &body.profiles {
+        next.profiles = profiles.clone();
+    }
     if let Some(rules) = &body.rules {
-        for rule in rules {
-            if !effective_profiles.contains_key(&rule.use_profile) {
-                errors.push(format!(
-                    "rule '{}' references non-existent profile '{}'",
-                    rule.name, rule.use_profile
-                ));
-            }
-        }
+        next.rules = rules.clone();
     }
-
-    // Validate default_profile exists in effective profiles
-    let effective_dp = body
-        .default_profile
-        .as_deref()
-        .unwrap_or(&current.default_profile);
-    if !effective_profiles.contains_key(effective_dp) {
-        errors.push(format!(
-            "default-profile '{}' does not exist in profiles",
-            effective_dp
-        ));
+    if let Some(model_resolution) = &body.model_resolution {
+        next.model_resolution = model_resolution.clone();
     }
-
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors)
-    }
+    next
 }
 
 fn validate_effective_routing(routing: &RoutingConfig) -> Result<(), Vec<String>> {

@@ -3,6 +3,13 @@ import { Panel } from '../components/Panel';
 import { StatusPill } from '../components/StatusPill';
 import { WorkbenchSheet } from '../components/WorkbenchSheet';
 import { useProviderAtlasData } from '../hooks/useWorkspaceData';
+import {
+  emptyProfileForm,
+  isManagedMode,
+  profileKey,
+  type AuthProfileFormState,
+  type DeviceFlowState,
+} from '../lib/authProfileDraft';
 import { authProfilesApi } from '../services/authProfiles';
 import { getApiErrorMessage } from '../services/errors';
 import { protocolsApi } from '../services/protocols';
@@ -10,7 +17,6 @@ import { providersApi } from '../services/providers';
 import type {
   AuthProfileSummary,
   AuthProfilesRuntimeResponse,
-  CodexDeviceStartResponse,
   PresentationPreviewResponse,
   ProtocolMatrixResponse,
   ProviderCapabilityEntry,
@@ -29,17 +35,6 @@ interface ProviderRegistryFormState {
   disabled: boolean;
 }
 
-interface AuthProfileFormState {
-  provider: string;
-  id: string;
-  mode: string;
-  secret: string;
-  disabled: boolean;
-  weight: string;
-  region: string;
-  prefix: string;
-}
-
 const emptyRegistryForm: ProviderRegistryFormState = {
   name: '',
   format: 'openai',
@@ -50,33 +45,10 @@ const emptyRegistryForm: ProviderRegistryFormState = {
   disabled: true,
 };
 
-const emptyProfileForm: AuthProfileFormState = {
-  provider: '',
-  id: 'primary',
-  mode: 'api-key',
-  secret: '',
-  disabled: false,
-  weight: '1',
-  region: '',
-  prefix: '',
-};
-
-interface DeviceFlowState extends CodexDeviceStartResponse {
-  status: 'pending';
-}
-
-function profileKey(provider: string, profileId: string) {
-  return `${provider}/${profileId}`;
-}
-
 function protocolCoverageLabel(mode?: string | null) {
   if (!mode) return 'unsupported';
   if (mode === 'native') return 'native';
   return 'adapted';
-}
-
-function isManagedMode(mode: string) {
-  return mode === 'codex-oauth' || mode === 'anthropic-claude-subscription';
 }
 
 export function ProviderAtlasPage() {
