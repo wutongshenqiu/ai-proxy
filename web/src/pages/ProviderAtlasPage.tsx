@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ProviderAtlasOverview } from '../components/provider-atlas/ProviderAtlasOverview';
-import {
-  AuthProfileWorkbenchSheet,
-  ProviderEditorSheet,
-  ProviderRegistrySheet,
-} from '../components/provider-atlas/ProviderAtlasSheets';
+import { AuthProfileWorkbenchSheet } from '../components/provider-atlas/AuthProfileWorkbenchSheet';
+import { ProviderEditorSheet } from '../components/provider-atlas/ProviderEditorSheet';
+import { ProviderRegistrySheet } from '../components/provider-atlas/ProviderRegistrySheet';
 import {
   type ProviderEditorFormState,
   type ProviderRegistryFormState,
