@@ -5,13 +5,13 @@
 | Spec ID   | SPEC-071                                            |
 | Title     | Prism Dashboard UX System & Prototype-First Redesign |
 | Author    | Codex                                               |
-| Status    | Draft                                               |
+| Status    | Completed                                           |
 | Created   | 2026-03-16                                          |
-| Updated   | 2026-03-17                                          |
+| Updated   | 2026-03-18                                          |
 
 ## Overview
 
-This phase does not implement the production dashboard. It defines the UX system and prototype that the eventual implementation should follow.
+This work is now implemented as Prism's canonical production control plane. The UX system and prototype defined here were carried through into the shipped `web/` shell and matching dashboard workspace handlers.
 
 The redesign is organized around one shell and five operator workspaces:
 
@@ -40,14 +40,14 @@ Related implementation notes:
 
 ## API Design
 
-Prototype phase: no backend API changes.
+The completed implementation added canonical workspace-level dashboard APIs while preserving runtime truth from SPEC-065 and SPEC-066.
 
-Implementation phase guidance:
+Delivered guidance:
 
-- Keep backend truth sources from SPEC-065 and SPEC-066.
-- Add frontend aggregation only where a workspace needs a composed control-plane view.
-- Prefer canonical workspace-level queries over page-local ad hoc fetch chains.
-- Treat external analytics and workflow systems as typed integrations rather than vendor-specific page forks.
+- keep backend truth sources from SPEC-065 and SPEC-066
+- add frontend aggregation only where a workspace needs a composed control-plane view
+- prefer canonical workspace-level queries over page-local ad hoc fetch chains
+- treat external analytics and workflow systems as typed integrations rather than vendor-specific page forks
 
 ### Extensibility Model
 
@@ -195,9 +195,11 @@ That allows copyable operator context, better browser navigation, and lower coup
 
 ## Backend Implementation
 
-Prototype phase introduces no backend code changes.
+The implementation added:
 
-Implementation phase should keep backend responsibilities unchanged and focus redesign effort on frontend composition and interaction state.
+- workspace-oriented read models under `crates/server/src/handler/dashboard/control_plane_workspace/`
+- provider/auth/runtime-truth seams for provider probes, managed auth, and control-plane aggregation
+- frontend shell composition, workflow controllers, i18n foundations, and real browser/live-provider validation
 
 Additional implementation detail now lives in:
 
@@ -308,22 +310,23 @@ No user-facing configuration changes are needed for the prototype phase.
 
 ## Task Breakdown
 
-- [ ] Capture research and UX decisions in SPEC-071 docs.
-- [ ] Produce a standalone prototype package under `docs/design/prism-control-plane/`.
-- [ ] Validate the prototype visually in a browser and capture review screenshots.
-- [ ] Convert the approved prototype into an implementation spec for `web/`.
-- [ ] Rebuild the production dashboard shell and migrate pages into workspace modules.
+- [x] Capture research and UX decisions in SPEC-071 docs.
+- [x] Produce a standalone prototype package under `docs/design/prism-control-plane/`.
+- [x] Validate the prototype visually in a browser and capture review screenshots.
+- [x] Convert the approved prototype into an implementation spec for `web/`.
+- [x] Rebuild the production dashboard shell and migrate pages into workspace modules.
 
 ## Test Strategy
 
-- **Manual verification:** Review the standalone prototype in a real browser at desktop widths and verify screen switching, inspector behavior, and command palette behavior.
-- **Browser verification:** Capture screenshots of the prototype to confirm layout density and interaction states.
-- **Implementation follow-up:** Add browser tests for shell navigation, global filters, inspector routing, and workspace-specific core flows.
+- **Rust verification:** `cargo fmt --check`, `cargo clippy --workspace --tests -- -D warnings`, `cargo test --workspace`
+- **Frontend verification:** `npm run typecheck`, `npm run lint`, `npm run test -- --run`, `npm run build`
+- **Browser verification:** real control-plane flow via `web/scripts/real-flow-check.mjs` with preserved screenshots and JSON reports under `artifacts/playwright/real-flow/`
+- **Live provider verification:** real Codex and DashScope validation via `web/scripts/live-provider-matrix-check.mjs` with preserved screenshots and JSON reports under `artifacts/runtime/provider-live-check/`
 
 ## Rollout Plan
 
 1. Approve the prototype direction and information architecture.
 2. Recreate the prototype as the canonical production shell in `web/`.
 3. Build all required workspaces and shared patterns directly in that shell until the control plane is ready for cutover.
-4. Validate the new control plane end-to-end before operator cutover.
+4. Validate the new control plane end-to-end, including live provider verification.
 5. Switch the production entry point to the new control plane in one release.

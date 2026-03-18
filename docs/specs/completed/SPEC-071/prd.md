@@ -5,9 +5,9 @@
 | Spec ID   | SPEC-071                                            |
 | Title     | Prism Dashboard UX System & Prototype-First Redesign |
 | Author    | Codex                                               |
-| Status    | Draft                                               |
+| Status    | Completed                                           |
 | Created   | 2026-03-16                                          |
-| Updated   | 2026-03-17                                          |
+| Updated   | 2026-03-18                                          |
 | Parent    | SPEC-065, SPEC-066                                  |
 
 ## Problem Statement
@@ -40,8 +40,8 @@ The user explicitly wants a prototype before implementation and does not want co
 
 - Preserving the current dashboard information architecture for compatibility reasons.
 - Incrementally skinning the current pages without changing the interaction model.
-- Implementing the production React dashboard in this spec phase.
-- Finalizing every API contract required by the eventual implementation.
+- Carrying old `web/` page semantics forward into the canonical control-plane shell.
+- Freezing every future API addition beyond the control-plane contracts required for the shipped workspaces.
 
 ## User Stories
 
@@ -72,11 +72,13 @@ The user explicitly wants a prototype before implementation and does not want co
 - The production entry should remain stable until the control plane is fully ready.
 - Production release should switch to the new control plane in one cutover, not workspace by workspace.
 
-## Open Questions
+## Validation
 
-- [ ] Should Providers, Protocols, and Models remain separate implementation routes but share one higher-level "Runtime Catalog" workspace in the UI?
-- [ ] Should config edits move to a staged draft/review/publish flow, or remain immediate mutations with stronger confirmation UX?
-- [ ] Should the eventual implementation adopt a typed router and query layer overhaul, or keep the current router and change only interaction primitives?
+- Prototype package finalized under `docs/design/prism-control-plane/`, including Pencil workspaces, foundations, workflows, and implementation playbooks.
+- Canonical React control plane shipped under `web/` with `Command Center`, `Traffic Lab`, `Provider Atlas`, `Route Studio`, `Change Studio`, and shared shell.
+- Dashboard backend aggregated into workspace-oriented read models and runtime-truth probes under `crates/server/src/handler/dashboard/control_plane_workspace/`.
+- Real browser control-plane flow validated with preserved screenshots and JSON report in `artifacts/playwright/real-flow/`.
+- Real provider verification validated against Codex and DashScope with preserved screenshots and JSON report in `artifacts/runtime/provider-live-check/`.
 
 ## Design Decisions
 

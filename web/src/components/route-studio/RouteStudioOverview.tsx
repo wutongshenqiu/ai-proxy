@@ -10,7 +10,7 @@ interface RouteStudioOverviewProps {
   error: string | null;
   data: RouteStudioResponse | null;
   selectedScenario: RouteScenarioRow | null;
-  selectedScenarioId: string | null;
+  selectedScenarioIndex: number | null;
   routingLoading: boolean;
   routingDraft: RoutingConfig | null;
   routingConfig: RoutingConfig | null;
@@ -23,7 +23,7 @@ interface RouteStudioOverviewProps {
   selectedRule: RouteRule | null;
   profileJsonDraft: string;
   modelResolutionDraft: string;
-  onSelectScenario: (scenarioId: string) => void;
+  onSelectScenario: (scenarioIndex: number) => void;
   onDefaultProfileChange: (profileName: string) => void;
   onSelectedProfileChange: (profileName: string) => void;
   onResetDraft: () => void;
@@ -42,7 +42,7 @@ export function RouteStudioOverview({
   error,
   data,
   selectedScenario,
-  selectedScenarioId,
+  selectedScenarioIndex,
   routingLoading,
   routingDraft,
   routingConfig,
@@ -242,20 +242,20 @@ export function RouteStudioOverview({
             <div className="table-grid__head">{t('routeStudio.scenario.routeState')}</div>
             {loading && !data ? <div className="table-grid__cell">{t('routeStudio.loading.scenarios')}</div> : null}
             {error && !data ? <div className="table-grid__cell">{error}</div> : null}
-            {(data?.scenarios ?? []).flatMap((scenario) => {
-              const selected = scenario.scenario === selectedScenarioId;
+            {(data?.scenarios ?? []).flatMap((scenario, index) => {
+              const selected = index === selectedScenarioIndex;
               const cellClass = `table-grid__cell ${selected ? 'is-selected' : ''} is-clickable`;
               return [
-                <div key={`${scenario.scenario}-scenario`} className={`${cellClass} table-grid__cell--strong`} onClick={() => onSelectScenario(scenario.scenario)}>
+                <div key={`${scenario.scenario}-${scenario.model}-${index}-scenario`} className={`${cellClass} table-grid__cell--strong`} onClick={() => onSelectScenario(index)}>
                   {scenario.scenario}
                 </div>,
-                <div key={`${scenario.scenario}-winner`} className={cellClass} onClick={() => onSelectScenario(scenario.scenario)}>
+                <div key={`${scenario.scenario}-${scenario.winner}-${index}-winner`} className={cellClass} onClick={() => onSelectScenario(index)}>
                   {scenario.winner}
                 </div>,
-                <div key={`${scenario.scenario}-delta`} className={cellClass} onClick={() => onSelectScenario(scenario.scenario)}>
+                <div key={`${scenario.scenario}-${scenario.delta}-${index}-delta`} className={cellClass} onClick={() => onSelectScenario(index)}>
                   {scenario.delta}
                 </div>,
-                <div key={`${scenario.scenario}-decision`} className={cellClass} onClick={() => onSelectScenario(scenario.scenario)}>
+                <div key={`${scenario.scenario}-${scenario.decision}-${index}-decision`} className={cellClass} onClick={() => onSelectScenario(index)}>
                   <StatusPill label={tx(scenario.decision)} tone={scenario.decision_tone} />
                 </div>,
               ];

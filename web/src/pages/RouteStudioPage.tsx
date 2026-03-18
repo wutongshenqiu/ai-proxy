@@ -21,7 +21,7 @@ export function RouteStudioPage() {
   const { t } = useI18n();
   const { data, error, loading } = useRouteStudioData();
   const navigate = useNavigate();
-  const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null);
+  const [selectedScenarioIndex, setSelectedScenarioIndex] = useState<number | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [simulationLoading, setSimulationLoading] = useState(false);
   const [simulationError, setSimulationError] = useState<string | null>(null);
@@ -39,7 +39,15 @@ export function RouteStudioPage() {
   const [modelResolutionDraft, setModelResolutionDraft] = useState('');
 
   useEffect(() => {
-    setSelectedScenarioId((current) => current ?? data?.scenarios[0]?.scenario ?? null);
+    setSelectedScenarioIndex((current) => {
+      if (!data?.scenarios.length) {
+        return null;
+      }
+      if (current !== null && current < data.scenarios.length) {
+        return current;
+      }
+      return 0;
+    });
   }, [data]);
 
   useEffect(() => {
@@ -73,8 +81,8 @@ export function RouteStudioPage() {
   }, [t]);
 
   const selectedScenario = useMemo(
-    () => data?.scenarios.find((scenario) => scenario.scenario === selectedScenarioId) ?? null,
-    [data, selectedScenarioId],
+    () => (selectedScenarioIndex !== null ? (data?.scenarios[selectedScenarioIndex] ?? null) : null),
+    [data, selectedScenarioIndex],
   );
   const profileNames = useMemo(
     () => Object.keys(routingDraft?.profiles ?? {}),
@@ -322,7 +330,7 @@ export function RouteStudioPage() {
         error={error}
         data={data}
         selectedScenario={selectedScenario}
-        selectedScenarioId={selectedScenarioId}
+        selectedScenarioIndex={selectedScenarioIndex}
         routingLoading={routingLoading}
         routingDraft={routingDraft}
         routingConfig={routingConfig}
@@ -335,7 +343,7 @@ export function RouteStudioPage() {
         selectedRule={selectedRule}
         profileJsonDraft={profileJsonDraft}
         modelResolutionDraft={modelResolutionDraft}
-        onSelectScenario={setSelectedScenarioId}
+        onSelectScenario={setSelectedScenarioIndex}
         onDefaultProfileChange={(value) => {
           applyDraftMutation((draft) => {
             draft['default-profile'] = value;
