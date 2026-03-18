@@ -22,4 +22,4 @@ Do not store PNG exports here.
 
 PNG exports belong in:
 
-- [output/pencil/prism-control-plane](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane)
+- [artifacts/pencil/prism-control-plane](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane)

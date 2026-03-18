@@ -41,7 +41,7 @@ docs/design/prism-control-plane/
 .agents/skills/               canonical shared agent skills
 .claude/commands/             tracked Claude command shims
 .opencode/commands/           tracked OpenCode command shims
-output/                       local-only generated review artifacts
+artifacts/                    local-only generated review artifacts
 ```
 
 ## What Must Be Committed
@@ -98,6 +98,7 @@ These are reusable project workflow assets, not personal machine state.
 
 Do not commit:
 
+- `artifacts/**`
 - `output/**`
 - Playwright screenshots
 - Playwright `report.json`
@@ -136,27 +137,34 @@ Screenshots are useful, but they are review artifacts, not source.
 Preferred local layout:
 
 ```text
-output/
+artifacts/
   playwright/
     real-flow/
-      report.json
-      command-center.png
-      traffic-lab.png
-      provider-atlas.png
-      route-studio.png
-      change-studio.png
+      latest/
+        report.json
+        command-center.png
+        traffic-lab.png
+      runs/
+        2026-03-18T10-15-22Z/
+          report.json
+          command-center.png
+          traffic-lab.png
   pencil/
     prism-control-plane/
       command-center-overview--latest.png
       traffic-lab-overview--latest.png
-      ...
+      reviews/
+        2026-03-18-layout-pass/
+          command-center-overview.png
+          traffic-lab-overview.png
 ```
 
 ### Best format
 
 - use `PNG` for UI screenshots and Pencil exports
 - use `JSON` for machine-readable run summaries
-- use stable semantic filenames instead of `v2`, `final`, or random hashes
+- use stable semantic filenames inside each run directory instead of `v2`, `final`, or random hashes
+- for Pencil review boards, `--latest` is acceptable when the files live in a dedicated flat export directory
 
 Recommended naming:
 
@@ -207,7 +215,7 @@ If only PNG exists and the `.pen` source was not saved yet, the PNG is a tempora
 - transient logs
 - timestamped reports
 
-If a visual regression baseline is ever needed, store it in an explicit, reviewed fixture location rather than mixing it into `output/`.
+If a visual regression baseline is ever needed, store it in an explicit, reviewed fixture location rather than mixing it into `artifacts/`.
 
 ## Skill Policy
 

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 
 const baseUrl = process.env.PRISM_WEB_BASE_URL ?? 'http://127.0.0.1:3100';
@@ -13,11 +14,18 @@ const ephemeralProviderName = `e2e-provider-${Date.now().toString().slice(-6)}`;
 const ephemeralProfileId = `e2e-profile-${Date.now().toString().slice(-4)}`;
 const tenantId = 'e2e-tenant';
 
-const outputDir =
+const scriptPath = fileURLToPath(import.meta.url);
+const scriptDir = path.dirname(scriptPath);
+const repoRoot = path.resolve(scriptDir, '..', '..');
+const artifactRoot =
+  process.env.PRISM_FLOW_ARTIFACTS_DIR ??
   process.env.PRISM_FLOW_OUTPUT_DIR ??
-  '/Users/qiufeng/work/proxy/prism/output/playwright/real-flow';
+  path.join(repoRoot, 'artifacts', 'playwright', 'real-flow');
+const runId = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z').replaceAll(':', '-');
+const runDir = path.join(artifactRoot, 'runs', runId);
+const latestDir = path.join(artifactRoot, 'latest');
 
-await fs.mkdir(outputDir, { recursive: true });
+await fs.mkdir(runDir, { recursive: true });
 
 function logStep(message) {
   console.error(`STEP ${message}`);
@@ -92,9 +100,22 @@ async function acceptNextDialog() {
 
 async function capture(name) {
   await page.screenshot({
-    path: path.join(outputDir, `${name}.png`),
+    path: path.join(runDir, `${name}.png`),
     fullPage: true,
   });
+}
+
+async function refreshLatestArtifacts() {
+  await fs.rm(latestDir, { recursive: true, force: true });
+  await fs.mkdir(latestDir, { recursive: true });
+  const entries = await fs.readdir(runDir, { withFileTypes: true });
+  await Promise.all(
+    entries
+      .filter((entry) => entry.isFile())
+      .map((entry) =>
+        fs.copyFile(path.join(runDir, entry.name), path.join(latestDir, entry.name)),
+      ),
+  );
 }
 
 async function expectNoBlockingError(route) {
@@ -268,6 +289,10 @@ async function seedTrafficRequest(tenantIdOverride) {
 }
 
 const report = {
+  artifactRoot,
+  latestDir,
+  runDir,
+  runId,
   routes: [],
   controls: [],
   actions: [],
@@ -612,9 +637,11 @@ assert.equal(
 );
 
 await fs.writeFile(
-  path.join(outputDir, 'report.json'),
+  path.join(runDir, 'report.json'),
   `${JSON.stringify(report, null, 2)}\n`,
   'utf8',
 );
+
+await refreshLatestArtifacts();
 
 console.log(JSON.stringify(report, null, 2));

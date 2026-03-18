@@ -7,7 +7,7 @@ The goal is stability under repeated edits.
 ## Principles
 
 - Keep source design files in `docs/`, because they are reviewable project artifacts.
-- Keep generated PNG exports in `output/`, because they are binary review snapshots.
+- Keep generated PNG exports in `artifacts/`, because they are binary review snapshots.
 - Use stable canonical filenames for the current truth.
 - Use separate exploration files only when a direction materially diverges.
 - Let Git history carry normal iteration; do not encode every edit into the filename.
@@ -35,7 +35,7 @@ docs/design/prism-control-plane/
 Generated review assets belong here:
 
 ```text
-output/pencil/prism-control-plane/
+artifacts/pencil/prism-control-plane/
 ├── traffic-lab-overview--latest.png
 ├── traffic-lab-sessions-panel--latest.png
 ├── traffic-lab-trace-panel--latest.png
@@ -139,7 +139,7 @@ The current first Pencil pass should be treated as the seed for:
 
 Current exported snapshots:
 
-- [traffic-lab-overview--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/traffic-lab-overview--latest.png)
-- [traffic-lab-sessions-panel--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/traffic-lab-sessions-panel--latest.png)
-- [traffic-lab-trace-panel--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/traffic-lab-trace-panel--latest.png)
-- [traffic-lab-inspector--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/traffic-lab-inspector--latest.png)
+- [traffic-lab-overview--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/traffic-lab-overview--latest.png)
+- [traffic-lab-sessions-panel--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/traffic-lab-sessions-panel--latest.png)
+- [traffic-lab-trace-panel--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/traffic-lab-trace-panel--latest.png)
+- [traffic-lab-inspector--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/traffic-lab-inspector--latest.png)

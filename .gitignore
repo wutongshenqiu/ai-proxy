@@ -10,6 +10,7 @@ docker-compose.override.yml
 config.control-plane-greenfield.yaml
 config.yaml.managed-auth.d/
 output/
+artifacts/
 .codex/
 
 # Frontend

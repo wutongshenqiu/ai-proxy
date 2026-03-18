@@ -50,18 +50,18 @@ In this workflow, MCP is sufficient for editing, inspecting, and exporting activ
 
 Until that save step is done, the durable review artifacts are the exported PNG files under:
 
-- [output/pencil/prism-control-plane](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane)
+- [artifacts/pencil/prism-control-plane](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane)
 
 Key review artifacts now include:
 
-- [foundations-overview--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/foundations-overview--latest.png)
-- [platform-patterns-overview--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/platform-patterns-overview--latest.png)
-- [entity-editors-overview--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/entity-editors-overview--latest.png)
-- [command-center-overview--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/command-center-overview--latest.png)
-- [traffic-lab-overview--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/traffic-lab-overview--latest.png)
-- [provider-atlas-overview--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/provider-atlas-overview--latest.png)
-- [route-studio-overview--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/route-studio-overview--latest.png)
-- [change-studio-overview--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/change-studio-overview--latest.png)
+- [foundations-overview--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/foundations-overview--latest.png)
+- [platform-patterns-overview--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/platform-patterns-overview--latest.png)
+- [entity-editors-overview--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/entity-editors-overview--latest.png)
+- [command-center-overview--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/command-center-overview--latest.png)
+- [traffic-lab-overview--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/traffic-lab-overview--latest.png)
+- [provider-atlas-overview--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/provider-atlas-overview--latest.png)
+- [route-studio-overview--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/route-studio-overview--latest.png)
+- [change-studio-overview--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/change-studio-overview--latest.png)
 
 ## Recommended Setup
 
@@ -159,7 +159,7 @@ Generated PNG exports should not live next to the `.pen` sources.
 
 Use:
 
-- `output/pencil/prism-control-plane/`
+- `artifacts/pencil/prism-control-plane/`
 
 They should also stay out of Git.
 The committed source of truth is the `.pen` workspace, not the exported image.
@@ -264,26 +264,26 @@ Once that is stable, `Change Studio` should be the second workspace, followed by
 
 The current Pencil review set now includes `Prism Foundations`, `Command Center`, `Traffic Lab`, `Change Studio`, `Route Studio`, and `Provider Atlas`.
 
-- [foundations-overview--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/foundations-overview--latest.png)
-- [command-center-overview--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/command-center-overview--latest.png)
-- [command-center-signal-queue--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/command-center-signal-queue--latest.png)
-- [command-center-side-stack--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/command-center-side-stack--latest.png)
-- [command-center-inspector--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/command-center-inspector--latest.png)
-- [shell-kit-overview--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/shell-kit-overview--latest.png)
-- [traffic-lab-overview--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/traffic-lab-overview--latest.png)
-- [traffic-lab-sessions-panel--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/traffic-lab-sessions-panel--latest.png)
-- [traffic-lab-trace-panel--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/traffic-lab-trace-panel--latest.png)
-- [traffic-lab-inspector--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/traffic-lab-inspector--latest.png)
-- [change-studio-overview--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/change-studio-overview--latest.png)
-- [change-studio-registry--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/change-studio-registry--latest.png)
-- [change-studio-workbench--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/change-studio-workbench--latest.png)
-- [change-studio-watch-window--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/change-studio-watch-window--latest.png)
-- [change-studio-inspector--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/change-studio-inspector--latest.png)
-- [route-studio-overview--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/route-studio-overview--latest.png)
-- [route-studio-workbench--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/route-studio-workbench--latest.png)
-- [route-studio-scenario-matrix--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/route-studio-scenario-matrix--latest.png)
-- [route-studio-inspector--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/route-studio-inspector--latest.png)
-- [provider-atlas-overview--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/provider-atlas-overview--latest.png)
-- [provider-atlas-workbench--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/provider-atlas-workbench--latest.png)
-- [provider-atlas-coverage-matrix--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/provider-atlas-coverage-matrix--latest.png)
-- [provider-atlas-inspector--latest.png](/Users/qiufeng/work/proxy/prism/output/pencil/prism-control-plane/provider-atlas-inspector--latest.png)
+- [foundations-overview--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/foundations-overview--latest.png)
+- [command-center-overview--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/command-center-overview--latest.png)
+- [command-center-signal-queue--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/command-center-signal-queue--latest.png)
+- [command-center-side-stack--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/command-center-side-stack--latest.png)
+- [command-center-inspector--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/command-center-inspector--latest.png)
+- [shell-kit-overview--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/shell-kit-overview--latest.png)
+- [traffic-lab-overview--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/traffic-lab-overview--latest.png)
+- [traffic-lab-sessions-panel--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/traffic-lab-sessions-panel--latest.png)
+- [traffic-lab-trace-panel--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/traffic-lab-trace-panel--latest.png)
+- [traffic-lab-inspector--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/traffic-lab-inspector--latest.png)
+- [change-studio-overview--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/change-studio-overview--latest.png)
+- [change-studio-registry--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/change-studio-registry--latest.png)
+- [change-studio-workbench--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/change-studio-workbench--latest.png)
+- [change-studio-watch-window--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/change-studio-watch-window--latest.png)
+- [change-studio-inspector--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/change-studio-inspector--latest.png)
+- [route-studio-overview--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/route-studio-overview--latest.png)
+- [route-studio-workbench--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/route-studio-workbench--latest.png)
+- [route-studio-scenario-matrix--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/route-studio-scenario-matrix--latest.png)
+- [route-studio-inspector--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/route-studio-inspector--latest.png)
+- [provider-atlas-overview--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/provider-atlas-overview--latest.png)
+- [provider-atlas-workbench--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/provider-atlas-workbench--latest.png)
+- [provider-atlas-coverage-matrix--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/provider-atlas-coverage-matrix--latest.png)
+- [provider-atlas-inspector--latest.png](/Users/qiufeng/work/proxy/prism/artifacts/pencil/prism-control-plane/provider-atlas-inspector--latest.png)
