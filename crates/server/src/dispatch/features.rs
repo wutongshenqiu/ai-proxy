@@ -32,6 +32,7 @@ mod tests {
 
     fn test_req(format: Format, model: &str) -> DispatchRequest {
         DispatchRequest {
+            request_path: "/test".to_string(),
             source_format: format,
             model: model.to_string(),
             models: None,

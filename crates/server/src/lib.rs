@@ -146,20 +146,21 @@ pub fn build_router(state: AppState) -> Router {
         ));
 
     // Dashboard auth routes — no auth required (login endpoint)
-    let dashboard_auth_routes = Router::new().route(
-        "/api/dashboard/auth/login",
-        axum::routing::post(handler::dashboard::auth::login),
-    );
+    let dashboard_auth_routes = Router::new()
+        .route(
+            "/api/dashboard/auth/login",
+            axum::routing::post(handler::dashboard::auth::login),
+        )
+        .route(
+            "/api/dashboard/auth/session",
+            axum::routing::get(handler::dashboard::auth::session),
+        );
 
     // Dashboard protected routes — JWT auth required
     let dashboard_protected_routes = Router::new()
         .route(
             "/api/dashboard/auth/refresh",
             axum::routing::post(handler::dashboard::auth::refresh),
-        )
-        .route(
-            "/api/dashboard/auth/session",
-            axum::routing::get(handler::dashboard::auth::session),
         )
         .route(
             "/api/dashboard/auth/logout",
@@ -320,6 +321,26 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/dashboard/providers/capabilities",
             axum::routing::get(handler::dashboard::control_plane::provider_capabilities),
+        )
+        .route(
+            "/api/dashboard/control-plane/command-center",
+            axum::routing::get(handler::dashboard::control_plane_workspace::command_center),
+        )
+        .route(
+            "/api/dashboard/control-plane/traffic-lab",
+            axum::routing::get(handler::dashboard::control_plane_workspace::traffic_lab),
+        )
+        .route(
+            "/api/dashboard/control-plane/provider-atlas",
+            axum::routing::get(handler::dashboard::control_plane_workspace::provider_atlas),
+        )
+        .route(
+            "/api/dashboard/control-plane/route-studio",
+            axum::routing::get(handler::dashboard::control_plane_workspace::route_studio),
+        )
+        .route(
+            "/api/dashboard/control-plane/change-studio",
+            axum::routing::get(handler::dashboard::control_plane_workspace::change_studio),
         )
         .route(
             "/api/dashboard/routing/explain",

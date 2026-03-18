@@ -1,5 +1,5 @@
 use crate::AppState;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::{extract::State, http::Request, middleware::Next, response::Response};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
@@ -72,8 +72,7 @@ pub async fn dashboard_auth_middleware(
         )
     })?;
 
-    let key = DecodingKey::from_secret(secret.as_bytes());
-    let token_data = decode::<Claims>(&token, &key, &Validation::default()).map_err(|e| {
+    let token_data = decode_claims(&token, &secret).map_err(|e| {
         let (code, msg) = match e.kind() {
             jsonwebtoken::errors::ErrorKind::ExpiredSignature => {
                 tracing::debug!(path = %request.uri().path(), "Dashboard auth: token expired");
@@ -95,20 +94,24 @@ pub async fn dashboard_auth_middleware(
 }
 
 pub fn extract_token<B>(request: &Request<B>) -> Option<String> {
-    request
-        .headers()
+    extract_token_from_headers(request.headers())
+}
+
+pub fn extract_token_from_headers(headers: &HeaderMap) -> Option<String> {
+    headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .map(|s| s.to_string())
-        .or_else(|| {
-            extract_cookie_token(
-                request
-                    .headers()
-                    .get("cookie")
-                    .and_then(|v| v.to_str().ok()),
-            )
-        })
+        .or_else(|| extract_cookie_token(headers.get("cookie").and_then(|v| v.to_str().ok())))
+}
+
+pub fn decode_claims(
+    token: &str,
+    secret: &str,
+) -> Result<jsonwebtoken::TokenData<Claims>, jsonwebtoken::errors::Error> {
+    let key = DecodingKey::from_secret(secret.as_bytes());
+    decode::<Claims>(token, &key, &Validation::default())
 }
 
 fn extract_cookie_token(header: Option<&str>) -> Option<String> {

@@ -17,6 +17,10 @@ Typical triggers:
 
 ## Working model
 
+Before making structural control-plane changes, read:
+
+- `docs/design/prism-control-plane/engineering-lessons.md`
+
 Do not keep the historical issue split if it no longer matches the code. Collapse the work into a few product-level buckets:
 
 1. Config mutation truth

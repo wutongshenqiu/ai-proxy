@@ -1,6 +1,6 @@
 use crate::AppState;
 use crate::middleware::dashboard_auth::{
-    Claims, build_session_cookie, clear_session_cookie, generate_token,
+    self, Claims, build_session_cookie, clear_session_cookie, generate_token,
 };
 use axum::Json;
 use axum::extract::State;
@@ -288,14 +288,69 @@ pub async fn refresh(
 }
 
 /// GET /api/dashboard/auth/session
-pub async fn session(claims: axum::Extension<Claims>) -> impl IntoResponse {
-    (
-        StatusCode::OK,
-        Json(json!({
-            "authenticated": true,
-            "username": claims.sub.clone(),
-        })),
-    )
+pub async fn session(
+    State(state): State<AppState>,
+    axum::Extension(ctx): axum::Extension<prism_core::context::RequestContext>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let config = state.config.load();
+    let dashboard = &config.dashboard;
+
+    if !dashboard.enabled {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "not_found", "message": "Dashboard is not enabled"})),
+        );
+    }
+
+    if dashboard.localhost_only {
+        let client_ip = ctx.client_ip.clone().unwrap_or_default();
+        let is_local = client_ip == "127.0.0.1" || client_ip == "::1" || client_ip == "localhost";
+        if !is_local {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({
+                    "error": "access_denied",
+                    "message": "Dashboard access restricted to localhost",
+                })),
+            );
+        }
+    }
+
+    let Some(secret) = dashboard.resolve_jwt_secret() else {
+        tracing::error!("Dashboard JWT secret not configured");
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": "config_error", "message": "JWT secret not configured"})),
+        );
+    };
+
+    let Some(token) = dashboard_auth::extract_token_from_headers(&headers) else {
+        return (
+            StatusCode::OK,
+            Json(json!({
+                "authenticated": false,
+                "username": serde_json::Value::Null,
+            })),
+        );
+    };
+
+    match dashboard_auth::decode_claims(&token, &secret) {
+        Ok(token_data) => (
+            StatusCode::OK,
+            Json(json!({
+                "authenticated": true,
+                "username": token_data.claims.sub,
+            })),
+        ),
+        Err(_) => (
+            StatusCode::OK,
+            Json(json!({
+                "authenticated": false,
+                "username": serde_json::Value::Null,
+            })),
+        ),
+    }
 }
 
 /// POST /api/dashboard/auth/logout

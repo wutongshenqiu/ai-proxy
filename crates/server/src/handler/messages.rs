@@ -15,5 +15,14 @@ pub async fn messages(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, ProxyError> {
-    super::dispatch_api_request(&state, &ctx, &headers, body, Format::Claude, None).await
+    super::dispatch_api_request(
+        &state,
+        &ctx,
+        &headers,
+        body,
+        "/v1/messages",
+        Format::Claude,
+        None,
+    )
+    .await
 }

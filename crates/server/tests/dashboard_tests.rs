@@ -7,18 +7,25 @@ use axum::http::{Request, StatusCode};
 use axum::routing::{get, post};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use chrono::{Duration as ChronoDuration, Utc};
+use prism_core::auth_key::AuthKeyEntry;
+use prism_core::auth_profile::{AuthMode, AuthProfileEntry};
 use prism_core::config::{Config, DashboardConfig};
 use prism_core::cost::CostCalculator;
 use prism_core::memory_log_store::InMemoryLogStore;
 use prism_core::metrics::Metrics;
+use prism_core::provider::{Format, UpstreamKind, WireApi};
 use prism_core::rate_limit::CompositeRateLimiter;
 use prism_core::request_log::LogStore;
+use prism_core::request_record::{AttemptSummary, RequestRecord, TokenUsage};
+use prism_core::routing::config::{RouteMatch, RouteRule, RoutingConfig};
 use prism_provider::build_registry;
 use prism_provider::catalog::ProviderCatalog;
 use prism_provider::health::HealthManager;
 use prism_provider::routing::CredentialRouter;
 use prism_server::{AppState, build_router};
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -193,10 +200,24 @@ struct MockCodexOauthServer {
     _task: tokio::task::JoinHandle<()>,
 }
 
+struct RotatingCodexOauthServer {
+    auth_url: String,
+    token_url: String,
+    refresh_requests: Arc<AtomicUsize>,
+    _task: tokio::task::JoinHandle<()>,
+}
+
 struct MockCodexDeviceServer {
     user_code_url: String,
     token_url: String,
     verification_url: String,
+    _task: tokio::task::JoinHandle<()>,
+}
+
+struct MockOpenAiProbeServer {
+    base_url: String,
+    model_requests: Arc<AtomicUsize>,
+    chat_requests: Arc<AtomicUsize>,
     _task: tokio::task::JoinHandle<()>,
 }
 
@@ -230,6 +251,85 @@ async fn spawn_mock_codex_oauth_server(token_response: Value) -> MockCodexOauthS
     MockCodexOauthServer {
         auth_url: format!("http://{addr}/oauth/authorize"),
         token_url: format!("http://{addr}/oauth/token"),
+        _task: task,
+    }
+}
+
+async fn spawn_rotating_mock_codex_oauth_server() -> RotatingCodexOauthServer {
+    #[derive(Clone)]
+    struct RotatingOauthState {
+        refresh_requests: Arc<AtomicUsize>,
+    }
+
+    async fn authorize() -> Json<Value> {
+        Json(json!({"ok": true}))
+    }
+
+    async fn token(
+        State(state): State<RotatingOauthState>,
+        body: String,
+    ) -> (StatusCode, Json<Value>) {
+        assert!(
+            body.contains("client_id="),
+            "expected oauth client_id in token request: {body}"
+        );
+        if body.contains("grant_type=refresh_token") {
+            let attempt = state.refresh_requests.fetch_add(1, Ordering::SeqCst);
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            if attempt == 0 {
+                return (
+                    StatusCode::OK,
+                    Json(json!({
+                        "access_token": "refreshed-access-token",
+                        "refresh_token": "next-refresh-token",
+                        "expires_in": 7200
+                    })),
+                );
+            }
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({
+                    "error": {
+                        "message": "Your refresh token has already been used to generate a new access token. Please try signing in again.",
+                        "type": "invalid_request_error",
+                        "param": null,
+                        "code": "refresh_token_reused"
+                    }
+                })),
+            );
+        }
+        (
+            StatusCode::OK,
+            Json(json!({
+                "access_token": "oauth-access-token",
+                "refresh_token": "oauth-refresh-token",
+                "expires_in": 7200
+            })),
+        )
+    }
+
+    let refresh_requests = Arc::new(AtomicUsize::new(0));
+    let app = Router::new()
+        .route("/oauth/authorize", get(authorize))
+        .route("/oauth/token", post(token))
+        .with_state(RotatingOauthState {
+            refresh_requests: refresh_requests.clone(),
+        });
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind rotating mock oauth listener");
+    let addr = listener.local_addr().expect("rotating mock oauth addr");
+    let task = tokio::spawn(async move {
+        axum::serve(listener, app)
+            .await
+            .expect("rotating mock oauth server");
+    });
+
+    RotatingCodexOauthServer {
+        auth_url: format!("http://{addr}/oauth/authorize"),
+        token_url: format!("http://{addr}/oauth/token"),
+        refresh_requests,
         _task: task,
     }
 }
@@ -283,6 +383,71 @@ async fn spawn_mock_codex_device_server() -> MockCodexDeviceServer {
         user_code_url: format!("http://{addr}/device/usercode"),
         token_url: format!("http://{addr}/device/token"),
         verification_url: format!("http://{addr}/device/verify"),
+        _task: task,
+    }
+}
+
+async fn spawn_mock_openai_probe_server() -> MockOpenAiProbeServer {
+    #[derive(Clone)]
+    struct ProbeState {
+        model_requests: Arc<AtomicUsize>,
+        chat_requests: Arc<AtomicUsize>,
+    }
+
+    async fn list_models(State(state): State<ProbeState>) -> (StatusCode, Json<Value>) {
+        state.model_requests.fetch_add(1, Ordering::SeqCst);
+        (StatusCode::NOT_FOUND, Json(json!({})))
+    }
+
+    async fn chat_completions(
+        State(state): State<ProbeState>,
+        body: String,
+    ) -> (StatusCode, Json<Value>) {
+        state.chat_requests.fetch_add(1, Ordering::SeqCst);
+        assert!(
+            body.contains("Reply with exactly ok."),
+            "expected health probe payload, got {body}"
+        );
+        (
+            StatusCode::OK,
+            Json(json!({
+                "id": "chatcmpl-probe",
+                "object": "chat.completion",
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "ok"
+                    },
+                    "finish_reason": "stop"
+                }]
+            })),
+        )
+    }
+
+    let state = ProbeState {
+        model_requests: Arc::new(AtomicUsize::new(0)),
+        chat_requests: Arc::new(AtomicUsize::new(0)),
+    };
+    let app = Router::new()
+        .route("/v1/models", get(list_models))
+        .route("/v1/chat/completions", post(chat_completions))
+        .with_state(state.clone());
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind mock openai probe listener");
+    let addr = listener.local_addr().expect("mock openai probe addr");
+    let task = tokio::spawn(async move {
+        axum::serve(listener, app)
+            .await
+            .expect("mock openai probe server");
+    });
+
+    MockOpenAiProbeServer {
+        base_url: format!("http://{addr}"),
+        model_requests: state.model_requests,
+        chat_requests: state.chat_requests,
         _task: task,
     }
 }
@@ -568,6 +733,34 @@ async fn test_token_refresh() {
     assert_eq!(body["expires_in"], 3600);
 }
 
+#[tokio::test]
+async fn test_session_probe_without_dashboard_session_returns_unauthenticated() {
+    let harness = create_test_harness();
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/api/dashboard/auth/session")
+        .body(Body::empty())
+        .unwrap();
+
+    let (status, body) = send_request(&harness, req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["authenticated"], false);
+    assert!(body["username"].is_null());
+}
+
+#[tokio::test]
+async fn test_session_probe_with_valid_token_returns_authenticated() {
+    let harness = create_test_harness();
+    let token = login_and_get_token(&harness).await;
+
+    let req = authed_get("/api/dashboard/auth/session", &token);
+    let (status, body) = send_request(&harness, req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["authenticated"], true);
+    assert_eq!(body["username"], "admin");
+}
+
 // ===========================================================================
 // Provider CRUD tests
 // ===========================================================================
@@ -711,6 +904,52 @@ async fn test_update_provider() {
     let (status, body) = send_request(&harness, req).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["name"], "Original Name");
+    assert_eq!(body["disabled"], true);
+}
+
+#[tokio::test]
+async fn test_update_provider_preserves_existing_codex_upstream() {
+    let harness = create_test_harness();
+    let token = login_and_get_token(&harness).await;
+
+    let create_body = json!({
+        "format": "openai",
+        "upstream": "codex",
+        "name": "Codex Gateway",
+        "base_url": "https://chatgpt.com/backend-api/codex",
+        "wire_api": "responses",
+        "auth_profiles": [
+            { "id": "codex-user", "mode": "codex-oauth" }
+        ]
+    });
+    let req = authed_post("/api/dashboard/providers", &token, create_body);
+    let (status, body) = send_request(&harness, req).await;
+    assert_eq!(status, StatusCode::CREATED, "create failed: {body:?}");
+
+    let config_path = harness.state.config_path.lock().unwrap().clone();
+    let new_config = Config::load(&config_path).expect("failed to reload config");
+    harness.state.config.store(Arc::new(new_config));
+
+    let update_body = json!({
+        "disabled": true
+    });
+    let req = authed_patch(
+        "/api/dashboard/providers/Codex%20Gateway",
+        &token,
+        update_body,
+    );
+    let (status, body) = send_request(&harness, req).await;
+    assert_eq!(status, StatusCode::OK, "update failed: {body:?}");
+
+    let config_path = harness.state.config_path.lock().unwrap().clone();
+    let new_config = Config::load(&config_path).expect("failed to reload config");
+    harness.state.config.store(Arc::new(new_config));
+
+    let req = authed_get("/api/dashboard/providers/Codex%20Gateway", &token);
+    let (status, body) = send_request(&harness, req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["upstream"], "codex");
+    assert_eq!(body["wire_api"], "responses");
     assert_eq!(body["disabled"], true);
 }
 
@@ -1259,6 +1498,82 @@ async fn test_refresh_codex_oauth_profile() {
         oauth_profiles[0]["refresh_token"],
         "refreshed-refresh-token"
     );
+}
+
+#[tokio::test]
+async fn test_prepare_auth_serializes_concurrent_codex_refreshes() {
+    let mock = spawn_rotating_mock_codex_oauth_server().await;
+    let harness = create_test_harness_with_auth_runtime(Arc::new(
+        prism_server::auth_runtime::AuthRuntimeManager::with_codex_endpoints(
+            mock.auth_url.clone(),
+            mock.token_url.clone(),
+            "test-client".to_string(),
+        ),
+    ));
+    let token = login_and_get_token(&harness).await;
+
+    let req = authed_post(
+        "/api/dashboard/providers",
+        &token,
+        json!({
+            "format": "openai",
+            "upstream": "codex",
+            "name": "codex-concurrent-refresh",
+            "auth_profiles": [
+                {
+                    "id": "codex-user",
+                    "mode": "codex-oauth",
+                    "access-token": "stale-access-token",
+                    "refresh-token": "stale-refresh-token"
+                }
+            ]
+        }),
+    );
+    let (status, body) = send_request(&harness, req).await;
+    assert_eq!(status, StatusCode::CREATED, "create failed: {body:?}");
+    reload_runtime_config(&harness);
+
+    let auth = harness
+        .state
+        .router
+        .credential_map()
+        .get("codex-concurrent-refresh")
+        .and_then(|entries| entries.first())
+        .cloned()
+        .expect("expected codex credential");
+    let shared = auth
+        .oauth_state
+        .clone()
+        .expect("expected shared oauth state");
+    {
+        let mut guard = shared.write().expect("oauth state write lock");
+        guard.expires_at = Some(chrono::Utc::now() - chrono::Duration::seconds(30));
+    }
+
+    let auth_one = auth.clone();
+    let auth_two = auth.clone();
+    let (first, second) = tokio::join!(
+        harness
+            .state
+            .auth_runtime
+            .prepare_auth(&harness.state, &auth_one),
+        harness
+            .state
+            .auth_runtime
+            .prepare_auth(&harness.state, &auth_two),
+    );
+    assert!(first.is_ok(), "first refresh failed: {first:?}");
+    assert!(second.is_ok(), "second refresh failed: {second:?}");
+    assert_eq!(mock.refresh_requests.load(Ordering::SeqCst), 1);
+
+    let oauth_state = harness
+        .state
+        .auth_runtime
+        .state_for_profile("codex-concurrent-refresh", "codex-user")
+        .expect("runtime state lookup failed")
+        .expect("missing runtime state");
+    assert_eq!(oauth_state.access_token, "refreshed-access-token");
+    assert_eq!(oauth_state.refresh_token, "next-refresh-token");
 }
 
 #[tokio::test]
@@ -2275,6 +2590,75 @@ async fn test_providers_with_same_api_key_across_formats() {
     assert!(names.contains(&"Bailian Claude"));
 }
 
+#[tokio::test]
+async fn test_fetch_models_returns_unsupported_for_dashscope_coding_plan() {
+    let harness = create_test_harness();
+    let token = login_and_get_token(&harness).await;
+
+    let req = authed_post(
+        "/api/dashboard/providers/fetch-models",
+        &token,
+        json!({
+            "format": "openai",
+            "upstream": "openai",
+            "api_key": "sk-sp-shared-test-1234567890abcdef",
+            "base_url": "https://coding.dashscope.aliyuncs.com"
+        }),
+    );
+    let (status, body) = send_request(&harness, req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["supported"], false);
+    assert_eq!(body["models"], json!([]));
+    assert!(
+        body["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("configure models manually")
+    );
+}
+
+#[tokio::test]
+async fn test_provider_health_uses_live_text_probe_for_openai_compatible_provider() {
+    let probe_server = spawn_mock_openai_probe_server().await;
+    let harness = create_test_harness();
+    let token = login_and_get_token(&harness).await;
+
+    let create_body = json!({
+        "format": "openai",
+        "name": "DashScope Probe",
+        "api_key": "sk-sp-shared-test-1234567890abcdef",
+        "base_url": probe_server.base_url,
+        "models": ["qwen3-coder-plus"]
+    });
+    let req = authed_post("/api/dashboard/providers", &token, create_body);
+    let (status, body) = send_request(&harness, req).await;
+    assert_eq!(status, StatusCode::CREATED, "create failed: {body:?}");
+    reload_runtime_config(&harness);
+
+    let req = authed_post(
+        "/api/dashboard/providers/DashScope%20Probe/health",
+        &token,
+        json!({}),
+    );
+    let (status, body) = send_request(&harness, req).await;
+    assert_eq!(status, StatusCode::OK, "health failed: {body:?}");
+    assert_eq!(body["status"], "ok");
+
+    let checks = body["checks"].as_array().expect("checks should be array");
+    let auth = checks
+        .iter()
+        .find(|check| check["capability"] == "auth")
+        .expect("auth check missing");
+    let text = checks
+        .iter()
+        .find(|check| check["capability"] == "text")
+        .expect("text check missing");
+    assert_eq!(auth["status"], "verified");
+    assert_eq!(text["status"], "verified");
+    assert_eq!(probe_server.model_requests.load(Ordering::SeqCst), 0);
+    assert_eq!(probe_server.chat_requests.load(Ordering::SeqCst), 1);
+}
+
 // ===========================================================================
 // Routing preview/explain tests
 // ===========================================================================
@@ -2507,6 +2891,58 @@ async fn test_update_routing_then_preview_reflects_change() {
     assert_eq!(body["profile"], "stable");
 }
 
+#[tokio::test]
+async fn test_preview_route_accepts_routing_override() {
+    let harness = create_test_harness();
+    let token = login_and_get_token(&harness).await;
+
+    let mut override_routing: RoutingConfig = harness.state.config.load().routing.clone();
+    override_routing.default_profile = "stable".to_string();
+
+    let req = authed_post(
+        "/api/dashboard/routing/preview",
+        &token,
+        json!({
+            "model": "gpt-4",
+            "routing_override": serde_json::to_value(&override_routing).expect("serialize routing override"),
+        }),
+    );
+    let (status, body) = send_request(&harness, req).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "preview with override failed: {body:?}"
+    );
+    assert_eq!(body["profile"], "stable");
+}
+
+#[tokio::test]
+async fn test_preview_route_rejects_invalid_routing_override() {
+    let harness = create_test_harness();
+    let token = login_and_get_token(&harness).await;
+
+    let mut override_routing: RoutingConfig = harness.state.config.load().routing.clone();
+    override_routing.default_profile = "missing-profile".to_string();
+
+    let req = authed_post(
+        "/api/dashboard/routing/preview",
+        &token,
+        json!({
+            "model": "gpt-4",
+            "routing_override": serde_json::to_value(&override_routing).expect("serialize routing override"),
+        }),
+    );
+    let (status, body) = send_request(&harness, req).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(body["error"], "validation_failed");
+    assert!(body["details"].as_array().unwrap().iter().any(|detail| {
+        detail
+            .as_str()
+            .unwrap_or_default()
+            .contains("default-profile")
+    }));
+}
+
 // ===========================================================================
 // Config version tracking tests (#259 / #262)
 // ===========================================================================
@@ -2653,4 +3089,452 @@ async fn test_routing_update_returns_version() {
     assert_eq!(status, StatusCode::OK, "update routing failed: {body:?}");
     // Routing update now returns config_version
     assert!(body["config_version"].is_string());
+}
+
+fn write_test_config(harness: &TestHarness, config: &Config) {
+    let path = harness.state.config_path.lock().unwrap().clone();
+    std::fs::write(&path, config.to_yaml().expect("serialize config")).expect("write test config");
+    reload_runtime_config(harness);
+}
+
+struct ProviderFixture<'a> {
+    name: &'a str,
+    format: Format,
+    upstream: Option<UpstreamKind>,
+    wire_api: WireApi,
+    models: &'a [&'a str],
+    auth_profiles: Vec<AuthProfileEntry>,
+    api_key: &'a str,
+    base_url: Option<&'a str>,
+    region: Option<&'a str>,
+}
+
+fn provider_entry(fixture: ProviderFixture<'_>) -> prism_core::config::ProviderKeyEntry {
+    prism_core::config::ProviderKeyEntry {
+        name: fixture.name.to_string(),
+        format: fixture.format,
+        upstream: fixture.upstream,
+        api_key: fixture.api_key.to_string(),
+        base_url: fixture.base_url.map(str::to_string),
+        proxy_url: None,
+        prefix: None,
+        models: fixture
+            .models
+            .iter()
+            .map(|model| prism_core::config::ModelMapping {
+                id: (*model).to_string(),
+                alias: None,
+            })
+            .collect(),
+        excluded_models: Vec::new(),
+        headers: HashMap::new(),
+        disabled: false,
+        cloak: Default::default(),
+        wire_api: fixture.wire_api,
+        weight: 1,
+        region: fixture.region.map(str::to_string),
+        credential_source: None,
+        auth_profiles: fixture.auth_profiles,
+        upstream_presentation: Default::default(),
+        vertex: false,
+        vertex_project: None,
+        vertex_location: None,
+    }
+}
+
+async fn seed_control_plane_fixture(harness: &TestHarness) {
+    let mut config = harness.state.config.load().as_ref().clone();
+    config.providers = vec![
+        provider_entry(ProviderFixture {
+            name: "claude-sub-eu",
+            format: Format::Claude,
+            upstream: Some(UpstreamKind::Claude),
+            wire_api: WireApi::Chat,
+            models: &["claude-3-7-sonnet", "claude-3-5-haiku"],
+            auth_profiles: vec![AuthProfileEntry {
+                id: "subscription".to_string(),
+                mode: AuthMode::AnthropicClaudeSubscription,
+                header: prism_core::auth_profile::AuthHeaderKind::Auto,
+                region: Some("eu-central".to_string()),
+                ..Default::default()
+            }],
+            api_key: "",
+            base_url: Some("https://api.anthropic.com"),
+            region: Some("eu-central"),
+        }),
+        provider_entry(ProviderFixture {
+            name: "openai-prod",
+            format: Format::OpenAI,
+            upstream: Some(UpstreamKind::OpenAI),
+            wire_api: WireApi::Responses,
+            models: &["gpt-5-mini", "gpt-4.1-mini"],
+            auth_profiles: Vec::new(),
+            api_key: "sk-openai-prod-1234567890",
+            base_url: Some("https://api.openai.com"),
+            region: Some("us-east"),
+        }),
+    ];
+    config.auth_keys = vec![
+        AuthKeyEntry {
+            key: "sk-proxy-tenant-red".to_string(),
+            name: Some("tenant-red".to_string()),
+            tenant_id: Some("tenant-red".to_string()),
+            allowed_models: vec!["claude-*".to_string(), "gpt-*".to_string()],
+            allowed_credentials: Vec::new(),
+            rate_limit: None,
+            budget: None,
+            expires_at: None,
+            metadata: HashMap::new(),
+        },
+        AuthKeyEntry {
+            key: "sk-proxy-tenant-blue".to_string(),
+            name: Some("tenant-blue".to_string()),
+            tenant_id: Some("tenant-blue".to_string()),
+            allowed_models: vec!["*".to_string()],
+            allowed_credentials: Vec::new(),
+            rate_limit: None,
+            budget: None,
+            expires_at: None,
+            metadata: HashMap::new(),
+        },
+    ];
+    config.routing.rules = vec![RouteRule {
+        name: "tenant-red-claude".to_string(),
+        priority: Some(100),
+        match_conditions: RouteMatch {
+            models: vec!["claude-*".to_string()],
+            tenants: vec!["tenant-red".to_string()],
+            endpoints: vec!["chat-completions".to_string()],
+            ..Default::default()
+        },
+        use_profile: "balanced".to_string(),
+    }];
+    write_test_config(harness, &config);
+
+    harness.state.provider_probe_cache.insert(
+        "claude-sub-eu".to_string(),
+        prism_server::handler::dashboard::providers::ProviderProbeResult {
+            provider: "claude-sub-eu".to_string(),
+            upstream: "claude".to_string(),
+            status: "failed".to_string(),
+            checked_at: Utc::now().to_rfc3339(),
+            latency_ms: 810,
+            checks: vec![
+                prism_server::handler::dashboard::providers::ProviderProbeCheck {
+                    capability: "text".to_string(),
+                    status: prism_server::handler::dashboard::providers::ProbeStatus::Failed,
+                    message: Some("managed auth disconnected".to_string()),
+                },
+                prism_server::handler::dashboard::providers::ProviderProbeCheck {
+                    capability: "stream".to_string(),
+                    status: prism_server::handler::dashboard::providers::ProbeStatus::Unknown,
+                    message: Some("not probed".to_string()),
+                },
+            ],
+        },
+    );
+    harness.state.provider_probe_cache.insert(
+        "openai-prod".to_string(),
+        prism_server::handler::dashboard::providers::ProviderProbeResult {
+            provider: "openai-prod".to_string(),
+            upstream: "openai".to_string(),
+            status: "verified".to_string(),
+            checked_at: Utc::now().to_rfc3339(),
+            latency_ms: 211,
+            checks: vec![
+                prism_server::handler::dashboard::providers::ProviderProbeCheck {
+                    capability: "text".to_string(),
+                    status: prism_server::handler::dashboard::providers::ProbeStatus::Verified,
+                    message: None,
+                },
+                prism_server::handler::dashboard::providers::ProviderProbeCheck {
+                    capability: "stream".to_string(),
+                    status: prism_server::handler::dashboard::providers::ProbeStatus::Verified,
+                    message: None,
+                },
+            ],
+        },
+    );
+
+    harness
+        .state
+        .log_store
+        .push(RequestRecord {
+            request_id: "req_traffic_latest".to_string(),
+            timestamp: Utc::now(),
+            method: "POST".to_string(),
+            path: "/v1/chat/completions".to_string(),
+            stream: false,
+            requested_model: Some("claude-3-7-sonnet".to_string()),
+            request_body: None,
+            upstream_request_body: None,
+            provider: Some("openai-prod".to_string()),
+            model: Some("gpt-5-mini".to_string()),
+            credential_name: Some("openai-prod".to_string()),
+            total_attempts: 2,
+            status: 200,
+            latency_ms: 1840,
+            response_body: None,
+            stream_content_preview: None,
+            usage: Some(TokenUsage {
+                input_tokens: 1200,
+                output_tokens: 410,
+                cache_read_tokens: 0,
+                cache_creation_tokens: 0,
+            }),
+            cost: Some(0.0021),
+            error: None,
+            error_type: None,
+            api_key_id: Some("sk-p****-red".to_string()),
+            tenant_id: Some("tenant-red".to_string()),
+            client_ip: Some("127.0.0.1".to_string()),
+            client_region: Some("eu-central".to_string()),
+            attempts: vec![
+                AttemptSummary {
+                    attempt_index: 0,
+                    provider: "claude-sub-eu".to_string(),
+                    model: "claude-3-7-sonnet".to_string(),
+                    credential_name: Some("subscription".to_string()),
+                    status: Some(401),
+                    latency_ms: 410,
+                    error: Some("managed auth disconnected".to_string()),
+                    error_type: Some("auth_runtime".to_string()),
+                },
+                AttemptSummary {
+                    attempt_index: 1,
+                    provider: "openai-prod".to_string(),
+                    model: "gpt-5-mini".to_string(),
+                    credential_name: Some("openai-prod".to_string()),
+                    status: Some(200),
+                    latency_ms: 1430,
+                    error: None,
+                    error_type: None,
+                },
+            ],
+        })
+        .await;
+    harness
+        .state
+        .log_store
+        .push(RequestRecord {
+            request_id: "req_provider_fail".to_string(),
+            timestamp: Utc::now() - ChronoDuration::minutes(10),
+            method: "POST".to_string(),
+            path: "/v1/messages".to_string(),
+            stream: false,
+            requested_model: Some("claude-3-5-haiku".to_string()),
+            request_body: None,
+            upstream_request_body: None,
+            provider: Some("claude-sub-eu".to_string()),
+            model: Some("claude-3-5-haiku".to_string()),
+            credential_name: Some("subscription".to_string()),
+            total_attempts: 1,
+            status: 503,
+            latency_ms: 920,
+            response_body: None,
+            stream_content_preview: None,
+            usage: None,
+            cost: None,
+            error: Some("upstream unavailable".to_string()),
+            error_type: Some("upstream_5xx".to_string()),
+            api_key_id: Some("sk-p****-red".to_string()),
+            tenant_id: Some("tenant-red".to_string()),
+            client_ip: Some("127.0.0.1".to_string()),
+            client_region: Some("eu-central".to_string()),
+            attempts: vec![AttemptSummary {
+                attempt_index: 0,
+                provider: "claude-sub-eu".to_string(),
+                model: "claude-3-5-haiku".to_string(),
+                credential_name: Some("subscription".to_string()),
+                status: Some(503),
+                latency_ms: 920,
+                error: Some("upstream unavailable".to_string()),
+                error_type: Some("upstream_5xx".to_string()),
+            }],
+        })
+        .await;
+    harness
+        .state
+        .log_store
+        .push(RequestRecord {
+            request_id: "req_openai_ok".to_string(),
+            timestamp: Utc::now() - ChronoDuration::minutes(20),
+            method: "POST".to_string(),
+            path: "/v1/responses".to_string(),
+            stream: false,
+            requested_model: Some("gpt-5-mini".to_string()),
+            request_body: None,
+            upstream_request_body: None,
+            provider: Some("openai-prod".to_string()),
+            model: Some("gpt-5-mini".to_string()),
+            credential_name: Some("openai-prod".to_string()),
+            total_attempts: 1,
+            status: 200,
+            latency_ms: 610,
+            response_body: None,
+            stream_content_preview: None,
+            usage: Some(TokenUsage {
+                input_tokens: 800,
+                output_tokens: 260,
+                cache_read_tokens: 0,
+                cache_creation_tokens: 0,
+            }),
+            cost: Some(0.0011),
+            error: None,
+            error_type: None,
+            api_key_id: Some("sk-p****-blue".to_string()),
+            tenant_id: Some("tenant-blue".to_string()),
+            client_ip: Some("127.0.0.1".to_string()),
+            client_region: Some("us-east".to_string()),
+            attempts: vec![AttemptSummary {
+                attempt_index: 0,
+                provider: "openai-prod".to_string(),
+                model: "gpt-5-mini".to_string(),
+                credential_name: Some("openai-prod".to_string()),
+                status: Some(200),
+                latency_ms: 610,
+                error: None,
+                error_type: None,
+            }],
+        })
+        .await;
+}
+
+#[tokio::test]
+async fn test_control_plane_command_center_workspace_endpoint() {
+    let harness = create_test_harness();
+    seed_control_plane_fixture(&harness).await;
+    let token = login_and_get_token(&harness).await;
+
+    let req = authed_get(
+        "/api/dashboard/control-plane/command-center?range=1h&source_mode=hybrid",
+        &token,
+    );
+    let (status, body) = send_request(&harness, req).await;
+
+    assert_eq!(status, StatusCode::OK, "command center failed: {body:?}");
+    assert!(
+        body["kpis"]
+            .as_array()
+            .is_some_and(|items| items.len() >= 4)
+    );
+    assert!(
+        body["signals"]
+            .as_array()
+            .is_some_and(|items| !items.is_empty())
+    );
+    assert_eq!(
+        body["inspector"]["eyebrow"]["key"],
+        "commandCenter.inspector.eyebrow"
+    );
+}
+
+#[tokio::test]
+async fn test_control_plane_traffic_lab_workspace_endpoint() {
+    let harness = create_test_harness();
+    seed_control_plane_fixture(&harness).await;
+    let token = login_and_get_token(&harness).await;
+
+    let req = authed_get(
+        "/api/dashboard/control-plane/traffic-lab?range=1h&source_mode=hybrid&limit=5",
+        &token,
+    );
+    let (status, body) = send_request(&harness, req).await;
+
+    assert_eq!(status, StatusCode::OK, "traffic lab failed: {body:?}");
+    assert_eq!(body["selected_request_id"], "req_traffic_latest");
+    assert!(
+        body["sessions"]
+            .as_array()
+            .is_some_and(|items| items.len() >= 3)
+    );
+    assert!(
+        body["trace"]
+            .as_array()
+            .is_some_and(|items| items.len() >= 3)
+    );
+}
+
+#[tokio::test]
+async fn test_control_plane_provider_atlas_workspace_endpoint() {
+    let harness = create_test_harness();
+    seed_control_plane_fixture(&harness).await;
+    let token = login_and_get_token(&harness).await;
+
+    let req = authed_get(
+        "/api/dashboard/control-plane/provider-atlas?range=1h&source_mode=runtime",
+        &token,
+    );
+    let (status, body) = send_request(&harness, req).await;
+
+    assert_eq!(status, StatusCode::OK, "provider atlas failed: {body:?}");
+    assert!(
+        body["providers"]
+            .as_array()
+            .is_some_and(|items| items.len() == 2)
+    );
+    assert!(
+        body["coverage"]
+            .as_array()
+            .is_some_and(|items| items.len() >= 3)
+    );
+    assert_eq!(body["providers"][0]["provider"], "claude-sub-eu");
+}
+
+#[tokio::test]
+async fn test_control_plane_route_studio_workspace_endpoint() {
+    let harness = create_test_harness();
+    seed_control_plane_fixture(&harness).await;
+    let token = login_and_get_token(&harness).await;
+
+    let req = authed_get(
+        "/api/dashboard/control-plane/route-studio?range=1h&source_mode=hybrid",
+        &token,
+    );
+    let (status, body) = send_request(&harness, req).await;
+
+    assert_eq!(status, StatusCode::OK, "route studio failed: {body:?}");
+    assert!(
+        body["summary_facts"]
+            .as_array()
+            .is_some_and(|items| items.len() >= 4)
+    );
+    assert!(
+        body["scenarios"]
+            .as_array()
+            .is_some_and(|items| !items.is_empty())
+    );
+    assert_eq!(
+        body["inspector"]["eyebrow"]["key"],
+        "routeStudio.inspector.eyebrow"
+    );
+}
+
+#[tokio::test]
+async fn test_control_plane_change_studio_workspace_endpoint() {
+    let harness = create_test_harness();
+    seed_control_plane_fixture(&harness).await;
+    let token = login_and_get_token(&harness).await;
+
+    let req = authed_get(
+        "/api/dashboard/control-plane/change-studio?range=24h&source_mode=runtime",
+        &token,
+    );
+    let (status, body) = send_request(&harness, req).await;
+
+    assert_eq!(status, StatusCode::OK, "change studio failed: {body:?}");
+    assert!(
+        body["registry"]
+            .as_array()
+            .is_some_and(|items| items.len() >= 5)
+    );
+    assert!(
+        body["publish_facts"]
+            .as_array()
+            .is_some_and(|items| items.len() >= 4)
+    );
+    assert_eq!(
+        body["inspector"]["eyebrow"]["key"],
+        "changeStudio.inspector.eyebrow"
+    );
 }

@@ -124,6 +124,7 @@ pub(crate) async fn dispatch_api_request(
     ctx: &RequestContext,
     headers: &HeaderMap,
     body: Bytes,
+    request_path: &str,
     source_format: Format,
     allowed_formats: Option<Vec<Format>>,
 ) -> Result<Response, ProxyError> {
@@ -140,6 +141,7 @@ pub(crate) async fn dispatch_api_request(
     dispatch(
         state,
         DispatchRequest {
+            request_path: request_path.to_string(),
             source_format,
             model: parsed.model,
             models: parsed.models,

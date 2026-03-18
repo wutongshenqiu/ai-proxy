@@ -37,7 +37,16 @@ pub async fn responses_ws(
             .unwrap_or_default(),
         header_auth_profile(&headers).as_deref(),
     )?;
-    Ok(ws.on_upgrade(move |socket| handle_ws(socket, state, ctx, headers, allowed_credentials)))
+    Ok(ws.on_upgrade(move |socket| {
+        handle_ws(
+            socket,
+            state,
+            ctx,
+            headers,
+            allowed_credentials,
+            "/v1/responses/ws".to_string(),
+        )
+    }))
 }
 
 pub async fn provider_responses_ws(
@@ -73,7 +82,17 @@ pub async fn provider_responses_ws(
         }
     }
 
-    Ok(ws.on_upgrade(move |socket| handle_ws(socket, state, ctx, headers, allowed_credentials)))
+    let request_path = format!("/api/provider/{provider}/v1/responses/ws");
+    Ok(ws.on_upgrade(move |socket| {
+        handle_ws(
+            socket,
+            state,
+            ctx,
+            headers,
+            allowed_credentials,
+            request_path,
+        )
+    }))
 }
 
 async fn handle_ws(
@@ -82,6 +101,7 @@ async fn handle_ws(
     ctx: RequestContext,
     headers: HeaderMap,
     base_allowed_credentials: Vec<String>,
+    request_path: String,
 ) {
     let user_agent = headers
         .get("user-agent")
@@ -156,6 +176,7 @@ async fn handle_ws(
         let dispatch_result = dispatch(
             &state,
             DispatchRequest {
+                request_path: request_path.clone(),
                 source_format: Format::OpenAI,
                 model,
                 models: None,

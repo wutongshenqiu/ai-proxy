@@ -53,6 +53,7 @@ All specifications for the AI Proxy Gateway project.
 | SPEC-068 | Managed Auth Profiles & Claude Subscription Tokens | Completed | [completed/SPEC-068/](completed/SPEC-068/) |
 | SPEC-069 | Codex Native Upstream & Managed OAuth          | Completed | [completed/SPEC-069/](completed/SPEC-069/) |
 | SPEC-070 | Codex Device Flow, Local Import, and Responses WebSocket | Completed | [completed/SPEC-070/](completed/SPEC-070/) |
+| SPEC-071 | Prism Dashboard UX System & Prototype-First Redesign | Completed | [completed/SPEC-071/](completed/SPEC-071/) |
 
 ## Active
 

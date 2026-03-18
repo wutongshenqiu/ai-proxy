@@ -17,6 +17,8 @@ use std::time::Instant;
 
 /// A dispatch request encapsulating all information needed to route and execute an API call.
 pub struct DispatchRequest {
+    /// Original request path used for structured request logging.
+    pub request_path: String,
     /// The API format of the incoming request (e.g., OpenAI, Claude).
     pub source_format: Format,
     /// The requested model name (may include prefix/alias).
@@ -67,11 +69,11 @@ pub async fn dispatch(state: &AppState, mut req: DispatchRequest) -> Result<Resp
     // Create the gateway.request span — GatewayLogLayer collects this on close
     let request_span = tracing::info_span!(
         "gateway.request",
-        request_id = %request_id,
+        request_id = request_id.as_str(),
         method = "POST",
         path = tracing::field::Empty,
         stream = req.stream,
-        requested_model = %req.model,
+        requested_model = req.model.as_str(),
         request_body = tracing::field::Empty,
         upstream_request_body = tracing::field::Empty,
         provider = tracing::field::Empty,
@@ -94,6 +96,7 @@ pub async fn dispatch(state: &AppState, mut req: DispatchRequest) -> Result<Resp
         client_ip = tracing::field::Empty,
         client_region = req.client_region.as_deref().unwrap_or(""),
     );
+    request_span.record("path", req.request_path.as_str());
 
     // Record client request body if detail level allows
     if detail_level >= LogDetailLevel::Standard

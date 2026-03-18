@@ -3,6 +3,7 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{Duration, Utc};
 use dashmap::DashMap;
+use dashmap::mapref::entry::Entry;
 use prism_core::auth_profile::{AuthProfileEntry, OAuthTokenState, SharedOAuthTokenState};
 use prism_core::config::Config;
 use prism_core::error::ProxyError;
@@ -14,6 +15,7 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
+use tokio::sync::Mutex as AsyncMutex;
 
 const CODEX_AUTH_URL: &str = "https://auth.openai.com/oauth/authorize";
 const CODEX_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
@@ -97,6 +99,7 @@ pub struct AuthRuntimeManager {
     configured_codex_auth_file: RwLock<Option<PathBuf>>,
     persist_lock: Mutex<()>,
     oauth_profiles: DashMap<String, SharedOAuthTokenState>,
+    refresh_locks: DashMap<String, Arc<AsyncMutex<()>>>,
 }
 
 impl Default for AuthRuntimeManager {
@@ -134,6 +137,7 @@ impl AuthRuntimeManager {
             configured_codex_auth_file: RwLock::new(None),
             persist_lock: Mutex::new(()),
             oauth_profiles: DashMap::new(),
+            refresh_locks: DashMap::new(),
         }
     }
 
@@ -170,6 +174,7 @@ impl AuthRuntimeManager {
             configured_codex_auth_file: RwLock::new(None),
             persist_lock: Mutex::new(()),
             oauth_profiles: DashMap::new(),
+            refresh_locks: DashMap::new(),
         }
     }
 
@@ -221,6 +226,7 @@ impl AuthRuntimeManager {
             .collect::<Vec<_>>();
         for key in stale_keys {
             self.oauth_profiles.remove(&key);
+            self.refresh_locks.remove(&key);
             if let Some((provider, profile_id)) = split_profile_key(&key) {
                 self.remove_persisted_state(provider, profile_id)?;
             }
@@ -276,6 +282,35 @@ impl AuthRuntimeManager {
             .read()
             .map_err(|e| format!("oauth state lock poisoned: {e}"))?;
         Ok(Some(guard.clone()))
+    }
+
+    pub fn shared_state_for_profile(
+        &self,
+        provider: &str,
+        profile_id: &str,
+    ) -> Option<SharedOAuthTokenState> {
+        let key = Self::profile_key(provider, profile_id);
+        self.oauth_profiles
+            .get(&key)
+            .map(|entry| entry.value().clone())
+    }
+
+    pub fn ensure_shared_state(
+        &self,
+        provider: &str,
+        profile_id: &str,
+        state: OAuthTokenState,
+    ) -> Result<SharedOAuthTokenState, String> {
+        let key = Self::profile_key(provider, profile_id);
+        match self.oauth_profiles.entry(key) {
+            Entry::Occupied(entry) => Ok(entry.get().clone()),
+            Entry::Vacant(entry) => {
+                let shared = Arc::new(RwLock::new(state.clone()));
+                entry.insert(shared.clone());
+                self.persist_state(provider, profile_id, &state)?;
+                Ok(shared)
+            }
+        }
     }
 
     pub fn apply_runtime_state(
@@ -364,37 +399,67 @@ impl AuthRuntimeManager {
     pub fn clear_profile_state(&self, provider: &str, profile_id: &str) -> Result<(), String> {
         let key = Self::profile_key(provider, profile_id);
         self.oauth_profiles.remove(&key);
+        self.refresh_locks.remove(&key);
         self.remove_persisted_state(provider, profile_id)
     }
 
-    pub async fn prepare_auth(
-        &self,
-        state: &crate::AppState,
-        auth: &AuthRecord,
-    ) -> Result<(), ProxyError> {
-        if !auth.auth_mode.supports_refresh() {
-            return Ok(());
+    fn refresh_lock_for_profile(&self, provider: &str, profile_id: &str) -> Arc<AsyncMutex<()>> {
+        let key = Self::profile_key(provider, profile_id);
+        match self.refresh_locks.entry(key) {
+            Entry::Occupied(entry) => entry.get().clone(),
+            Entry::Vacant(entry) => {
+                let lock = Arc::new(AsyncMutex::new(()));
+                entry.insert(lock.clone());
+                lock
+            }
         }
-        let Some(shared) = auth.oauth_state.clone() else {
-            return Ok(());
-        };
+    }
+
+    pub async fn refresh_codex_profile(
+        &self,
+        pool: &prism_core::proxy::HttpClientPool,
+        global_proxy: Option<&str>,
+        provider: &str,
+        profile_id: &str,
+        shared: SharedOAuthTokenState,
+        force: bool,
+    ) -> Result<(), ProxyError> {
+        if !force {
+            let skip_refresh = {
+                let guard = shared
+                    .read()
+                    .map_err(|e| ProxyError::Internal(format!("oauth state lock poisoned: {e}")))?;
+                guard.refresh_token.is_empty() || !guard.expires_soon(self.refresh_skew_seconds)
+            };
+            if skip_refresh {
+                return Ok(());
+            }
+        }
+
+        let refresh_lock = self.refresh_lock_for_profile(provider, profile_id);
+        let _guard = refresh_lock.lock().await;
+
         let skip_refresh = {
             let guard = shared
                 .read()
                 .map_err(|e| ProxyError::Internal(format!("oauth state lock poisoned: {e}")))?;
-            guard.refresh_token.is_empty() || !guard.expires_soon(self.refresh_skew_seconds)
+            if guard.refresh_token.is_empty() {
+                if force {
+                    return Err(ProxyError::Auth(
+                        "codex oauth profile missing refresh token".to_string(),
+                    ));
+                }
+                true
+            } else {
+                !force && !guard.expires_soon(self.refresh_skew_seconds)
+            }
         };
         if skip_refresh {
             return Ok(());
         }
 
-        let auth_proxy = state.config.load().managed_auth.proxy_url.clone();
         let refreshed = self
-            .refresh_codex_tokens(
-                &state.http_client_pool,
-                auth_proxy.as_deref(),
-                shared.clone(),
-            )
+            .refresh_codex_tokens(pool, global_proxy, shared.clone())
             .await?;
         {
             let mut guard = shared
@@ -408,9 +473,33 @@ impl AuthRuntimeManager {
             guard.email = refreshed.email.clone();
             guard.last_refresh = Some(refreshed.last_refresh);
         }
-        self.store_codex_tokens(&auth.provider_name, &auth.auth_profile_id, &refreshed)
+        self.store_codex_tokens(provider, profile_id, &refreshed)
             .map_err(ProxyError::Internal)?;
         Ok(())
+    }
+
+    pub async fn prepare_auth(
+        &self,
+        state: &crate::AppState,
+        auth: &AuthRecord,
+    ) -> Result<(), ProxyError> {
+        if !auth.auth_mode.supports_refresh() {
+            return Ok(());
+        }
+        let Some(shared) = auth.oauth_state.clone() else {
+            return Ok(());
+        };
+
+        let auth_proxy = state.config.load().managed_auth.proxy_url.clone();
+        self.refresh_codex_profile(
+            &state.http_client_pool,
+            auth_proxy.as_deref(),
+            &auth.provider_name,
+            &auth.auth_profile_id,
+            shared,
+            false,
+        )
+        .await
     }
 
     pub fn generate_pkce() -> Result<(String, String), ProxyError> {
@@ -727,6 +816,9 @@ impl AuthRuntimeManager {
             .await
             .map_err(|e| format!("oauth read failed: {e}"))?;
         if status != StatusCode::OK {
+            if let Some(message) = explain_oauth_error(&body) {
+                return Err(message);
+            }
             return Err(format!(
                 "oauth exchange failed with status {}: {}",
                 status, body
@@ -931,6 +1023,18 @@ impl AuthRuntimeManager {
 
     fn profile_store_path(&self, storage_dir: &Path, provider: &str, profile_id: &str) -> PathBuf {
         storage_dir.join(profile_store_file_name(provider, profile_id))
+    }
+}
+
+fn explain_oauth_error(body: &str) -> Option<String> {
+    let value: Value = serde_json::from_str(body).ok()?;
+    let error = value.get("error")?;
+    let code = error.get("code").and_then(Value::as_str)?;
+    match code {
+        "refresh_token_reused" => Some(
+            "oauth refresh failed: the stored refresh token was already rotated elsewhere. Sign in again or re-import the latest auth.json, and avoid sharing one imported token bundle across multiple clients.".to_string(),
+        ),
+        _ => None,
     }
 }
 

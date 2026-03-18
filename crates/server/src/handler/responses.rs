@@ -31,6 +31,7 @@ pub async fn responses(
     dispatch(
         &state,
         DispatchRequest {
+            request_path: "/v1/responses".to_string(),
             source_format: Format::OpenAI,
             model: parsed.model,
             models: parsed.models,
