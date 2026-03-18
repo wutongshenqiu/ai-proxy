@@ -27,6 +27,17 @@ pub(super) fn probe_check(
     }
 }
 
+pub(super) fn normalize_base_url(base_url: &str) -> &str {
+    let url = base_url.trim_end_matches('/');
+    if let Some(stripped) = url.strip_suffix("/v1") {
+        stripped
+    } else if let Some(stripped) = url.strip_suffix("/v1beta") {
+        stripped
+    } else {
+        url
+    }
+}
+
 pub(super) fn provider_not_found_response() -> (StatusCode, Json<serde_json::Value>) {
     (
         StatusCode::NOT_FOUND,

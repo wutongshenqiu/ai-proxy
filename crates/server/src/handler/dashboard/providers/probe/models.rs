@@ -6,22 +6,64 @@ use axum::response::IntoResponse;
 use serde_json::json;
 
 use super::FetchModelsRequest;
-use super::common::{build_reqwest_client, client_error_response};
+use super::common::{build_reqwest_client, client_error_response, normalize_base_url};
 use crate::handler::dashboard::providers::helpers::{is_valid_format, parse_upstream_kind};
 
 fn default_base_url(upstream: prism_core::provider::UpstreamKind) -> &'static str {
     upstream.default_base_url()
 }
 
-fn normalize_base_url(base_url: &str) -> &str {
-    let url = base_url.trim_end_matches('/');
-    if let Some(stripped) = url.strip_suffix("/v1") {
-        stripped
-    } else if let Some(stripped) = url.strip_suffix("/v1beta") {
-        stripped
-    } else {
-        url
+fn unsupported_model_discovery_response(
+    message: impl Into<String>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    (
+        StatusCode::OK,
+        Json(json!({
+            "models": [],
+            "supported": false,
+            "message": message.into(),
+        })),
+    )
+}
+
+fn default_fetch_models_response(models: Vec<String>) -> (StatusCode, Json<serde_json::Value>) {
+    (
+        StatusCode::OK,
+        Json(json!({
+            "models": models,
+            "supported": true,
+        })),
+    )
+}
+
+fn is_dashscope_base_url(base_url: &str) -> bool {
+    let base = normalize_base_url(base_url);
+    base.contains("dashscope.aliyuncs.com")
+}
+
+fn model_discovery_unsupported_reason(
+    provider_type: &str,
+    api_key: &str,
+    base_url: &str,
+    upstream: prism_core::provider::UpstreamKind,
+) -> Option<String> {
+    if upstream == prism_core::provider::UpstreamKind::Codex {
+        return Some(
+            "Codex upstream does not support model discovery; configure models manually"
+                .to_string(),
+        );
     }
+
+    if provider_type == "openai"
+        && (api_key.starts_with("sk-sp-") || is_dashscope_base_url(base_url))
+    {
+        return Some(
+            "DashScope coding endpoints do not expose model discovery; configure models manually"
+                .to_string(),
+        );
+    }
+
+    None
 }
 
 pub(super) fn build_models_request(
@@ -103,20 +145,16 @@ pub async fn fetch_models(
         Ok(value) => value,
         Err(response) => return response,
     };
-    if upstream == prism_core::provider::UpstreamKind::Codex {
-        return (
-            StatusCode::UNPROCESSABLE_ENTITY,
-            Json(json!({
-                "error": "validation_failed",
-                "message": "Codex upstream does not support model discovery; configure models manually"
-            })),
-        );
-    }
-
     let base_url = match body.base_url.as_deref().filter(|s| !s.is_empty()) {
         Some(url) => url.to_string(),
         None => default_base_url(upstream).to_string(),
     };
+
+    if let Some(message) =
+        model_discovery_unsupported_reason(format, &body.api_key, &base_url, upstream)
+    {
+        return unsupported_model_discovery_response(message);
+    }
 
     let global_proxy = state.config.load().proxy_url.clone();
     let client = match build_reqwest_client(&state.http_client_pool, global_proxy.as_deref(), 15) {
@@ -149,6 +187,13 @@ pub async fn fetch_models(
     if !response.status().is_success() {
         let status = response.status();
         let body_text = response.text().await.unwrap_or_default();
+        if provider_type_supports_optional_model_discovery(format)
+            && matches!(status.as_u16(), 404 | 405 | 501)
+        {
+            return unsupported_model_discovery_response(format!(
+                "Upstream does not expose model discovery for this provider; configure models manually ({status})"
+            ));
+        }
         return (
             StatusCode::BAD_GATEWAY,
             Json(
@@ -170,5 +215,9 @@ pub async fn fetch_models(
     };
 
     let models = extract_model_ids(format, &body_json);
-    (StatusCode::OK, Json(json!({"models": models})))
+    default_fetch_models_response(models)
+}
+
+fn provider_type_supports_optional_model_discovery(provider_type: &str) -> bool {
+    matches!(provider_type, "openai" | "claude" | "gemini")
 }

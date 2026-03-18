@@ -74,7 +74,11 @@ export function useProviderAtlasRegistryWorkbench({
         base_url: registryForm.baseUrl.trim() || undefined,
       });
       setRegistryForm((current) => ({ ...current, models: result.models.join(', ') }));
-      setRegistryStatus(t('providerAtlas.registryStatus.modelsFetched', { count: result.models.length }));
+      setRegistryStatus(
+        result.supported
+          ? t('providerAtlas.registryStatus.modelsFetched', { count: result.models.length })
+          : (result.message ?? t('providerAtlas.registryError.fetchModels')),
+      );
     } catch (fetchError) {
       setRegistryError(getApiErrorMessage(fetchError, t('providerAtlas.registryError.fetchModels')));
     } finally {

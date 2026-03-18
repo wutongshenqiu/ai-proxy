@@ -108,6 +108,12 @@ export interface ProviderHealthResult {
   checks: ProviderProbeCheck[];
 }
 
+export interface ProviderFetchModelsResult {
+  models: string[];
+  supported: boolean;
+  message?: string | null;
+}
+
 export interface RouteScore {
   weight: number;
   latency_ms?: number;

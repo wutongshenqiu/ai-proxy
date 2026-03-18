@@ -214,6 +214,13 @@ struct MockCodexDeviceServer {
     _task: tokio::task::JoinHandle<()>,
 }
 
+struct MockOpenAiProbeServer {
+    base_url: String,
+    model_requests: Arc<AtomicUsize>,
+    chat_requests: Arc<AtomicUsize>,
+    _task: tokio::task::JoinHandle<()>,
+}
+
 async fn spawn_mock_codex_oauth_server(token_response: Value) -> MockCodexOauthServer {
     async fn authorize() -> Json<Value> {
         Json(json!({"ok": true}))
@@ -376,6 +383,71 @@ async fn spawn_mock_codex_device_server() -> MockCodexDeviceServer {
         user_code_url: format!("http://{addr}/device/usercode"),
         token_url: format!("http://{addr}/device/token"),
         verification_url: format!("http://{addr}/device/verify"),
+        _task: task,
+    }
+}
+
+async fn spawn_mock_openai_probe_server() -> MockOpenAiProbeServer {
+    #[derive(Clone)]
+    struct ProbeState {
+        model_requests: Arc<AtomicUsize>,
+        chat_requests: Arc<AtomicUsize>,
+    }
+
+    async fn list_models(State(state): State<ProbeState>) -> (StatusCode, Json<Value>) {
+        state.model_requests.fetch_add(1, Ordering::SeqCst);
+        (StatusCode::NOT_FOUND, Json(json!({})))
+    }
+
+    async fn chat_completions(
+        State(state): State<ProbeState>,
+        body: String,
+    ) -> (StatusCode, Json<Value>) {
+        state.chat_requests.fetch_add(1, Ordering::SeqCst);
+        assert!(
+            body.contains("Reply with exactly ok."),
+            "expected health probe payload, got {body}"
+        );
+        (
+            StatusCode::OK,
+            Json(json!({
+                "id": "chatcmpl-probe",
+                "object": "chat.completion",
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "ok"
+                    },
+                    "finish_reason": "stop"
+                }]
+            })),
+        )
+    }
+
+    let state = ProbeState {
+        model_requests: Arc::new(AtomicUsize::new(0)),
+        chat_requests: Arc::new(AtomicUsize::new(0)),
+    };
+    let app = Router::new()
+        .route("/v1/models", get(list_models))
+        .route("/v1/chat/completions", post(chat_completions))
+        .with_state(state.clone());
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind mock openai probe listener");
+    let addr = listener.local_addr().expect("mock openai probe addr");
+    let task = tokio::spawn(async move {
+        axum::serve(listener, app)
+            .await
+            .expect("mock openai probe server");
+    });
+
+    MockOpenAiProbeServer {
+        base_url: format!("http://{addr}"),
+        model_requests: state.model_requests,
+        chat_requests: state.chat_requests,
         _task: task,
     }
 }
@@ -2516,6 +2588,75 @@ async fn test_providers_with_same_api_key_across_formats() {
         .collect();
     assert!(names.contains(&"Bailian OpenAI"));
     assert!(names.contains(&"Bailian Claude"));
+}
+
+#[tokio::test]
+async fn test_fetch_models_returns_unsupported_for_dashscope_coding_plan() {
+    let harness = create_test_harness();
+    let token = login_and_get_token(&harness).await;
+
+    let req = authed_post(
+        "/api/dashboard/providers/fetch-models",
+        &token,
+        json!({
+            "format": "openai",
+            "upstream": "openai",
+            "api_key": "sk-sp-shared-test-1234567890abcdef",
+            "base_url": "https://coding.dashscope.aliyuncs.com"
+        }),
+    );
+    let (status, body) = send_request(&harness, req).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["supported"], false);
+    assert_eq!(body["models"], json!([]));
+    assert!(
+        body["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("configure models manually")
+    );
+}
+
+#[tokio::test]
+async fn test_provider_health_uses_live_text_probe_for_openai_compatible_provider() {
+    let probe_server = spawn_mock_openai_probe_server().await;
+    let harness = create_test_harness();
+    let token = login_and_get_token(&harness).await;
+
+    let create_body = json!({
+        "format": "openai",
+        "name": "DashScope Probe",
+        "api_key": "sk-sp-shared-test-1234567890abcdef",
+        "base_url": probe_server.base_url,
+        "models": ["qwen3-coder-plus"]
+    });
+    let req = authed_post("/api/dashboard/providers", &token, create_body);
+    let (status, body) = send_request(&harness, req).await;
+    assert_eq!(status, StatusCode::CREATED, "create failed: {body:?}");
+    reload_runtime_config(&harness);
+
+    let req = authed_post(
+        "/api/dashboard/providers/DashScope%20Probe/health",
+        &token,
+        json!({}),
+    );
+    let (status, body) = send_request(&harness, req).await;
+    assert_eq!(status, StatusCode::OK, "health failed: {body:?}");
+    assert_eq!(body["status"], "ok");
+
+    let checks = body["checks"].as_array().expect("checks should be array");
+    let auth = checks
+        .iter()
+        .find(|check| check["capability"] == "auth")
+        .expect("auth check missing");
+    let text = checks
+        .iter()
+        .find(|check| check["capability"] == "text")
+        .expect("text check missing");
+    assert_eq!(auth["status"], "verified");
+    assert_eq!(text["status"], "verified");
+    assert_eq!(probe_server.model_requests.load(Ordering::SeqCst), 0);
+    assert_eq!(probe_server.chat_requests.load(Ordering::SeqCst), 1);
 }
 
 // ===========================================================================

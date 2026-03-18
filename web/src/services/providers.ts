@@ -1,5 +1,6 @@
 import { apiClient } from './api';
 import type {
+  ProviderFetchModelsResult,
   PresentationPreviewResponse,
   ProviderCreateRequest,
   ProviderCapabilitiesResponse,
@@ -35,7 +36,7 @@ export const providersApi = {
       .data,
 
   fetchModels: async (body: { format: string; upstream?: string; api_key: string; base_url?: string | null }) =>
-    (await apiClient.post<{ models: string[] }>('/providers/fetch-models', body)).data,
+    (await apiClient.post<ProviderFetchModelsResult>('/providers/fetch-models', body)).data,
 
   presentationPreview: async (
     name: string,

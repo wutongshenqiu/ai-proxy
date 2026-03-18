@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
+    "test:providers-live": "node scripts/live-provider-matrix-check.mjs",
     "test:real-flow": "node scripts/real-flow-check.mjs",
     "test:e2e": "node scripts/real-flow-check.mjs"
   },
