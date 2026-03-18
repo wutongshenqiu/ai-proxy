@@ -1,5 +1,6 @@
 import { Panel } from '../Panel';
 import { StatusPill } from '../StatusPill';
+import { useI18n } from '../../i18n';
 import { headersToDraft } from '../../lib/routeStudio';
 import type { RouteRule, RoutingConfig } from '../../types/backend';
 import type { RouteScenarioRow, RouteStudioResponse } from '../../types/controlPlane';
@@ -67,46 +68,48 @@ export function RouteStudioOverview({
   onProfileJsonChange,
   onModelResolutionDraftChange,
 }: RouteStudioOverviewProps) {
+  const { t, tx } = useI18n();
+
   return (
     <>
       {selectedScenario ? (
         <div className="status-message status-message--warning">
-          Active scenario: <strong>{selectedScenario.scenario}</strong> · winner {selectedScenario.winner} · {selectedScenario.delta}
+          {t('routeStudio.status.activeScenario')} <strong>{selectedScenario.scenario}</strong> · {t('routeStudio.status.winner')} {selectedScenario.winner} · {selectedScenario.delta}
         </div>
       ) : null}
       {routingStatus ? <div className="status-message status-message--success">{routingStatus}</div> : null}
       {routingError ? <div className="status-message status-message--danger">{routingError}</div> : null}
 
       <div className="two-column">
-        <Panel title="Routing summary" subtitle="Current routing truth and selected draft posture.">
+        <Panel title={t('routeStudio.panel.summary.title')} subtitle={t('routeStudio.panel.summary.subtitle')}>
           <ul className="fact-list">
             {(data?.summary_facts ?? []).map((fact) => (
-              <li key={fact.label}><span>{fact.label}</span><strong>{fact.value}</strong></li>
+              <li key={`${fact.label.key}-${fact.value}`}><span>{tx(fact.label)}</span><strong>{fact.value}</strong></li>
             ))}
             {routingDraft ? (
               <>
-                <li><span>Default profile</span><strong>{routingDraft['default-profile']}</strong></li>
-                <li><span>Profiles</span><strong>{profileNames.length}</strong></li>
-                <li><span>Rules</span><strong>{routingDraft.rules.length}</strong></li>
+                <li><span>{t('routeStudio.fact.defaultProfile')}</span><strong>{routingDraft['default-profile']}</strong></li>
+                <li><span>{t('routeStudio.fact.profiles')}</span><strong>{profileNames.length}</strong></li>
+                <li><span>{t('routeStudio.fact.rules')}</span><strong>{routingDraft.rules.length}</strong></li>
               </>
             ) : null}
           </ul>
         </Panel>
-        <Panel title="Explain posture" subtitle="Planner behavior distilled into operator-readable facts.">
+        <Panel title={t('routeStudio.panel.explain.title')} subtitle={t('routeStudio.panel.explain.subtitle')}>
           <ul className="fact-list">
             {(data?.explain_facts ?? []).map((fact) => (
-              <li key={fact.label}><span>{fact.label}</span><strong>{fact.value}</strong></li>
+              <li key={`${fact.label.key}-${fact.value}`}><span>{tx(fact.label)}</span><strong>{fact.value}</strong></li>
             ))}
           </ul>
         </Panel>
       </div>
 
       <div className="two-column">
-        <Panel title="Routing authoring" subtitle="Default profile switching and profile policy selection stay in the main workbench.">
-          {routingLoading && !routingDraft ? <div className="status-message">Loading routing draft…</div> : null}
+        <Panel title={t('routeStudio.panel.authoring.title')} subtitle={t('routeStudio.panel.authoring.subtitle')}>
+          {routingLoading && !routingDraft ? <div className="status-message">{t('routeStudio.loading.draft')}</div> : null}
           <div className="sheet-form">
             <label className="sheet-field">
-              <span>Default profile</span>
+              <span>{t('routeStudio.fact.defaultProfile')}</span>
               <select
                 value={routingDraft?.['default-profile'] ?? ''}
                 onChange={(event) => onDefaultProfileChange(event.target.value)}
@@ -118,7 +121,7 @@ export function RouteStudioOverview({
               </select>
             </label>
             <label className="sheet-field">
-              <span>Selected profile</span>
+              <span>{t('routeStudio.authoring.selectedProfile')}</span>
               <select
                 value={selectedProfileName ?? ''}
                 onChange={(event) => onSelectedProfileChange(event.target.value)}
@@ -132,129 +135,87 @@ export function RouteStudioOverview({
           </div>
           <div className="inline-actions">
             <button type="button" className="button button--ghost" onClick={onResetDraft} disabled={!routingConfig}>
-              Reset draft
+              {t('routeStudio.authoring.resetDraft')}
             </button>
             <button type="button" className="button button--primary" onClick={onSaveDraft} disabled={savingDraft || !routingDraft}>
-              {savingDraft ? 'Saving…' : 'Save routing'}
+              {savingDraft ? t('routeStudio.authoring.saving') : t('routeStudio.authoring.saveDraft')}
             </button>
           </div>
         </Panel>
 
-        <Panel title="Selected rule editor" subtitle="Rule CRUD belongs here, not in raw YAML.">
+        <Panel title={t('routeStudio.panel.ruleEditor.title')} subtitle={t('routeStudio.panel.ruleEditor.subtitle')}>
           {selectedRule ? (
             <div className="sheet-form">
               <label className="sheet-field">
-                <span>Rule name</span>
-                <input
-                  name="route-rule-name"
-                  autoComplete="off"
-                  value={selectedRule.name}
-                  onChange={(event) => onRuleFieldUpdate('name', event.target.value)}
-                />
+                <span>{t('routeStudio.rule.name')}</span>
+                <input name="route-rule-name" autoComplete="off" value={selectedRule.name} onChange={(event) => onRuleFieldUpdate('name', event.target.value)} />
               </label>
               <label className="sheet-field">
-                <span>Priority</span>
-                <input
-                  name="route-rule-priority"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  value={selectedRule.priority?.toString() ?? ''}
-                  onChange={(event) => onRuleFieldUpdate('priority', event.target.value)}
-                />
+                <span>{t('routeStudio.rule.priority')}</span>
+                <input name="route-rule-priority" inputMode="numeric" autoComplete="off" value={selectedRule.priority?.toString() ?? ''} onChange={(event) => onRuleFieldUpdate('priority', event.target.value)} />
               </label>
               <label className="sheet-field">
-                <span>Use profile</span>
-                <select
-                  value={selectedRule['use-profile']}
-                  onChange={(event) => onRuleFieldUpdate('use-profile', event.target.value)}
-                >
+                <span>{t('routeStudio.rule.useProfile')}</span>
+                <select value={selectedRule['use-profile']} onChange={(event) => onRuleFieldUpdate('use-profile', event.target.value)}>
                   {profileNames.map((name) => (
                     <option key={name} value={name}>{name}</option>
                   ))}
                 </select>
               </label>
               <label className="sheet-field">
-                <span>Models</span>
-                <input
-                  name="route-rule-models"
-                  autoComplete="off"
-                  value={selectedRule.match.models?.join(', ') ?? ''}
-                  onChange={(event) => onRuleMatchUpdate('models', event.target.value)}
-                />
+                <span>{t('routeStudio.rule.models')}</span>
+                <input name="route-rule-models" autoComplete="off" value={selectedRule.match.models?.join(', ') ?? ''} onChange={(event) => onRuleMatchUpdate('models', event.target.value)} />
               </label>
               <label className="sheet-field">
-                <span>Tenants</span>
-                <input
-                  name="route-rule-tenants"
-                  autoComplete="off"
-                  value={selectedRule.match.tenants?.join(', ') ?? ''}
-                  onChange={(event) => onRuleMatchUpdate('tenants', event.target.value)}
-                />
+                <span>{t('routeStudio.rule.tenants')}</span>
+                <input name="route-rule-tenants" autoComplete="off" value={selectedRule.match.tenants?.join(', ') ?? ''} onChange={(event) => onRuleMatchUpdate('tenants', event.target.value)} />
               </label>
               <label className="sheet-field">
-                <span>Endpoints</span>
-                <input
-                  name="route-rule-endpoints"
-                  autoComplete="off"
-                  value={selectedRule.match.endpoints?.join(', ') ?? ''}
-                  onChange={(event) => onRuleMatchUpdate('endpoints', event.target.value)}
-                />
+                <span>{t('routeStudio.rule.endpoints')}</span>
+                <input name="route-rule-endpoints" autoComplete="off" value={selectedRule.match.endpoints?.join(', ') ?? ''} onChange={(event) => onRuleMatchUpdate('endpoints', event.target.value)} />
               </label>
               <label className="sheet-field">
-                <span>Regions</span>
-                <input
-                  name="route-rule-regions"
-                  autoComplete="off"
-                  value={selectedRule.match.regions?.join(', ') ?? ''}
-                  onChange={(event) => onRuleMatchUpdate('regions', event.target.value)}
-                />
+                <span>{t('routeStudio.rule.regions')}</span>
+                <input name="route-rule-regions" autoComplete="off" value={selectedRule.match.regions?.join(', ') ?? ''} onChange={(event) => onRuleMatchUpdate('regions', event.target.value)} />
               </label>
               <label className="sheet-field">
-                <span>Headers</span>
-                <textarea
-                  className="yaml-editor"
-                  value={headersToDraft(selectedRule.match.headers)}
-                  onChange={(event) => onRuleMatchUpdate('headers', event.target.value)}
-                />
+                <span>{t('routeStudio.rule.headers')}</span>
+                <textarea className="yaml-editor" value={headersToDraft(selectedRule.match.headers)} onChange={(event) => onRuleMatchUpdate('headers', event.target.value)} />
               </label>
               <label className="detail-grid__row">
-                <span>Streaming only</span>
-                <input
-                  type="checkbox"
-                  checked={selectedRule.match.stream ?? false}
-                  onChange={(event) => onRuleMatchUpdate('stream', event.target.checked)}
-                />
+                <span>{t('routeStudio.rule.streamOnly')}</span>
+                <input type="checkbox" checked={selectedRule.match.stream ?? false} onChange={(event) => onRuleMatchUpdate('stream', event.target.checked)} />
               </label>
             </div>
           ) : (
-            <div className="status-message">Select or create a rule to begin editing.</div>
+            <div className="status-message">{t('routeStudio.rule.empty')}</div>
           )}
         </Panel>
       </div>
 
       <div className="two-column">
-        <Panel title="Rule registry" subtitle="Rules can be added, selected, and removed without losing blast-radius context.">
+        <Panel title={t('routeStudio.panel.registry.title')} subtitle={t('routeStudio.panel.registry.subtitle')}>
           <div className="inline-actions">
             <button type="button" className="button button--ghost" onClick={onCreateRule} disabled={!routingDraft}>
-              New rule
+              {t('routeStudio.registry.newRule')}
             </button>
             <button type="button" className="button button--ghost" onClick={onDeleteSelectedRule} disabled={!routingDraft || selectedRuleIndex === null}>
-              Delete selected
+              {t('routeStudio.registry.deleteSelected')}
             </button>
           </div>
           <div className="table-grid table-grid--routes">
-            <div className="table-grid__head">Rule</div>
-            <div className="table-grid__head">Profile</div>
-            <div className="table-grid__head">Priority</div>
-            <div className="table-grid__head">Matchers</div>
+            <div className="table-grid__head">{t('routeStudio.registry.rule')}</div>
+            <div className="table-grid__head">{t('routeStudio.registry.profile')}</div>
+            <div className="table-grid__head">{t('routeStudio.registry.priority')}</div>
+            <div className="table-grid__head">{t('routeStudio.registry.matchers')}</div>
             {(routingDraft?.rules ?? []).flatMap((rule, index) => {
               const selected = index === selectedRuleIndex;
               const cellClass = `table-grid__cell ${selected ? 'is-selected' : ''} is-clickable`;
               const matchers = [
-                rule.match.models?.length ? `${rule.match.models.length} models` : null,
-                rule.match.tenants?.length ? `${rule.match.tenants.length} tenants` : null,
-                rule.match.endpoints?.length ? `${rule.match.endpoints.length} endpoints` : null,
-              ].filter(Boolean).join(' · ') || 'default';
+                rule.match.models?.length ? t('routeStudio.registry.matchersModels', { count: rule.match.models.length }) : null,
+                rule.match.tenants?.length ? t('routeStudio.registry.matchersTenants', { count: rule.match.tenants.length }) : null,
+                rule.match.endpoints?.length ? t('routeStudio.registry.matchersEndpoints', { count: rule.match.endpoints.length }) : null,
+              ].filter(Boolean).join(' · ') || t('common.default');
               return [
                 <div key={`${rule.name}-name`} className={`${cellClass} table-grid__cell--strong`} onClick={() => onSelectRuleIndex(index)}>
                   {rule.name}
@@ -263,7 +224,7 @@ export function RouteStudioOverview({
                   {rule['use-profile']}
                 </div>,
                 <div key={`${rule.name}-priority`} className={cellClass} onClick={() => onSelectRuleIndex(index)}>
-                  {rule.priority ?? 'n/a'}
+                  {rule.priority ?? t('common.notAvailable')}
                 </div>,
                 <div key={`${rule.name}-match`} className={cellClass} onClick={() => onSelectRuleIndex(index)}>
                   {matchers}
@@ -273,23 +234,19 @@ export function RouteStudioOverview({
           </div>
         </Panel>
 
-        <Panel title="Scenario matrix" subtitle="Sampled route explanations from live traffic and configured models.">
+        <Panel title={t('routeStudio.panel.scenarios.title')} subtitle={t('routeStudio.panel.scenarios.subtitle')}>
           <div className="table-grid table-grid--routes">
-            <div className="table-grid__head">Scenario</div>
-            <div className="table-grid__head">Winner</div>
-            <div className="table-grid__head">Delta</div>
-            <div className="table-grid__head">Route state</div>
-            {loading && !data ? <div className="table-grid__cell">Loading scenarios…</div> : null}
+            <div className="table-grid__head">{t('routeStudio.scenario.scenario')}</div>
+            <div className="table-grid__head">{t('routeStudio.scenario.winner')}</div>
+            <div className="table-grid__head">{t('routeStudio.scenario.delta')}</div>
+            <div className="table-grid__head">{t('routeStudio.scenario.routeState')}</div>
+            {loading && !data ? <div className="table-grid__cell">{t('routeStudio.loading.scenarios')}</div> : null}
             {error && !data ? <div className="table-grid__cell">{error}</div> : null}
             {(data?.scenarios ?? []).flatMap((scenario) => {
               const selected = scenario.scenario === selectedScenarioId;
               const cellClass = `table-grid__cell ${selected ? 'is-selected' : ''} is-clickable`;
               return [
-                <div
-                  key={`${scenario.scenario}-scenario`}
-                  className={`${cellClass} table-grid__cell--strong`}
-                  onClick={() => onSelectScenario(scenario.scenario)}
-                >
+                <div key={`${scenario.scenario}-scenario`} className={`${cellClass} table-grid__cell--strong`} onClick={() => onSelectScenario(scenario.scenario)}>
                   {scenario.scenario}
                 </div>,
                 <div key={`${scenario.scenario}-winner`} className={cellClass} onClick={() => onSelectScenario(scenario.scenario)}>
@@ -299,7 +256,7 @@ export function RouteStudioOverview({
                   {scenario.delta}
                 </div>,
                 <div key={`${scenario.scenario}-decision`} className={cellClass} onClick={() => onSelectScenario(scenario.scenario)}>
-                  <StatusPill label={scenario.decision} tone={scenario.decision_tone} />
+                  <StatusPill label={tx(scenario.decision)} tone={scenario.decision_tone} />
                 </div>,
               ];
             })}
@@ -308,21 +265,11 @@ export function RouteStudioOverview({
       </div>
 
       <div className="two-column">
-        <Panel title="Advanced profile policy" subtitle="Edit the selected route profile directly when the structured fields are not enough.">
-          <textarea
-            className="yaml-editor"
-            value={profileJsonDraft}
-            onChange={(event) => onProfileJsonChange(event.target.value)}
-            spellCheck={false}
-          />
+        <Panel title={t('routeStudio.panel.advancedProfile.title')} subtitle={t('routeStudio.panel.advancedProfile.subtitle')}>
+          <textarea className="yaml-editor" value={profileJsonDraft} onChange={(event) => onProfileJsonChange(event.target.value)} spellCheck={false} />
         </Panel>
-        <Panel title="Model resolution" subtitle="Alias, rewrite, fallback, and provider pins stay explicit in the same draft.">
-          <textarea
-            className="yaml-editor"
-            value={modelResolutionDraft}
-            onChange={(event) => onModelResolutionDraftChange(event.target.value)}
-            spellCheck={false}
-          />
+        <Panel title={t('routeStudio.panel.modelResolution.title')} subtitle={t('routeStudio.panel.modelResolution.subtitle')}>
+          <textarea className="yaml-editor" value={modelResolutionDraft} onChange={(event) => onModelResolutionDraftChange(event.target.value)} spellCheck={false} />
         </Panel>
       </div>
     </>

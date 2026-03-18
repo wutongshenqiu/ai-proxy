@@ -20,7 +20,8 @@ use super::{
     },
     types::{
         FactRow, InspectorRow, InspectorSection, TimelineStep, TrafficLabResponse,
-        TrafficSessionItem, WorkspaceInspector, WorkspaceQuery,
+        TrafficSessionItem, UiText, WorkspaceAction, WorkspaceActionEffect, WorkspaceInspector,
+        WorkspaceQuery, raw_text,
     },
 };
 
@@ -44,27 +45,27 @@ pub async fn traffic_lab(
         .map(|record| build_traffic_trace(&state, record))
         .unwrap_or_else(|| {
             vec![TimelineStep {
-                label: "No traffic".to_string(),
+                label: UiText::new("trafficLab.trace.empty.label"),
                 tone: "neutral".to_string(),
-                title: "No request sessions available".to_string(),
-                detail: "The selected time range has no request log entries yet.".to_string(),
+                title: UiText::new("trafficLab.trace.empty.title"),
+                detail: UiText::new("trafficLab.trace.empty.detail"),
             }]
         });
     let compare_facts = vec![
         FactRow {
-            label: "Window".to_string(),
+            label: UiText::new("common.window"),
             value: query.range.clone(),
         },
         FactRow {
-            label: "Entries".to_string(),
+            label: UiText::new("trafficLab.fact.entries"),
             value: stats.total_entries.to_string(),
         },
         FactRow {
-            label: "Errors".to_string(),
+            label: UiText::new("trafficLab.fact.errors"),
             value: stats.error_count.to_string(),
         },
         FactRow {
-            label: "Avg latency".to_string(),
+            label: UiText::new("trafficLab.fact.avgLatency"),
             value: format!("{} ms", stats.avg_latency_ms),
         },
     ];
@@ -81,11 +82,17 @@ pub async fn traffic_lab(
 
 fn traffic_session_item(record: &RequestRecord) -> TrafficSessionItem {
     let decision = if record.total_attempts > 1 {
-        format!("Fallback after {} attempts", record.total_attempts)
+        UiText::with_values(
+            "trafficLab.session.decision.fallback",
+            [("attempts", record.total_attempts)],
+        )
     } else if let Some(provider) = &record.provider {
-        format!("Primary {} served request", provider)
+        UiText::with_values(
+            "trafficLab.session.decision.primary",
+            [("provider", provider.clone())],
+        )
     } else {
-        "Provider not resolved".to_string()
+        UiText::new("trafficLab.session.decision.unresolved")
     };
     let (result, result_tone) = request_result(record);
 
@@ -103,22 +110,22 @@ fn traffic_session_item(record: &RequestRecord) -> TrafficSessionItem {
     }
 }
 
-fn request_result(record: &RequestRecord) -> (String, &'static str) {
+fn request_result(record: &RequestRecord) -> (UiText, &'static str) {
     if record.status >= 500 || record.error.is_some() {
-        return ("Failed".to_string(), "danger");
+        return (UiText::new("trafficLab.result.failed"), "danger");
     }
     if record.total_attempts > 1 {
-        return ("Recovered".to_string(), "warning");
+        return (UiText::new("trafficLab.result.recovered"), "warning");
     }
-    ("Success".to_string(), "success")
+    (UiText::new("trafficLab.result.success"), "success")
 }
 
 fn build_traffic_trace(state: &AppState, record: &RequestRecord) -> Vec<TimelineStep> {
     let mut steps = Vec::new();
     steps.push(TimelineStep {
-        label: "Ingress".to_string(),
+        label: UiText::new("trafficLab.trace.ingress.label"),
         tone: "info".to_string(),
-        title: format!(
+        title: raw_text(format!(
             "{} {}",
             record.method,
             record
@@ -126,8 +133,8 @@ fn build_traffic_trace(state: &AppState, record: &RequestRecord) -> Vec<Timeline
                 .clone()
                 .or_else(|| record.model.clone())
                 .unwrap_or_else(|| "unknown-model".to_string())
-        ),
-        detail: format!(
+        )),
+        detail: raw_text(format!(
             "{} request entered {}{}",
             record.path,
             record
@@ -136,7 +143,7 @@ fn build_traffic_trace(state: &AppState, record: &RequestRecord) -> Vec<Timeline
                 .map(|tenant| format!("tenant {}", tenant))
                 .unwrap_or_else(|| "gateway scope".to_string()),
             if record.stream { " as stream" } else { "" }
-        ),
+        )),
     });
 
     if let Some(explanation) = explain_record(state, record)
@@ -144,37 +151,45 @@ fn build_traffic_trace(state: &AppState, record: &RequestRecord) -> Vec<Timeline
     {
         let rejection_count = explanation.rejections.len();
         steps.push(TimelineStep {
-            label: "Route explain".to_string(),
+            label: UiText::new("trafficLab.trace.routeExplain.label"),
             tone: if rejection_count > 0 {
                 "warning"
             } else {
                 "success"
             }
             .to_string(),
-            title: format!("{} selected {}", explanation.profile, selected.provider),
+            title: UiText::with_values(
+                "trafficLab.trace.routeExplain.title",
+                [
+                    ("profile", explanation.profile.clone()),
+                    ("provider", selected.provider.clone()),
+                ],
+            ),
             detail: if rejection_count > 0 {
-                format!(
-                    "{} rejections observed before final route selection.",
-                    rejection_count
+                UiText::with_values(
+                    "trafficLab.trace.routeExplain.detail.rejections",
+                    [("count", rejection_count)],
                 )
             } else {
-                "Planner selected a provider without rejections.".to_string()
+                UiText::new("trafficLab.trace.routeExplain.detail.clean")
             },
         });
     }
 
     if record.attempts.is_empty() {
         steps.push(TimelineStep {
-            label: "Execution".to_string(),
+            label: UiText::new("trafficLab.trace.execution.label"),
             tone: request_result(record).1.to_string(),
-            title: record
-                .provider
-                .clone()
-                .unwrap_or_else(|| "No upstream attempt captured".to_string()),
-            detail: format!(
+            title: raw_text(
+                record
+                    .provider
+                    .clone()
+                    .unwrap_or_else(|| "No upstream attempt captured".to_string()),
+            ),
+            detail: raw_text(format!(
                 "Finished with HTTP {} in {} ms.",
                 record.status, record.latency_ms
-            ),
+            )),
         });
     } else {
         steps.extend(record.attempts.iter().take(4).map(attempt_timeline_step));
@@ -204,10 +219,13 @@ fn attempt_timeline_step(attempt: &AttemptSummary) -> TimelineStep {
     });
 
     TimelineStep {
-        label: format!("Attempt {}", attempt.attempt_index + 1),
+        label: UiText::with_values(
+            "trafficLab.trace.attempt.label",
+            [("index", attempt.attempt_index + 1)],
+        ),
         tone: tone.to_string(),
-        title: format!("{} / {}", attempt.provider, attempt.model),
-        detail,
+        title: raw_text(format!("{} / {}", attempt.provider, attempt.model)),
+        detail: raw_text(detail),
     }
 }
 
@@ -240,73 +258,101 @@ fn traffic_inspector(record: Option<&RequestRecord>, query: &WorkspaceQuery) -> 
     if let Some(record) = record {
         let (outcome, _) = request_result(record);
         return WorkspaceInspector {
-            eyebrow: "SESSION / SELECTED".to_string(),
-            title: record.request_id.clone(),
-            summary: record.error.clone().unwrap_or_else(|| {
-                format!(
-                    "{} via {}",
-                    outcome,
-                    record
-                        .provider
-                        .clone()
-                        .unwrap_or_else(|| "unknown-provider".to_string())
+            eyebrow: UiText::new("trafficLab.inspector.selected.eyebrow"),
+            title: raw_text(record.request_id.clone()),
+            summary: record.error.clone().map(raw_text).unwrap_or_else(|| {
+                UiText::with_values(
+                    "trafficLab.inspector.selected.summary",
+                    [(
+                        "provider",
+                        record
+                            .provider
+                            .clone()
+                            .unwrap_or_else(|| "unknown-provider".to_string()),
+                    )],
                 )
             }),
             sections: vec![
                 InspectorSection {
-                    title: "Execution".to_string(),
+                    title: UiText::new("trafficLab.inspector.execution"),
                     rows: vec![
                         InspectorRow {
-                            label: "Outcome".to_string(),
-                            value: outcome,
+                            label: UiText::new("trafficLab.inspector.outcome"),
+                            value: outcome.key.clone(),
+                            value_text: Some(outcome.clone()),
                         },
                         InspectorRow {
-                            label: "Latency".to_string(),
+                            label: UiText::new("common.latency"),
                             value: format!("{} ms", record.latency_ms),
+                            value_text: None,
                         },
                         InspectorRow {
-                            label: "Attempts".to_string(),
+                            label: UiText::new("trafficLab.inspector.attempts"),
                             value: record.total_attempts.to_string(),
+                            value_text: None,
                         },
                     ],
                 },
                 InspectorSection {
-                    title: "Context".to_string(),
+                    title: UiText::new("trafficLab.inspector.context"),
                     rows: vec![
                         InspectorRow {
-                            label: "Provider".to_string(),
+                            label: UiText::new("common.provider"),
                             value: record
                                 .provider
                                 .clone()
                                 .unwrap_or_else(|| "unknown".to_string()),
+                            value_text: None,
                         },
                         InspectorRow {
-                            label: "Tenant".to_string(),
+                            label: UiText::new("common.tenant"),
                             value: record
                                 .tenant_id
                                 .clone()
                                 .unwrap_or_else(|| "unscoped".to_string()),
+                            value_text: None,
                         },
                         InspectorRow {
-                            label: "Source".to_string(),
+                            label: UiText::new("common.source"),
                             value: query.source_mode.clone(),
+                            value_text: Some(UiText::new(format!("common.{}", query.source_mode))),
                         },
                     ],
                 },
             ],
             actions: vec![
-                "Open raw log".to_string(),
-                "Explain route".to_string(),
-                "Compare current window".to_string(),
+                WorkspaceAction {
+                    id: "open-raw-log".to_string(),
+                    label: UiText::new("trafficLab.action.openRawLog"),
+                    effect: WorkspaceActionEffect::Navigate,
+                    target_workspace: Some("traffic-lab".to_string()),
+                },
+                WorkspaceAction {
+                    id: "explain-route".to_string(),
+                    label: UiText::new("trafficLab.action.explainRoute"),
+                    effect: WorkspaceActionEffect::Navigate,
+                    target_workspace: Some("route-studio".to_string()),
+                },
+                WorkspaceAction {
+                    id: "compare-window".to_string(),
+                    label: UiText::new("trafficLab.action.compareWindow"),
+                    effect: WorkspaceActionEffect::Navigate,
+                    target_workspace: Some("traffic-lab".to_string()),
+                },
             ],
         };
     }
 
     WorkspaceInspector {
-        eyebrow: "SESSION / EMPTY".to_string(),
-        title: "No request session selected".to_string(),
-        summary: "The selected time range does not currently contain request sessions.".to_string(),
+        eyebrow: UiText::new("trafficLab.inspector.empty.eyebrow"),
+        title: UiText::new("trafficLab.inspector.empty.title"),
+        summary: UiText::new("trafficLab.inspector.empty.summary"),
         sections: vec![],
-        actions: vec!["Refresh".to_string()],
+        actions: vec![WorkspaceAction {
+            id: "refresh-workspace".to_string(),
+            label: UiText::new("shell.action.refreshWorkspace"),
+            effect: WorkspaceActionEffect::Reload,
+            target_workspace: None,
+        }],
     }
 }

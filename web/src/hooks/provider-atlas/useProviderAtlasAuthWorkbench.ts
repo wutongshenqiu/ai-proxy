@@ -1,4 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react';
+import { useI18n } from '../../i18n';
 import { getApiErrorMessage } from '../../services/errors';
 import type {
   AuthProfilesRuntimeResponse,
@@ -24,6 +25,7 @@ export function useProviderAtlasAuthWorkbench({
   setDetail,
   setRuntimeInfo,
 }: UseProviderAtlasAuthWorkbenchOptions) {
+  const { t } = useI18n();
   const selection = useProviderAtlasAuthSelection({
     providers,
     selectedProvider,
@@ -102,7 +104,7 @@ export function useProviderAtlasAuthWorkbench({
     try {
       await openSelectionWorkbench();
     } catch (loadError) {
-      setAuthError(getApiErrorMessage(loadError, 'Failed to load auth profiles'));
+      setAuthError(getApiErrorMessage(loadError, t('providerAtlas.authError.loadProfiles')));
     }
   };
 

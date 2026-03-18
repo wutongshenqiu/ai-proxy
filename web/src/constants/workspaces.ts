@@ -1,47 +1,72 @@
 import type { ShellInspectorState, WorkspaceId } from '../types/shell';
+import { text } from '../i18n';
 
-export const WORKSPACES: Array<{ id: WorkspaceId; label: string; summary: string }> = [
-  { id: 'command-center', label: 'Command Center', summary: 'Signals, watch windows, and runtime posture' },
-  { id: 'traffic-lab', label: 'Traffic Lab', summary: 'Request sessions, evidence, and explain flows' },
-  { id: 'provider-atlas', label: 'Provider Atlas', summary: 'Provider identity, auth posture, and capability truth' },
-  { id: 'route-studio', label: 'Route Studio', summary: 'Routing rules, explain truth, and scenario impact' },
-  { id: 'change-studio', label: 'Change Studio', summary: 'Config registry, transaction truth, and rollout posture' },
+export const WORKSPACES: Array<{
+  id: WorkspaceId;
+  label: ReturnType<typeof text>;
+  summary: ReturnType<typeof text>;
+}> = [
+  {
+    id: 'command-center',
+    label: text('shell.workspace.command-center.label'),
+    summary: text('shell.workspace.command-center.summary'),
+  },
+  {
+    id: 'traffic-lab',
+    label: text('shell.workspace.traffic-lab.label'),
+    summary: text('shell.workspace.traffic-lab.summary'),
+  },
+  {
+    id: 'provider-atlas',
+    label: text('shell.workspace.provider-atlas.label'),
+    summary: text('shell.workspace.provider-atlas.summary'),
+  },
+  {
+    id: 'route-studio',
+    label: text('shell.workspace.route-studio.label'),
+    summary: text('shell.workspace.route-studio.summary'),
+  },
+  {
+    id: 'change-studio',
+    label: text('shell.workspace.change-studio.label'),
+    summary: text('shell.workspace.change-studio.summary'),
+  },
 ];
 
 export const DEFAULT_INSPECTORS: Record<WorkspaceId, ShellInspectorState> = {
   'command-center': {
-    eyebrow: 'SIGNAL / LOADING',
-    title: 'Runtime posture',
-    summary: 'Loading current control-plane posture.',
+    eyebrow: text('shell.defaultInspector.commandCenter.eyebrow'),
+    title: text('shell.defaultInspector.commandCenter.title'),
+    summary: text('shell.defaultInspector.commandCenter.summary'),
     sections: [],
-    actions: ['Refresh workspace'],
+    actions: [{ id: 'refresh-workspace', label: text('shell.action.refreshWorkspace'), effect: 'reload' }],
   },
   'traffic-lab': {
-    eyebrow: 'SESSION / LOADING',
-    title: 'Request sessions',
-    summary: 'Loading current traffic evidence.',
+    eyebrow: text('shell.defaultInspector.trafficLab.eyebrow'),
+    title: text('shell.defaultInspector.trafficLab.title'),
+    summary: text('shell.defaultInspector.trafficLab.summary'),
     sections: [],
-    actions: ['Refresh workspace'],
+    actions: [{ id: 'refresh-workspace', label: text('shell.action.refreshWorkspace'), effect: 'reload' }],
   },
   'provider-atlas': {
-    eyebrow: 'PROVIDER / LOADING',
-    title: 'Provider posture',
-    summary: 'Loading provider identity and auth posture.',
+    eyebrow: text('shell.defaultInspector.providerAtlas.eyebrow'),
+    title: text('shell.defaultInspector.providerAtlas.title'),
+    summary: text('shell.defaultInspector.providerAtlas.summary'),
     sections: [],
-    actions: ['Refresh workspace'],
+    actions: [{ id: 'refresh-workspace', label: text('shell.action.refreshWorkspace'), effect: 'reload' }],
   },
   'route-studio': {
-    eyebrow: 'ROUTE / LOADING',
-    title: 'Routing control',
-    summary: 'Loading routing explain truth.',
+    eyebrow: text('shell.defaultInspector.routeStudio.eyebrow'),
+    title: text('shell.defaultInspector.routeStudio.title'),
+    summary: text('shell.defaultInspector.routeStudio.summary'),
     sections: [],
-    actions: ['Refresh workspace'],
+    actions: [{ id: 'refresh-workspace', label: text('shell.action.refreshWorkspace'), effect: 'reload' }],
   },
   'change-studio': {
-    eyebrow: 'CHANGE / LOADING',
-    title: 'Config transactions',
-    summary: 'Loading configuration transaction posture.',
+    eyebrow: text('shell.defaultInspector.changeStudio.eyebrow'),
+    title: text('shell.defaultInspector.changeStudio.title'),
+    summary: text('shell.defaultInspector.changeStudio.summary'),
     sections: [],
-    actions: ['Refresh workspace'],
+    actions: [{ id: 'refresh-workspace', label: text('shell.action.refreshWorkspace'), effect: 'reload' }],
   },
 };

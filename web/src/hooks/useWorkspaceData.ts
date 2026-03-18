@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useI18n } from '../i18n';
 import { controlPlaneApi } from '../services/controlPlane';
 import { getApiErrorMessage, isAbortLikeError } from '../services/errors';
 import { useShellStore } from '../stores/shellStore';
@@ -25,6 +26,7 @@ function useWorkspaceResource<T extends { inspector: import('../types/shell').Sh
   workspaceId: WorkspaceId,
   fetcher: Fetcher<T>,
 ): WorkspaceState<T> {
+  const { t } = useI18n();
   const timeRange = useShellStore((state) => state.timeRange);
   const sourceMode = useShellStore((state) => state.sourceMode);
   const live = useShellStore((state) => state.live);
@@ -64,7 +66,7 @@ function useWorkspaceResource<T extends { inspector: import('../types/shell').Sh
           return;
         }
 
-        const message = getApiErrorMessage(error, 'Failed to load control-plane workspace');
+        const message = getApiErrorMessage(error, t('workspace.error.load'));
         setState((current) => ({
           ...current,
           data: current.data,
@@ -73,7 +75,7 @@ function useWorkspaceResource<T extends { inspector: import('../types/shell').Sh
         }));
       }
     },
-    [fetcher, setInspector, sourceMode, timeRange, workspaceId],
+    [fetcher, setInspector, sourceMode, t, timeRange, workspaceId],
   );
 
   useEffect(() => {

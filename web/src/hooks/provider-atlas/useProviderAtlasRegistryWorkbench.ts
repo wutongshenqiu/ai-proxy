@@ -1,4 +1,5 @@
 import { useState, type Dispatch, type SetStateAction } from 'react';
+import { useI18n } from '../../i18n';
 import type {
   ProviderEditorFormState,
   ProviderRegistryFormState,
@@ -36,6 +37,7 @@ export function useProviderAtlasRegistryWorkbench({
   setSelectedProvider,
   setDetail,
 }: UseProviderAtlasRegistryWorkbenchOptions) {
+  const { t } = useI18n();
   const [registryOpen, setRegistryOpen] = useState(false);
   const [registryLoading, setRegistryLoading] = useState(false);
   const [registryStatus, setRegistryStatus] = useState<string | null>(null);
@@ -57,7 +59,7 @@ export function useProviderAtlasRegistryWorkbench({
 
   const fetchModelsIntoDraft = async () => {
     if (!registryForm.apiKey.trim()) {
-      setRegistryError('An API key is required to fetch models.');
+      setRegistryError(t('providerAtlas.registryError.apiKeyRequired'));
       return;
     }
 
@@ -72,9 +74,9 @@ export function useProviderAtlasRegistryWorkbench({
         base_url: registryForm.baseUrl.trim() || undefined,
       });
       setRegistryForm((current) => ({ ...current, models: result.models.join(', ') }));
-      setRegistryStatus(`Fetched ${result.models.length} models from upstream.`);
+      setRegistryStatus(t('providerAtlas.registryStatus.modelsFetched', { count: result.models.length }));
     } catch (fetchError) {
-      setRegistryError(getApiErrorMessage(fetchError, 'Failed to fetch models'));
+      setRegistryError(getApiErrorMessage(fetchError, t('providerAtlas.registryError.fetchModels')));
     } finally {
       setRegistryLoading(false);
     }
@@ -82,7 +84,7 @@ export function useProviderAtlasRegistryWorkbench({
 
   const createProvider = async () => {
     if (!registryForm.name.trim()) {
-      setRegistryError('Provider name is required.');
+      setRegistryError(t('providerAtlas.registryError.nameRequired'));
       return;
     }
 
@@ -104,13 +106,13 @@ export function useProviderAtlasRegistryWorkbench({
     setRegistryStatus(null);
     try {
       await providersApi.create(body);
-      setRegistryStatus(`Created provider ${body.name}.`);
+      setRegistryStatus(t('providerAtlas.registryStatus.createdProvider', { provider: body.name }));
       setSelectedProvider(body.name);
       setRegistryForm(emptyRegistryForm);
       await reload();
       await loadRuntimeSurfaces();
     } catch (createError) {
-      setRegistryError(getApiErrorMessage(createError, 'Failed to create provider'));
+      setRegistryError(getApiErrorMessage(createError, t('providerAtlas.registryError.createProvider')));
     } finally {
       setRegistryLoading(false);
     }
@@ -118,10 +120,10 @@ export function useProviderAtlasRegistryWorkbench({
 
   const deleteSelectedProvider = async () => {
     if (!selectedProvider) {
-      setRegistryError('Select a provider first.');
+      setRegistryError(t('providerAtlas.registryError.selectProvider'));
       return;
     }
-    if (!confirmAction(`Delete provider "${selectedProvider}"?`)) {
+    if (!confirmAction(t('providerAtlas.registryConfirm.deleteProvider', { provider: selectedProvider }))) {
       return;
     }
 
@@ -130,13 +132,13 @@ export function useProviderAtlasRegistryWorkbench({
     setRegistryStatus(null);
     try {
       await providersApi.remove(selectedProvider);
-      setRegistryStatus(`Deleted provider ${selectedProvider}.`);
+      setRegistryStatus(t('providerAtlas.registryStatus.deletedProvider', { provider: selectedProvider }));
       setSelectedProvider(null);
       setDetail(null);
       await reload();
       await loadRuntimeSurfaces();
     } catch (deleteError) {
-      setRegistryError(getApiErrorMessage(deleteError, 'Failed to delete provider'));
+      setRegistryError(getApiErrorMessage(deleteError, t('providerAtlas.registryError.deleteProvider')));
     } finally {
       setRegistryLoading(false);
     }

@@ -1,5 +1,6 @@
 import { Panel } from '../Panel';
 import { StatusPill } from '../StatusPill';
+import { useI18n } from '../../i18n';
 import type { TenantMetricsResponse, TenantSummary, AuthKeySummary } from '../../types/backend';
 import type { ChangeStudioResponse, RegistryRow } from '../../types/controlPlane';
 
@@ -44,22 +45,24 @@ export function ChangeStudioOverview({
   onRefreshAccessPosture,
   onSelectTenant,
 }: ChangeStudioOverviewProps) {
+  const { t, tx, formatCurrency, formatNumber } = useI18n();
+
   return (
     <>
       {selectedRegistry ? (
         <div className="status-message status-message--warning">
-          Active family: <strong>{selectedRegistry.family}</strong> · {selectedRegistry.record} · {selectedRegistry.dependents} dependents
+          {t('changeStudio.status.activeFamily')} <strong>{tx(selectedRegistry.family_label)}</strong> · {selectedRegistry.record} · {selectedRegistry.dependents} {t('changeStudio.status.dependents')}
         </div>
       ) : null}
 
       <div className="two-column">
-        <Panel title="Config registry" subtitle="Object families should be browsable and impact-aware." className="panel--wide">
+        <Panel title={t('changeStudio.panel.registry.title')} subtitle={t('changeStudio.panel.registry.subtitle')} className="panel--wide">
           <div className="table-grid table-grid--changes">
-            <div className="table-grid__head">Family</div>
-            <div className="table-grid__head">Record</div>
-            <div className="table-grid__head">State</div>
-            <div className="table-grid__head">Dependents</div>
-            {loading && !data ? <div className="table-grid__cell">Loading registry…</div> : null}
+            <div className="table-grid__head">{t('common.family')}</div>
+            <div className="table-grid__head">{t('common.record')}</div>
+            <div className="table-grid__head">{t('common.state')}</div>
+            <div className="table-grid__head">{t('changeStudio.table.dependents')}</div>
+            {loading && !data ? <div className="table-grid__cell">{t('changeStudio.loading.registry')}</div> : null}
             {error && !data ? <div className="table-grid__cell">{error}</div> : null}
             {(data?.registry ?? []).flatMap((item) => {
               const selected = item.family === selectedFamily;
@@ -70,13 +73,13 @@ export function ChangeStudioOverview({
                   className={`${cellClass} table-grid__cell--strong`}
                   onClick={() => onSelectFamily(item.family)}
                 >
-                  {item.family}
+                  {tx(item.family_label)}
                 </div>,
                 <div key={`${item.family}-record`} className={cellClass} onClick={() => onSelectFamily(item.family)}>
                   {item.record}
                 </div>,
                 <div key={`${item.family}-state`} className={cellClass} onClick={() => onSelectFamily(item.family)}>
-                  <StatusPill label={item.state} tone={item.state_tone} />
+                  <StatusPill label={tx(item.state)} tone={item.state_tone} />
                 </div>,
                 <div key={`${item.family}-deps`} className={cellClass} onClick={() => onSelectFamily(item.family)}>
                   {item.dependents}
@@ -86,28 +89,28 @@ export function ChangeStudioOverview({
           </div>
         </Panel>
 
-        <Panel title="Transaction posture" subtitle="Current config transaction truth and delivery controls.">
+        <Panel title={t('changeStudio.panel.transaction.title')} subtitle={t('changeStudio.panel.transaction.subtitle')}>
           <ul className="fact-list">
             {(data?.publish_facts ?? []).map((fact) => (
-              <li key={fact.label}><span>{fact.label}</span><strong>{fact.value}</strong></li>
+              <li key={`${fact.label.key}-${fact.value}`}><span>{tx(fact.label)}</span><strong>{fact.value}</strong></li>
             ))}
           </ul>
         </Panel>
       </div>
 
       <div className="two-column">
-        <Panel title="Runtime access keys" subtitle="Gateway keys stay tied to tenants and can be created, revealed, and revoked without leaving the control plane.">
+        <Panel title={t('changeStudio.panel.accessKeys.title')} subtitle={t('changeStudio.panel.accessKeys.subtitle')}>
           <div className="inline-actions">
             <button type="button" className="button button--primary" onClick={onOpenAccessWorkbench}>
-              Manage access keys
+              {t('changeStudio.panel.accessKeys.manage')}
             </button>
           </div>
           <div className="table-grid table-grid--keys">
-            <div className="table-grid__head">Key</div>
-            <div className="table-grid__head">Name</div>
-            <div className="table-grid__head">Tenant</div>
-            <div className="table-grid__head">Models</div>
-            {authKeys.length === 0 ? <div className="table-grid__cell">No gateway auth keys configured.</div> : null}
+            <div className="table-grid__head">{t('changeStudio.access.key')}</div>
+            <div className="table-grid__head">{t('common.name')}</div>
+            <div className="table-grid__head">{t('common.tenant')}</div>
+            <div className="table-grid__head">{t('common.models')}</div>
+            {authKeys.length === 0 ? <div className="table-grid__cell">{t('changeStudio.access.empty')}</div> : null}
             {authKeys.flatMap((item) => {
               const selected = item.id === selectedAuthKeyId;
               const cellClass = `table-grid__cell ${selected ? 'is-selected' : ''} is-clickable`;
@@ -116,27 +119,27 @@ export function ChangeStudioOverview({
                   {item.key_masked}
                 </div>,
                 <div key={`${item.id}-name`} className={cellClass} onClick={() => onSelectAuthKey(item.id)}>
-                  {item.name ?? 'unnamed'}
+                  {item.name ?? t('changeStudio.access.unnamed')}
                 </div>,
                 <div key={`${item.id}-tenant`} className={cellClass} onClick={() => onSelectAuthKey(item.id)}>
-                  {item.tenant_id ?? 'global'}
+                  {item.tenant_id ?? t('common.global')}
                 </div>,
                 <div key={`${item.id}-models`} className={cellClass} onClick={() => onSelectAuthKey(item.id)}>
-                  {item.allowed_models.length || 'all'}
+                  {item.allowed_models.length || t('common.all')}
                 </div>,
               ];
             })}
           </div>
         </Panel>
 
-        <Panel title="Tenant posture" subtitle="Tenant-scoped demand and cost should stay visible next to access control work.">
+        <Panel title={t('changeStudio.panel.tenantPosture.title')} subtitle={t('changeStudio.panel.tenantPosture.subtitle')}>
           <div className="inline-actions">
             <button type="button" className="button button--ghost" onClick={onRefreshAccessPosture} disabled={refreshingAccess}>
-              {refreshingAccess ? 'Refreshing…' : 'Refresh access posture'}
+              {refreshingAccess ? t('changeStudio.panel.tenantPosture.refreshing') : t('changeStudio.panel.tenantPosture.refresh')}
             </button>
           </div>
           {tenants.length === 0 ? (
-            <div className="status-message">No tenant-scoped traffic has been recorded yet.</div>
+            <div className="status-message">{t('changeStudio.panel.tenantPosture.empty')}</div>
           ) : (
             <ul className="fact-list fact-list--interactive">
               {tenants.map((tenant) => (
@@ -146,19 +149,19 @@ export function ChangeStudioOverview({
                   onClick={() => onSelectTenant(tenant.id)}
                 >
                   <span>{tenant.id}</span>
-                  <strong>{tenant.requests} req · ${tenant.cost_usd}</strong>
+                  <strong>{formatNumber(tenant.requests)} req · {formatCurrency(tenant.cost_usd)}</strong>
                 </li>
               ))}
             </ul>
           )}
-          {tenantLoading ? <div className="status-message">Loading tenant metrics…</div> : null}
+          {tenantLoading ? <div className="status-message">{t('changeStudio.panel.tenantPosture.loading')}</div> : null}
           {tenantError ? <div className="status-message status-message--danger">{tenantError}</div> : null}
           {tenantMetrics?.metrics ? (
             <div className="detail-grid">
-              <div className="detail-grid__row"><span>Tenant</span><strong>{tenantMetrics.tenant_id}</strong></div>
-              <div className="detail-grid__row"><span>Requests</span><strong>{tenantMetrics.metrics.requests}</strong></div>
-              <div className="detail-grid__row"><span>Tokens</span><strong>{tenantMetrics.metrics.tokens}</strong></div>
-              <div className="detail-grid__row"><span>Cost</span><strong>${tenantMetrics.metrics.cost_usd}</strong></div>
+              <div className="detail-grid__row"><span>{t('common.tenant')}</span><strong>{tenantMetrics.tenant_id}</strong></div>
+              <div className="detail-grid__row"><span>{t('common.requests')}</span><strong>{formatNumber(tenantMetrics.metrics.requests)}</strong></div>
+              <div className="detail-grid__row"><span>{t('common.tokens')}</span><strong>{formatNumber(tenantMetrics.metrics.tokens)}</strong></div>
+              <div className="detail-grid__row"><span>{t('common.cost')}</span><strong>{formatCurrency(tenantMetrics.metrics.cost_usd)}</strong></div>
             </div>
           ) : null}
         </Panel>

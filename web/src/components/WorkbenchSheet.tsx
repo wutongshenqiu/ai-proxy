@@ -1,4 +1,5 @@
 import { X } from 'lucide-react';
+import { useI18n } from '../i18n';
 
 interface WorkbenchSheetProps {
   title: string;
@@ -17,6 +18,8 @@ export function WorkbenchSheet({
   actions,
   children,
 }: WorkbenchSheetProps) {
+  const { t } = useI18n();
+
   if (!open) {
     return null;
   }
@@ -32,13 +35,13 @@ export function WorkbenchSheet({
       >
         <header className="sheet__header">
           <div>
-            <p className="workspace-eyebrow">WORKBENCH / ACTIVE</p>
+            <p className="workspace-eyebrow">{t('common.workspaceEyebrow')}</p>
             <h2>{title}</h2>
             {subtitle ? <p>{subtitle}</p> : null}
           </div>
           <div className="sheet__actions">
             {actions}
-            <button type="button" className="button button--ghost" onClick={onClose} aria-label="Close workbench">
+            <button type="button" className="button button--ghost" onClick={onClose} aria-label={t('common.closeWorkbench')}>
               <X size={16} />
             </button>
           </div>

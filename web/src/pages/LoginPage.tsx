@@ -1,9 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Activity, Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { useI18n } from '../i18n';
 import { useAuthStore } from '../stores/authStore';
 
 export function LoginPage() {
+  const { t } = useI18n();
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -28,14 +30,14 @@ export function LoginPage() {
     event.preventDefault();
     setError('');
     if (!username.trim() || !password.trim()) {
-      setError('Enter both username and password.');
+      setError(t('login.error.required'));
       return;
     }
 
     try {
       await login(username.trim(), password);
     } catch {
-      setError('Invalid username or password.');
+      setError(t('login.error.invalid'));
     }
   };
 
@@ -45,20 +47,18 @@ export function LoginPage() {
         <div className="auth-brand">
           <div className="brand__mark">P</div>
           <div>
-            <strong>Prism</strong>
-            <p>Control plane</p>
+            <strong>{t('common.appName')}</strong>
+            <p>{t('common.controlPlane')}</p>
           </div>
         </div>
 
         <div className="auth-hero">
-          <p className="workspace-eyebrow">PRISM / LOGIN</p>
-          <h1>Enter the control plane</h1>
-          <p className="auth-copy">
-            Cookie-backed dashboard auth gates the control plane. Sign in to work directly against runtime-backed provider, routing, traffic, and change workflows.
-          </p>
+          <p className="workspace-eyebrow">{t('login.eyebrow')}</p>
+          <h1>{t('login.title')}</h1>
+          <p className="auth-copy">{t('login.summary')}</p>
           <div className="auth-meta">
-            <span><ShieldCheck size={16} /> localhost-only dashboard session</span>
-            <span><Activity size={16} /> runtime-backed workspaces</span>
+            <span><ShieldCheck size={16} /> {t('login.meta.localhost')}</span>
+            <span><Activity size={16} /> {t('login.meta.runtime')}</span>
           </div>
         </div>
 
@@ -66,7 +66,7 @@ export function LoginPage() {
           {error ? <div className="auth-error">{error}</div> : null}
 
           <label className="auth-field">
-            <span>Username</span>
+            <span>{t('login.username')}</span>
             <input
               name="username"
               type="text"
@@ -78,7 +78,7 @@ export function LoginPage() {
           </label>
 
           <label className="auth-field">
-            <span>Password</span>
+            <span>{t('login.password')}</span>
             <div className="auth-password">
               <input
                 name="password"
@@ -98,7 +98,7 @@ export function LoginPage() {
           </label>
 
           <button type="submit" className="button button--primary auth-submit" disabled={isLoading}>
-            {isLoading ? 'Signing in…' : 'Sign in'}
+            {isLoading ? t('login.submitting') : t('login.submit')}
           </button>
         </form>
       </div>

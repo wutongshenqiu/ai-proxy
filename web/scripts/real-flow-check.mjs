@@ -36,6 +36,9 @@ const context = await browser.newContext({
   viewport: { width: 1600, height: 1200 },
 });
 const page = await context.newPage();
+await page.addInitScript(() => {
+  window.localStorage.setItem('prism-control-plane:locale', 'en-US');
+});
 
 const consoleEntries = [];
 const failedRequests = [];
@@ -151,7 +154,7 @@ async function login() {
   await page.getByLabel('Username').fill(dashboardUsername);
   await page.getByLabel('Password').fill(dashboardPassword);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await page.getByRole('heading', { name: 'Runtime posture before navigation', exact: true }).waitFor({ timeout: 10_000 });
+  await page.getByRole('heading', { name: 'Operate from runtime posture, not page sprawl', exact: true }).waitFor({ timeout: 10_000 });
   await waitForStable();
   await expectNoBlockingError('/command-center');
 }
@@ -299,7 +302,7 @@ report.controls.push({
   value: 'runtime',
   pill: await text('.source-posture .status-pill'),
 });
-await page.getByRole('button', { name: 'Live' }).click();
+await page.getByRole('button', { name: 'Live', exact: true }).click();
 await waitForStable();
 report.controls.push({
   control: 'Live',
@@ -307,18 +310,28 @@ report.controls.push({
 });
 await page.getByRole('button', { name: '中文' }).click();
 await waitForStable();
+await page.getByText('控制平面', { exact: true }).waitFor({ timeout: 10_000 });
 report.controls.push({
   control: 'Locale',
-  value: await page.getByRole('button', { name: /EN|中文/ }).textContent(),
+  value: 'zh-CN',
+  heading: await page.getByText('控制平面', { exact: true }).textContent(),
+});
+await page.getByRole('button', { name: 'English' }).click();
+await waitForStable();
+await page.getByText('Control plane', { exact: true }).waitFor({ timeout: 10_000 });
+report.controls.push({
+  control: 'Locale',
+  value: 'en-US',
+  heading: await page.getByText('Control plane', { exact: true }).textContent(),
 });
 
 logStep('command-center-actions');
 await heroButton('Diagnostics').click();
-await page.getByRole('heading', { name: 'Diagnostics workbench', exact: true }).waitFor({ timeout: 10_000 });
+await page.getByRole('heading', { name: 'Diagnostics', exact: true }).waitFor({ timeout: 10_000 });
 await page.getByLabel('Search').fill('Routing');
 await page.getByRole('button', { name: 'Apply filters', exact: true }).click();
 await page.getByRole('button', { name: 'Reload runtime', exact: true }).click();
-await page.getByText(/Configuration reloaded successfully/i).waitFor({ timeout: 20_000 });
+await page.getByText(/Runtime reload completed/i).waitFor({ timeout: 20_000 });
 report.actions.push({
   route: '/command-center',
   action: 'Diagnostics workbench',
@@ -337,9 +350,9 @@ report.actions.push({
   landedOn: page.url(),
 });
 
-await clickWorkspace('Command Center', 'Runtime posture before navigation');
+await clickWorkspace('Command Center', 'Operate from runtime posture, not page sprawl');
 if (signalCount > 0) {
-  await heroButton('Open investigation').click();
+  await heroButton('Open live investigation').click();
   await page.waitForURL((url) => !url.pathname.endsWith('/command-center'), { timeout: 10_000 });
   await waitForStable();
   report.actions.push({
@@ -352,11 +365,11 @@ if (signalCount > 0) {
 logStep('seed-traffic');
 await seedTrafficRequest();
 logStep('traffic-lab');
-await clickWorkspace('Traffic Lab', 'Request sessions, not log rows');
+await clickWorkspace('Traffic Lab', 'Investigate requests as sessions');
 assert((await page.locator('.table-grid--sessions .table-grid__cell--strong').count()) >= 1, 'traffic lab should show request sessions');
 const firstSessionId = await firstText('.table-grid--sessions .table-grid__cell--strong');
 assert(firstSessionId.length > 0, 'traffic lab session id should not be blank');
-await page.getByPlaceholder('Filter by request, model, or result').fill(firstSessionId.slice(0, 8));
+await page.getByPlaceholder('Filter request sessions').fill(firstSessionId.slice(0, 8));
 await waitForStable();
 assert(page.url().includes('q='), 'traffic lab should persist session filter in the URL');
 const compareSelect = page.getByLabel('Compare request');
@@ -366,9 +379,9 @@ if (compareOptions > 1) {
   await waitForStable();
 }
 await heroButton('Save lens').click();
-await page.getByText('Saved the current traffic lens to local storage.', { exact: true }).waitFor({ timeout: 10_000 });
-await heroButton('Replay with draft').click();
-await page.getByRole('heading', { name: 'Request replay workbench', exact: true }).waitFor({ timeout: 10_000 });
+await page.getByText('Current request lens saved locally.', { exact: true }).waitFor({ timeout: 10_000 });
+await heroButton('Replay with current draft').click();
+await page.getByRole('heading', { name: 'Replay and explain', exact: true }).waitFor({ timeout: 10_000 });
 await page.getByRole('heading', { name: 'Route explanation', exact: true }).waitFor({ timeout: 10_000 });
 await capture('traffic-lab');
 report.routes.push({
@@ -383,8 +396,8 @@ report.actions.push({
   winner: await page.locator('.sheet .detail-grid__row').filter({ has: page.getByText('Winner', { exact: true }) }).locator('strong').textContent(),
 });
 await closeWorkbench();
-await heroButton('Inspect selected session').click();
-await page.getByRole('heading', { name: 'Request session detail', exact: true }).waitFor({ timeout: 10_000 });
+await heroButton('Inspect session').click();
+await page.getByRole('heading', { name: 'Request detail', exact: true }).waitFor({ timeout: 10_000 });
 await page.getByRole('heading', { name: 'Payloads', exact: true }).waitFor({ timeout: 10_000 });
 report.actions.push({
   route: '/traffic-lab',
@@ -392,7 +405,7 @@ report.actions.push({
   requestPath: await page.locator('.sheet .detail-grid__row').filter({ has: page.getByText('Path', { exact: true }) }).locator('strong').textContent(),
 });
 await closeWorkbench();
-await page.getByPlaceholder('Filter by request, model, or result').fill('');
+await page.getByPlaceholder('Filter request sessions').fill('');
 await waitForStable();
 
 logStep('provider-atlas');
@@ -480,17 +493,17 @@ report.actions.push({
 });
 
 logStep('route-studio');
-await clickWorkspace('Route Studio', 'Draft routing truth before publish');
+await clickWorkspace('Route Studio', 'Author routing from runtime truth');
 const scenarioPanel = page.locator('.panel').filter({ has: page.getByRole('heading', { name: 'Scenario matrix', exact: true }) });
 assert((await scenarioPanel.locator('.table-grid__cell--strong').count()) >= 1, 'route studio should show scenarios');
 const firstScenario = await scenarioPanel.locator('.table-grid__cell--strong').first().textContent();
 await page.getByRole('button', { name: 'New rule', exact: true }).click();
-await page.getByLabel('Rule name').fill(`e2e-route-rule-${Date.now().toString().slice(-5)}`);
+await page.getByLabel('Name').fill(`e2e-route-rule-${Date.now().toString().slice(-5)}`);
 await page.getByLabel('Models').fill(`__never__-${Date.now().toString().slice(-5)}`);
-await heroButton('Save routing draft').click();
+await heroButton('Save draft').click();
 await page.getByText(/Routing configuration updated successfully|Routing draft saved/i).waitFor({ timeout: 20_000 });
 await heroButton('Simulate draft').click();
-await page.getByRole('heading', { name: 'Route simulation workbench', exact: true }).waitFor({ timeout: 10_000 });
+await page.getByRole('heading', { name: 'Simulation result', exact: true }).waitFor({ timeout: 10_000 });
 await page.getByRole('heading', { name: 'Winning route', exact: true }).waitFor({ timeout: 10_000 });
 await capture('route-studio');
 report.routes.push({
@@ -500,12 +513,12 @@ report.routes.push({
 });
 await closeWorkbench();
 await page.getByRole('button', { name: 'Delete selected', exact: true }).click();
-await heroButton('Save routing draft').click();
+await heroButton('Save draft').click();
 await page.getByText(/Routing configuration updated successfully|Routing draft saved/i).waitFor({ timeout: 20_000 });
 await heroButton('Simulate draft').click();
-await page.getByRole('heading', { name: 'Route simulation workbench', exact: true }).waitFor({ timeout: 10_000 });
-await sheetActionButton('Promote to change').click();
-await page.getByRole('heading', { name: 'Registry, structured edit, publish, observe', exact: true }).waitFor({ timeout: 10_000 });
+await page.getByRole('heading', { name: 'Simulation result', exact: true }).waitFor({ timeout: 10_000 });
+await sheetActionButton('Promote').click();
+await page.getByRole('heading', { name: 'Operate config as a transaction surface', exact: true }).waitFor({ timeout: 10_000 });
 await waitForStable();
 report.actions.push({
   route: '/route-studio',
@@ -519,11 +532,15 @@ await heroButton('Create structured change').click();
 await page.getByRole('heading', { name: 'Structured change workbench', exact: true }).waitFor({ timeout: 10_000 });
 await page.getByRole('heading', { name: 'Linked route draft', exact: true }).waitFor({ timeout: 10_000 });
 await sheetActionButton('Validate').click();
-await page.getByText(/Validation passed|Validation returned issues/i).waitFor({ timeout: 20_000 });
+await page
+  .locator('.status-message')
+  .filter({ hasText: /^Validation passed\.|^Validation returned issues\.$/ })
+  .first()
+  .waitFor({ timeout: 20_000 });
 await sheetActionButton('Apply draft').click();
-await page.locator('.status-message').filter({ hasText: /Configuration applied successfully/i }).first().waitFor({ timeout: 20_000 });
+await page.locator('.status-message').filter({ hasText: /^Applied config version / }).first().waitFor({ timeout: 20_000 });
 await sheetActionButton('Reload runtime').click();
-await page.locator('.status-message').filter({ hasText: /Configuration reloaded successfully/i }).first().waitFor({ timeout: 20_000 });
+await page.locator('.status-message').filter({ hasText: /^Runtime reload completed\.$/ }).first().waitFor({ timeout: 20_000 });
 await capture('change-studio');
 report.routes.push({
   route: '/change-studio',
@@ -543,11 +560,11 @@ await sheetActionButton('New draft').click();
 await page.getByLabel('Name').fill(ephemeralAuthKeyName);
 await page.getByLabel('Tenant ID').fill(tenantId);
 await sheetActionButton('Create key').click();
-await page.getByText(/Save this key now:/i).waitFor({ timeout: 20_000 });
+await page.getByText(/Revealed now:/i).waitFor({ timeout: 20_000 });
 await page.locator('.sheet .probe-check').filter({ hasText: ephemeralAuthKeyName }).first().waitFor({ timeout: 20_000 });
 await page.locator('.sheet .probe-check').filter({ hasText: ephemeralAuthKeyName }).getByRole('button', { name: 'Select', exact: true }).click();
-const createdKeyNotice = await page.locator('.status-message--warning').filter({ hasText: /Save this key now:/i }).textContent();
-const createdAuthKey = createdKeyNotice?.split('Save this key now:')[1]?.trim() ?? '';
+const createdKeyNotice = await page.locator('.status-message--warning').filter({ hasText: /Revealed now:/i }).textContent();
+const createdAuthKey = createdKeyNotice?.split('Revealed now:')[1]?.trim() ?? '';
 assert(createdAuthKey.length > 0, 'created auth key should be visible in the workbench');
 await sendTrafficRequest(createdAuthKey);
 await page.getByLabel('Allowed models').fill('gpt-5, gpt-4o-mini');
@@ -558,7 +575,7 @@ await page.getByText(/Revealed auth key/i).waitFor({ timeout: 20_000 });
 await sheetActionButton('Delete selected').click();
 await page.getByText(/Deleted auth key/i).waitFor({ timeout: 20_000 });
 await closeWorkbench();
-await page.getByRole('button', { name: 'Refresh access posture', exact: true }).click();
+await page.getByRole('button', { name: 'Refresh posture', exact: true }).click();
 await waitForStable();
 await page.locator('.panel')
   .filter({ has: page.getByRole('heading', { name: 'Tenant posture', exact: true }) })
@@ -575,7 +592,7 @@ report.actions.push({
 await closeWorkbench();
 
 logStep('finalize');
-await clickWorkspace('Command Center', 'Runtime posture before navigation');
+await clickWorkspace('Command Center', 'Operate from runtime posture, not page sprawl');
 await capture('command-center-final');
 await browser.close();
 

@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useChangeStudioController } from './useChangeStudioController';
+import { I18nProvider, text } from '../i18n';
 import { authKeysApi } from '../services/authKeys';
 import { tenantsApi } from '../services/tenants';
 import type {
@@ -44,20 +45,32 @@ const emptyTenantMetricsResponse: TenantMetricsResponse = {
   metrics: null,
 };
 
+function familyLabelKey(family: string) {
+  switch (family) {
+    case 'providers':
+      return 'changeStudio.family.providers' as const;
+    case 'auth-keys':
+      return 'changeStudio.family.authKeys' as const;
+    default:
+      return 'changeStudio.family.routeProfiles' as const;
+  }
+}
+
 function createChangeStudioData(families: string[]): ChangeStudioResponse {
   return {
     registry: families.map((family) => ({
       family,
+      family_label: text(familyLabelKey(family)),
       record: `${family}-record`,
-      state: 'ready',
+      state: text('common.configured'),
       state_tone: 'success',
       dependents: '1',
     })),
     publish_facts: [],
     inspector: {
-      eyebrow: 'Runtime',
-      title: 'Change Studio',
-      summary: 'summary',
+      eyebrow: text('shell.defaultInspector.changeStudio.eyebrow'),
+      title: text('shell.defaultInspector.changeStudio.title'),
+      summary: text('shell.defaultInspector.changeStudio.summary'),
       sections: [],
       actions: [],
     },
@@ -77,6 +90,7 @@ describe('useChangeStudioController', () => {
     const { result, rerender } = renderHook(
       ({ data }) => useChangeStudioController({ data, reload }),
       {
+        wrapper: I18nProvider,
         initialProps: { data: createChangeStudioData(['providers', 'routes']) },
       },
     );

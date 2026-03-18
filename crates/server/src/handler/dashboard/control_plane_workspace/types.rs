@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_TRAFFIC_LIMIT: usize = 12;
@@ -25,45 +27,98 @@ fn default_limit() -> usize {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct UiText {
+    pub key: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub values: BTreeMap<String, String>,
+}
+
+impl UiText {
+    pub fn new(key: impl Into<String>) -> Self {
+        Self {
+            key: key.into(),
+            values: BTreeMap::new(),
+        }
+    }
+
+    pub fn with_values<I, K, V>(key: impl Into<String>, values: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: ToString,
+    {
+        Self {
+            key: key.into(),
+            values: values
+                .into_iter()
+                .map(|(key, value)| (key.into(), value.to_string()))
+                .collect(),
+        }
+    }
+}
+
+pub fn raw_text(value: impl ToString) -> UiText {
+    UiText::with_values("common.raw", [("value", value.to_string())])
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct FactRow {
-    pub label: String,
+    pub label: UiText,
     pub value: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct InspectorRow {
-    pub label: String,
+    pub label: UiText,
     pub value: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value_text: Option<UiText>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct InspectorSection {
-    pub title: String,
+    pub title: UiText,
     pub rows: Vec<InspectorRow>,
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceActionEffect {
+    Navigate,
+    Reload,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct WorkspaceAction {
+    pub id: String,
+    pub label: UiText,
+    pub effect: WorkspaceActionEffect,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_workspace: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct WorkspaceInspector {
-    pub eyebrow: String,
-    pub title: String,
-    pub summary: String,
+    pub eyebrow: UiText,
+    pub title: UiText,
+    pub summary: UiText,
     pub sections: Vec<InspectorSection>,
-    pub actions: Vec<String>,
+    pub actions: Vec<WorkspaceAction>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct KpiMetric {
-    pub label: String,
+    pub label: UiText,
     pub value: String,
-    pub delta: String,
+    pub delta: UiText,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SignalItem {
     pub id: String,
-    pub title: String,
-    pub detail: String,
-    pub severity: String,
+    pub title: UiText,
+    pub detail: UiText,
+    pub severity: UiText,
     pub severity_tone: String,
     pub target_workspace: String,
 }
@@ -81,18 +136,18 @@ pub struct CommandCenterResponse {
 pub struct TrafficSessionItem {
     pub request_id: String,
     pub model: String,
-    pub decision: String,
-    pub result: String,
+    pub decision: UiText,
+    pub result: UiText,
     pub result_tone: String,
     pub latency_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TimelineStep {
-    pub label: String,
+    pub label: UiText,
     pub tone: String,
-    pub title: String,
-    pub detail: String,
+    pub title: UiText,
+    pub detail: UiText,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -108,10 +163,10 @@ pub struct TrafficLabResponse {
 pub struct ProviderAtlasRow {
     pub provider: String,
     pub format: String,
-    pub auth: String,
-    pub status: String,
+    pub auth: UiText,
+    pub status: UiText,
     pub status_tone: String,
-    pub rotation: String,
+    pub rotation: UiText,
     pub region: String,
     pub wire_api: String,
     pub model_count: usize,
@@ -129,7 +184,7 @@ pub struct RouteScenarioRow {
     pub scenario: String,
     pub winner: String,
     pub delta: String,
-    pub decision: String,
+    pub decision: UiText,
     pub decision_tone: String,
     pub endpoint: String,
     pub source_format: String,
@@ -151,8 +206,9 @@ pub struct RouteStudioResponse {
 #[derive(Debug, Clone, Serialize)]
 pub struct RegistryRow {
     pub family: String,
+    pub family_label: UiText,
     pub record: String,
-    pub state: String,
+    pub state: UiText,
     pub state_tone: String,
     pub dependents: String,
 }

@@ -1,4 +1,5 @@
 import { WorkbenchSheet } from '../WorkbenchSheet';
+import { useI18n } from '../../i18n';
 import type { ProviderAtlasRow } from '../../types/controlPlane';
 import type { ProviderRegistryFormState } from './types';
 
@@ -33,22 +34,24 @@ export function ProviderRegistrySheet({
   onDeleteSelectedProvider,
   onCreateProvider,
 }: ProviderRegistrySheetProps) {
+  const { t, tx } = useI18n();
+
   return (
     <WorkbenchSheet
       open={open}
       onClose={onClose}
-      title="Provider registry workbench"
-      subtitle="Create disabled providers, fetch model inventories, and remove obsolete runtime entities without leaving the atlas."
+      title={t('providerAtlas.registry.title')}
+      subtitle={t('providerAtlas.registry.subtitle')}
       actions={(
         <>
           <button type="button" className="button button--ghost" onClick={onFetchModels} disabled={registryLoading}>
-            {registryLoading ? 'Working…' : 'Fetch models'}
+            {registryLoading ? t('providerAtlas.registry.working') : t('providerAtlas.registry.fetchModels')}
           </button>
           <button type="button" className="button button--ghost" onClick={onDeleteSelectedProvider} disabled={registryLoading || !selectedProvider}>
-            Delete selected
+            {t('providerAtlas.registry.deleteSelected')}
           </button>
           <button type="button" className="button button--primary" onClick={onCreateProvider} disabled={registryLoading}>
-            {registryLoading ? 'Saving…' : 'Create provider'}
+            {registryLoading ? t('providerAtlas.registry.saving') : t('providerAtlas.registry.createProvider')}
           </button>
         </>
       )}
@@ -57,7 +60,7 @@ export function ProviderRegistrySheet({
       {registryError ? <div className="status-message status-message--danger">{registryError}</div> : null}
 
       <section className="sheet-section">
-        <h3>New provider draft</h3>
+        <h3>{t('providerAtlas.registry.newProviderDraft')}</h3>
         <form
           className="sheet-form"
           onSubmit={(event) => {
@@ -66,7 +69,7 @@ export function ProviderRegistrySheet({
           }}
         >
           <label className="sheet-field">
-            <span>Name</span>
+            <span>{t('common.name')}</span>
             <input
               name="provider-name"
               autoComplete="organization"
@@ -75,7 +78,7 @@ export function ProviderRegistrySheet({
             />
           </label>
           <label className="sheet-field">
-            <span>Format</span>
+            <span>{t('common.format')}</span>
             <select value={registryForm.format} onChange={(event) => onRegistryFormChange({ format: event.target.value as ProviderRegistryFormState['format'] })}>
               <option value="openai">openai</option>
               <option value="claude">claude</option>
@@ -83,7 +86,7 @@ export function ProviderRegistrySheet({
             </select>
           </label>
           <label className="sheet-field">
-            <span>Upstream</span>
+            <span>{t('common.upstream')}</span>
             <input
               name="provider-upstream"
               autoComplete="off"
@@ -92,7 +95,7 @@ export function ProviderRegistrySheet({
             />
           </label>
           <label className="sheet-field">
-            <span>API key</span>
+            <span>{t('providerAtlas.registry.apiKey')}</span>
             <input
               name="provider-api-key"
               type="password"
@@ -102,7 +105,7 @@ export function ProviderRegistrySheet({
             />
           </label>
           <label className="sheet-field">
-            <span>Base URL</span>
+            <span>{t('providerAtlas.editor.baseUrl')}</span>
             <input
               name="registry-base-url"
               type="url"
@@ -112,7 +115,7 @@ export function ProviderRegistrySheet({
             />
           </label>
           <label className="sheet-field">
-            <span>Models</span>
+            <span>{t('common.models')}</span>
             <input
               name="provider-models"
               autoComplete="off"
@@ -121,7 +124,7 @@ export function ProviderRegistrySheet({
             />
           </label>
           <label className="detail-grid__row">
-            <span>Disabled</span>
+            <span>{t('common.disabled')}</span>
             <input
               type="checkbox"
               checked={registryForm.disabled}
@@ -132,12 +135,12 @@ export function ProviderRegistrySheet({
       </section>
 
       <section className="sheet-section">
-        <h3>Selected provider</h3>
+        <h3>{t('providerAtlas.registry.selectedProvider')}</h3>
         <div className="detail-grid">
-          <div className="detail-grid__row"><span>Name</span><strong>{selectedProvider ?? 'none selected'}</strong></div>
-          <div className="detail-grid__row"><span>Status</span><strong>{selectedRow?.status ?? 'n/a'}</strong></div>
-          <div className="detail-grid__row"><span>Auth posture</span><strong>{selectedRow?.auth ?? 'n/a'}</strong></div>
-          <div className="detail-grid__row"><span>Coverage</span><strong>{selectedProbeStatus ?? 'n/a'}</strong></div>
+          <div className="detail-grid__row"><span>{t('common.name')}</span><strong>{selectedProvider ?? t('common.noneSelected')}</strong></div>
+          <div className="detail-grid__row"><span>{t('common.status')}</span><strong>{selectedRow ? tx(selectedRow.status) : t('common.notAvailable')}</strong></div>
+          <div className="detail-grid__row"><span>{t('providerAtlas.table.auth')}</span><strong>{selectedRow ? tx(selectedRow.auth) : t('common.notAvailable')}</strong></div>
+          <div className="detail-grid__row"><span>{t('providerAtlas.registry.coverage')}</span><strong>{selectedProbeStatus ?? t('common.notAvailable')}</strong></div>
         </div>
       </section>
     </WorkbenchSheet>

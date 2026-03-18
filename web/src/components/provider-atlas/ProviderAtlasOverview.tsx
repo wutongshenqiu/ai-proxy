@@ -1,13 +1,14 @@
 import { Panel } from '../Panel';
 import { StatusPill } from '../StatusPill';
+import { useI18n } from '../../i18n';
 import type { ProviderAtlasResponse, ProviderAtlasRow } from '../../types/controlPlane';
 import type { ProtocolCoverageEntry, ProviderCapabilityEntry } from '../../types/backend';
 import type { ProviderAtlasModelInventoryItem, ProviderAtlasProtocolFacts } from './types';
 
-function protocolCoverageLabel(mode?: string | null) {
-  if (!mode) return 'unsupported';
-  if (mode === 'native') return 'native';
-  return 'adapted';
+function protocolCoverageKey(mode?: string | null) {
+  if (!mode) return 'providerAtlas.protocol.unsupported';
+  if (mode === 'native') return 'providerAtlas.protocol.native';
+  return 'providerAtlas.protocol.adapted';
 }
 
 interface ProviderAtlasOverviewProps {
@@ -45,28 +46,35 @@ export function ProviderAtlasOverview({
   onModelSearchChange,
   onOpenRegistryWorkbench,
 }: ProviderAtlasOverviewProps) {
+  const { t, tx, formatNumber } = useI18n();
+
   return (
     <>
       {selectedRow ? (
         <div className="status-message status-message--warning">
-          Active provider: <strong>{selectedRow.provider}</strong> · {selectedRow.status} · {selectedRow.auth}
+          {t('providerAtlas.status.activeProvider')}{' '}
+          <strong>{selectedRow.provider}</strong> · {tx(selectedRow.status)} · {tx(selectedRow.auth)}
         </div>
       ) : null}
 
       <div className="two-column">
-        <Panel title="Provider roster" subtitle="Entity graph for providers, auth profiles, and live probe posture." className="panel--wide">
+        <Panel
+          title={t('providerAtlas.panel.roster.title')}
+          subtitle={t('providerAtlas.panel.roster.subtitle')}
+          className="panel--wide"
+        >
           <div className="inline-actions">
             <button type="button" className="button button--ghost" onClick={onOpenRegistryWorkbench}>
-              Provider registry
+              {t('providerAtlas.panel.roster.registry')}
             </button>
           </div>
           <div className="table-grid table-grid--providers">
-            <div className="table-grid__head">Provider</div>
-            <div className="table-grid__head">Format</div>
-            <div className="table-grid__head">Auth</div>
-            <div className="table-grid__head">Status</div>
-            <div className="table-grid__head">Rotation</div>
-            {loading && !data ? <div className="table-grid__cell">Loading providers…</div> : null}
+            <div className="table-grid__head">{t('common.provider')}</div>
+            <div className="table-grid__head">{t('common.format')}</div>
+            <div className="table-grid__head">{t('providerAtlas.table.auth')}</div>
+            <div className="table-grid__head">{t('common.status')}</div>
+            <div className="table-grid__head">{t('providerAtlas.table.rotation')}</div>
+            {loading && !data ? <div className="table-grid__cell">{t('providerAtlas.loading.providers')}</div> : null}
             {error && !data ? <div className="table-grid__cell">{error}</div> : null}
             {(data?.providers ?? []).flatMap((provider) => {
               const selected = provider.provider === selectedProvider;
@@ -83,30 +91,33 @@ export function ProviderAtlasOverview({
                   {provider.format}
                 </div>,
                 <div key={`${provider.provider}-auth`} className={cellClass} onClick={() => onSelectProvider(provider.provider)}>
-                  {provider.auth}
+                  {tx(provider.auth)}
                 </div>,
                 <div key={`${provider.provider}-status`} className={cellClass} onClick={() => onSelectProvider(provider.provider)}>
-                  <StatusPill label={provider.status} tone={provider.status_tone} />
+                  <StatusPill label={tx(provider.status)} tone={provider.status_tone} />
                 </div>,
                 <div key={`${provider.provider}-rotation`} className={cellClass} onClick={() => onSelectProvider(provider.provider)}>
-                  {provider.rotation}
+                  {tx(provider.rotation)}
                 </div>,
               ];
             })}
           </div>
         </Panel>
 
-        <Panel title="Capability coverage" subtitle="Protocol truth, model surface, and auth/runtime readiness.">
+        <Panel title={t('providerAtlas.panel.coverage.title')} subtitle={t('providerAtlas.panel.coverage.subtitle')}>
           <ul className="fact-list">
             {(data?.coverage ?? []).map((fact) => (
-              <li key={fact.label}><span>{fact.label}</span><strong>{fact.value}</strong></li>
+              <li key={fact.label.key}>
+                <span>{tx(fact.label)}</span>
+                <strong>{fact.value}</strong>
+              </li>
             ))}
             {selectedCapabilities ? (
               <>
-                <li><span>Probe status</span><strong>{selectedCapabilities.probe_status}</strong></li>
-                <li><span>Presentation</span><strong>{selectedCapabilities.presentation_profile}</strong></li>
-                <li><span>Model surface</span><strong>{selectedCapabilities.models.length}</strong></li>
-                <li><span>Tool support</span><strong>{selectedCapabilities.probe.tools.status}</strong></li>
+                <li><span>{t('providerAtlas.coverage.probeStatus')}</span><strong>{selectedCapabilities.probe_status}</strong></li>
+                <li><span>{t('providerAtlas.coverage.presentation')}</span><strong>{selectedCapabilities.presentation_profile}</strong></li>
+                <li><span>{t('providerAtlas.coverage.modelSurface')}</span><strong>{formatNumber(selectedCapabilities.models.length)}</strong></li>
+                <li><span>{t('providerAtlas.coverage.toolSupport')}</span><strong>{selectedCapabilities.probe.tools.status}</strong></li>
               </>
             ) : null}
           </ul>
@@ -114,44 +125,44 @@ export function ProviderAtlasOverview({
       </div>
 
       <div className="two-column">
-        <Panel title="Protocol surfaces" subtitle="Ingress routes, execution modes, and provider truth should be visible without context-switching into separate tools.">
+        <Panel title={t('providerAtlas.panel.protocol.title')} subtitle={t('providerAtlas.panel.protocol.subtitle')}>
           <div className="inline-actions">
             <input
               name="provider-protocol-search"
-              placeholder="Filter protocol surfaces"
+              placeholder={t('providerAtlas.panel.protocol.filter')}
               autoComplete="off"
               value={protocolSearch}
               onChange={(event) => onProtocolSearchChange(event.target.value)}
             />
           </div>
           <ul className="fact-list">
-            <li><span>Public routes</span><strong>{protocolFacts.publicRoutes}</strong></li>
-            <li><span>Provider routes</span><strong>{protocolFacts.providerRoutes}</strong></li>
-            <li><span>Native surfaces</span><strong>{protocolFacts.nativeSurfaces}</strong></li>
-            <li><span>Adapted surfaces</span><strong>{protocolFacts.adaptedSurfaces}</strong></li>
+            <li><span>{t('providerAtlas.protocol.publicRoutes')}</span><strong>{formatNumber(protocolFacts.publicRoutes)}</strong></li>
+            <li><span>{t('providerAtlas.protocol.providerRoutes')}</span><strong>{formatNumber(protocolFacts.providerRoutes)}</strong></li>
+            <li><span>{t('providerAtlas.protocol.nativeSurfaces')}</span><strong>{formatNumber(protocolFacts.nativeSurfaces)}</strong></li>
+            <li><span>{t('providerAtlas.protocol.adaptedSurfaces')}</span><strong>{formatNumber(protocolFacts.adaptedSurfaces)}</strong></li>
           </ul>
           <div className="probe-list">
             {filteredProtocolCoverage.map((entry) => (
               <div key={`${entry.provider}-${entry.surface_id}`} className="probe-check">
                 <span>{entry.surface_label}</span>
-                <strong>{protocolCoverageLabel(entry.execution_mode)}</strong>
+                <strong>{t(protocolCoverageKey(entry.execution_mode))}</strong>
               </div>
             ))}
           </div>
         </Panel>
 
-        <Panel title="Model inventory" subtitle="Unique model mappings and runtime capability truth are part of provider operations, not a separate admin silo.">
+        <Panel title={t('providerAtlas.panel.inventory.title')} subtitle={t('providerAtlas.panel.inventory.subtitle')}>
           <div className="inline-actions">
             <input
               name="provider-model-search"
-              placeholder="Filter model inventory"
+              placeholder={t('providerAtlas.panel.inventory.filter')}
               autoComplete="off"
               value={modelSearch}
               onChange={(event) => onModelSearchChange(event.target.value)}
             />
           </div>
           {filteredModelInventory.length === 0 ? (
-            <div className="status-message">No provider model inventory is configured yet.</div>
+            <div className="status-message">{t('providerAtlas.panel.inventory.empty')}</div>
           ) : (
             <div className="probe-list">
               {filteredModelInventory.map((item) => (

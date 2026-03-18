@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Activity, ArrowRightLeft, Boxes, ChartNoAxesCombined, GitBranchPlus, Layers3, LogOut } from 'lucide-react';
 import { DEFAULT_INSPECTORS, WORKSPACES } from '../constants/workspaces';
+import { useI18n } from '../i18n';
 import { useShellStore } from '../stores/shellStore';
 import { useAuthStore } from '../stores/authStore';
 import type { WorkspaceId } from '../types/shell';
@@ -26,6 +27,7 @@ export function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const workspaceId = workspaceFromPath(location.pathname);
+  const { t, tx } = useI18n();
   const {
     environment,
     timeRange,
@@ -43,25 +45,12 @@ export function AppShell() {
   const logout = useAuthStore((state) => state.logout);
   const inspector = inspectors[workspaceId] ?? DEFAULT_INSPECTORS[workspaceId];
 
-  const handleInspectorAction = (action: string) => {
-    const normalized = action.toLowerCase();
-    if (normalized.includes('provider') || normalized.includes('auth profile')) {
-      navigate('/provider-atlas');
+  const handleInspectorAction = (action: typeof inspector.actions[number]) => {
+    if (action.effect === 'navigate' && action.target_workspace) {
+      navigate(`/${action.target_workspace}`);
       return;
     }
-    if (normalized.includes('route')) {
-      navigate('/route-studio');
-      return;
-    }
-    if (normalized.includes('yaml') || normalized.includes('config') || normalized.includes('validate')) {
-      navigate('/change-studio');
-      return;
-    }
-    if (normalized.includes('investigation') || normalized.includes('log')) {
-      navigate('/traffic-lab');
-      return;
-    }
-    if (normalized.includes('refresh')) {
+    if (action.effect === 'reload') {
       window.location.reload();
       return;
     }
@@ -74,8 +63,8 @@ export function AppShell() {
         <div className="brand">
           <div className="brand__mark">P</div>
           <div>
-            <strong>Prism</strong>
-            <p>Control plane</p>
+            <strong>{t('common.appName')}</strong>
+            <p>{t('common.controlPlane')}</p>
           </div>
         </div>
         <nav className="workspace-nav">
@@ -89,8 +78,8 @@ export function AppShell() {
               >
                 <Icon size={16} />
                 <div>
-                  <strong>{workspace.label}</strong>
-                  <span>{workspace.summary}</span>
+                  <strong>{tx(workspace.label)}</strong>
+                  <span>{tx(workspace.summary)}</span>
                 </div>
               </NavLink>
             );
@@ -102,14 +91,14 @@ export function AppShell() {
         <header className="context-bar">
           <div className="context-bar__group">
             <label>
-              <span>Env</span>
+              <span>{t('shell.context.environment')}</span>
               <select value={environment} onChange={(event) => setEnvironment(event.target.value as typeof environment)}>
-                <option value="production">production</option>
-                <option value="staging">staging</option>
+                <option value="production">{t('common.production')}</option>
+                <option value="staging">{t('common.staging')}</option>
               </select>
             </label>
             <label>
-              <span>Range</span>
+              <span>{t('shell.context.range')}</span>
               <select value={timeRange} onChange={(event) => setTimeRange(event.target.value as typeof timeRange)}>
                 <option value="15m">15m</option>
                 <option value="1h">1h</option>
@@ -118,24 +107,24 @@ export function AppShell() {
               </select>
             </label>
             <label>
-              <span>Source</span>
+              <span>{t('shell.context.source')}</span>
               <select value={sourceMode} onChange={(event) => setSourceMode(event.target.value as typeof sourceMode)}>
-                <option value="runtime">runtime</option>
-                <option value="hybrid">hybrid</option>
-                <option value="external">external</option>
+                <option value="runtime">{t('common.runtime')}</option>
+                <option value="hybrid">{t('common.hybrid')}</option>
+                <option value="external">{t('common.external')}</option>
               </select>
             </label>
           </div>
 
           <div className="context-bar__actions">
             <button className={`button ${live ? 'button--primary' : 'button--ghost'}`} onClick={toggleLive}>
-              {live ? 'Live' : 'Paused'}
+              {live ? t('common.live') : t('common.pausedTitle')}
             </button>
             <button className="button button--ghost" onClick={toggleLocale}>
-              {locale === 'en' ? '中文' : 'EN'}
+              {locale === 'zh-CN' ? t('common.locale.switchToEn') : t('common.locale.switchToZh')}
             </button>
             <button className="button button--ghost context-user" onClick={() => void logout()}>
-              <span>{username ?? 'admin'}</span>
+              <span>{username ?? t('shell.context.userFallback')}</span>
               <LogOut size={14} />
             </button>
           </div>
@@ -148,19 +137,19 @@ export function AppShell() {
 
           <aside className="inspector">
             <div className="inspector__header">
-              <p className="workspace-eyebrow">{inspector.eyebrow}</p>
-              <h2>{inspector.title}</h2>
-              <p>{inspector.summary}</p>
+              <p className="workspace-eyebrow">{tx(inspector.eyebrow)}</p>
+              <h2>{tx(inspector.title)}</h2>
+              <p>{tx(inspector.summary)}</p>
             </div>
 
             {inspector.sections.map((section) => (
-              <section key={section.title} className="inspector-section">
-                <h3>{section.title}</h3>
+              <section key={section.title.key} className="inspector-section">
+                <h3>{tx(section.title)}</h3>
                 <ul>
                   {section.rows.map((row) => (
-                    <li key={row.label}>
-                      <span>{row.label}</span>
-                      <strong>{row.value}</strong>
+                    <li key={`${row.label.key}-${row.value}`}>
+                      <span>{tx(row.label)}</span>
+                      <strong>{row.value_text ? tx(row.value_text) : row.value}</strong>
                     </li>
                   ))}
                 </ul>
@@ -168,30 +157,33 @@ export function AppShell() {
             ))}
 
             <section className="inspector-section">
-              <h3>Next actions</h3>
+              <h3>{t('shell.inspector.nextActions')}</h3>
               <div className="action-stack">
                 {inspector.actions.map((action) => (
                   <button
-                    key={action}
+                    key={action.id}
                     type="button"
                     className="button button--secondary button--block"
                     onClick={() => handleInspectorAction(action)}
                   >
-                    {action}
+                    {tx(action.label)}
                   </button>
                 ))}
               </div>
             </section>
 
             <section className="inspector-section">
-              <h3>Source posture</h3>
+              <h3>{t('shell.inspector.sourcePosture')}</h3>
               <div className="source-posture">
-                <StatusPill label={sourceMode} tone={sourceMode === 'hybrid' ? 'warning' : sourceMode === 'external' ? 'info' : 'success'} />
-                <span>{environment} / {timeRange}</span>
+                <StatusPill
+                  label={sourceMode === 'runtime' ? t('common.runtime') : sourceMode === 'hybrid' ? t('common.hybrid') : t('common.external')}
+                  tone={sourceMode === 'hybrid' ? 'warning' : sourceMode === 'external' ? 'info' : 'success'}
+                />
+                <span>{environment === 'production' ? t('common.production') : t('common.staging')} / {timeRange}</span>
               </div>
               <div className="inspector-note">
                 <Layers3 size={16} />
-                <span>Runtime posture, change flow, and provider identity stay in one operator surface.</span>
+                <span>{t('shell.inspector.note')}</span>
               </div>
             </section>
           </aside>

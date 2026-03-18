@@ -11,7 +11,7 @@ use super::{
     shared::{latest_freshness, percentage, query_recent_logs, range_start_timestamp},
     types::{
         CommandCenterResponse, FactRow, InspectorRow, InspectorSection, KpiMetric, SignalItem,
-        WorkspaceInspector, WorkspaceQuery,
+        UiText, WorkspaceAction, WorkspaceActionEffect, WorkspaceInspector, WorkspaceQuery,
     },
 };
 
@@ -52,52 +52,61 @@ pub async fn command_center(
     if signals.is_empty() {
         signals.push(SignalItem {
             id: "signal-runtime-stable".to_string(),
-            title: "Runtime posture is stable".to_string(),
-            detail: "No degraded providers or recent request errors were detected in the selected window.".to_string(),
-            severity: "healthy".to_string(),
+            title: UiText::new("commandCenter.signal.runtimeStable.title"),
+            detail: UiText::new("commandCenter.signal.runtimeStable.detail"),
+            severity: UiText::new("common.healthy"),
             severity_tone: "success".to_string(),
-            target_workspace: "Command Center".to_string(),
+            target_workspace: "command-center".to_string(),
         });
     }
 
     let inspector = inspector_from_signal(&signals[0], &query, &recent);
     let kpis = vec![
         KpiMetric {
-            label: "Signals".to_string(),
+            label: UiText::new("commandCenter.kpi.signals"),
             value: signals.len().to_string(),
-            delta: format!("{degraded_providers} providers require follow-up"),
-        },
-        KpiMetric {
-            label: "Fallback rate".to_string(),
-            value: fallback_rate,
-            delta: format!(
-                "{fallback_count} of {} recent requests retried",
-                recent.len()
+            delta: UiText::with_values(
+                "commandCenter.kpi.signals.delta",
+                [("count", degraded_providers)],
             ),
         },
         KpiMetric {
-            label: "Ingest freshness".to_string(),
-            value: freshness,
-            delta: format!("source mode {}", query.source_mode),
+            label: UiText::new("commandCenter.kpi.fallbackRate"),
+            value: fallback_rate,
+            delta: UiText::with_values(
+                "commandCenter.kpi.fallbackRate.delta",
+                [("count", fallback_count), ("total", recent.len())],
+            ),
         },
         KpiMetric {
-            label: "Active providers".to_string(),
+            label: UiText::new("commandCenter.kpi.ingestFreshness"),
+            value: freshness,
+            delta: UiText::with_values(
+                "commandCenter.kpi.ingestFreshness.delta",
+                [("sourceMode", query.source_mode.clone())],
+            ),
+        },
+        KpiMetric {
+            label: UiText::new("commandCenter.kpi.activeProviders"),
             value: active_providers.to_string(),
-            delta: format!("{} configured total", config.providers.len()),
+            delta: UiText::with_values(
+                "commandCenter.kpi.activeProviders.delta",
+                [("count", config.providers.len())],
+            ),
         },
     ];
 
     let pressure_map = vec![
         FactRow {
-            label: "Providers under watch".to_string(),
+            label: UiText::new("commandCenter.pressure.providersUnderWatch"),
             value: degraded_providers.to_string(),
         },
         FactRow {
-            label: "Recent request errors".to_string(),
+            label: UiText::new("commandCenter.pressure.recentRequestErrors"),
             value: stats.error_count.to_string(),
         },
         FactRow {
-            label: "Tracked tenants".to_string(),
+            label: UiText::new("commandCenter.pressure.trackedTenants"),
             value: state
                 .metrics
                 .tenant_snapshot()
@@ -107,7 +116,7 @@ pub async fn command_center(
                 .to_string(),
         },
         FactRow {
-            label: "Auth profiles".to_string(),
+            label: UiText::new("commandCenter.pressure.authProfiles"),
             value: config
                 .providers
                 .iter()
@@ -131,19 +140,19 @@ pub async fn command_center(
         .unwrap_or_else(|| "none".to_string());
     let watch_windows = vec![
         FactRow {
-            label: "Config version".to_string(),
+            label: UiText::new("commandCenter.watch.configVersion"),
             value: config_version,
         },
         FactRow {
-            label: "Top error".to_string(),
+            label: UiText::new("commandCenter.watch.topError"),
             value: top_error,
         },
         FactRow {
-            label: "Latest request".to_string(),
+            label: UiText::new("commandCenter.watch.latestRequest"),
             value: latest_request,
         },
         FactRow {
-            label: "Window".to_string(),
+            label: UiText::new("common.window"),
             value: query.range.clone(),
         },
     ];
@@ -170,11 +179,19 @@ fn build_signal_items(
         if status != "healthy" {
             signals.push(SignalItem {
                 id: format!("provider-{}", provider.name),
-                title: format!("Provider {} is {}", provider.name, status),
+                title: UiText::with_values(
+                    "commandCenter.signal.provider.title",
+                    [("provider", provider.name.clone())],
+                ),
                 detail,
-                severity: status.to_string(),
+                severity: match status {
+                    "disabled" => UiText::new("common.disabled"),
+                    "degraded" => UiText::new("common.degraded"),
+                    "watch" => UiText::new("common.watch"),
+                    _ => UiText::new("common.warning"),
+                },
                 severity_tone: tone.to_string(),
-                target_workspace: "Provider Atlas".to_string(),
+                target_workspace: "provider-atlas".to_string(),
             });
         }
     }
@@ -182,17 +199,17 @@ fn build_signal_items(
     if let Some(top_error) = stats.top_errors.first() {
         signals.push(SignalItem {
             id: format!("error-{}", top_error.error_type),
-            title: format!(
-                "Recent {} requests need investigation",
-                top_error.error_type
+            title: UiText::with_values(
+                "commandCenter.signal.error.title",
+                [("errorType", top_error.error_type.clone())],
             ),
-            detail: format!(
-                "{} requests in the current window hit this error type.",
-                top_error.count
+            detail: UiText::with_values(
+                "commandCenter.signal.error.detail",
+                [("count", top_error.count)],
             ),
-            severity: "watch".to_string(),
+            severity: UiText::new("common.watch"),
             severity_tone: "warning".to_string(),
-            target_workspace: "Traffic Lab".to_string(),
+            target_workspace: "traffic-lab".to_string(),
         });
     }
 
@@ -203,14 +220,14 @@ fn build_signal_items(
     if fallback_sessions > 0 {
         signals.push(SignalItem {
             id: "fallback-surge".to_string(),
-            title: "Fallback traffic is above zero".to_string(),
-            detail: format!(
-                "{} recent request sessions retried across providers.",
-                fallback_sessions
+            title: UiText::new("commandCenter.signal.fallback.title"),
+            detail: UiText::with_values(
+                "commandCenter.signal.fallback.detail",
+                [("count", fallback_sessions)],
             ),
-            severity: "watch".to_string(),
+            severity: UiText::new("common.watch"),
             severity_tone: "info".to_string(),
-            target_workspace: "Route Studio".to_string(),
+            target_workspace: "route-studio".to_string(),
         });
     }
 
@@ -224,48 +241,73 @@ fn inspector_from_signal(
     recent: &[RequestRecord],
 ) -> WorkspaceInspector {
     WorkspaceInspector {
-        eyebrow: "SIGNAL / ACTIVE".to_string(),
+        eyebrow: UiText::new("commandCenter.inspector.eyebrow"),
         title: signal.title.clone(),
         summary: signal.detail.clone(),
         sections: vec![
             InspectorSection {
-                title: "Posture".to_string(),
+                title: UiText::new("commandCenter.inspector.posture"),
                 rows: vec![
                     InspectorRow {
-                        label: "Severity".to_string(),
-                        value: signal.severity.clone(),
+                        label: UiText::new("commandCenter.inspector.severity"),
+                        value: signal
+                            .severity
+                            .values
+                            .get("value")
+                            .cloned()
+                            .unwrap_or_else(|| signal.severity.key.clone()),
+                        value_text: Some(signal.severity.clone()),
                     },
                     InspectorRow {
-                        label: "Target".to_string(),
+                        label: UiText::new("commandCenter.inspector.target"),
                         value: signal.target_workspace.clone(),
+                        value_text: None,
                     },
                     InspectorRow {
-                        label: "Source".to_string(),
+                        label: UiText::new("common.source"),
                         value: query.source_mode.clone(),
+                        value_text: Some(UiText::new(format!("common.{}", query.source_mode))),
                     },
                 ],
             },
             InspectorSection {
-                title: "Runtime".to_string(),
+                title: UiText::new("commandCenter.inspector.runtime"),
                 rows: vec![
                     InspectorRow {
-                        label: "Latest request".to_string(),
+                        label: UiText::new("commandCenter.watch.latestRequest"),
                         value: recent
                             .first()
                             .map(|record| record.request_id.clone())
                             .unwrap_or_else(|| "none".to_string()),
+                        value_text: None,
                     },
                     InspectorRow {
-                        label: "Window".to_string(),
+                        label: UiText::new("common.window"),
                         value: query.range.clone(),
+                        value_text: None,
                     },
                 ],
             },
         ],
         actions: vec![
-            "Open investigation".to_string(),
-            "Jump to workspace".to_string(),
-            "Refresh signal queue".to_string(),
+            WorkspaceAction {
+                id: "open-investigation".to_string(),
+                label: UiText::new("commandCenter.action.openInvestigation"),
+                effect: WorkspaceActionEffect::Navigate,
+                target_workspace: Some(signal.target_workspace.clone()),
+            },
+            WorkspaceAction {
+                id: "jump-to-workspace".to_string(),
+                label: UiText::new("commandCenter.action.jumpToWorkspace"),
+                effect: WorkspaceActionEffect::Navigate,
+                target_workspace: Some(signal.target_workspace.clone()),
+            },
+            WorkspaceAction {
+                id: "refresh-signal-queue".to_string(),
+                label: UiText::new("commandCenter.action.refreshSignalQueue"),
+                effect: WorkspaceActionEffect::Reload,
+                target_workspace: None,
+            },
         ],
     }
 }

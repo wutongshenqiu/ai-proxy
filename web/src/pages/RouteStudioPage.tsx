@@ -2,13 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RouteSimulationSheet } from '../components/route-studio/RouteSimulationSheet';
 import { RouteStudioOverview } from '../components/route-studio/RouteStudioOverview';
+import { useI18n } from '../i18n';
 import { useRouteStudioData } from '../hooks/useWorkspaceData';
 import {
   buildNewRule,
   cloneRoutingConfig,
   extractValidationMessage,
-  parseCsv,
-  parseHeaders,
   parseModelResolutionJson,
   parseProfileJson,
   prettyJson,
@@ -19,6 +18,7 @@ import { routingApi } from '../services/routing';
 import type { RouteExplanation, RouteRule, RoutingConfig } from '../types/backend';
 
 export function RouteStudioPage() {
+  const { t } = useI18n();
   const { data, error, loading } = useRouteStudioData();
   const navigate = useNavigate();
   const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(null);
@@ -59,7 +59,7 @@ export function RouteStudioPage() {
         if (cancelled) {
           return;
         }
-        setRoutingError(getApiErrorMessage(loadError, 'Failed to load routing config'));
+        setRoutingError(getApiErrorMessage(loadError, t('routeStudio.error.loadConfig')));
       } finally {
         if (!cancelled) {
           setRoutingLoading(false);
@@ -70,7 +70,7 @@ export function RouteStudioPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [t]);
 
   const selectedScenario = useMemo(
     () => data?.scenarios.find((scenario) => scenario.scenario === selectedScenarioId) ?? null,
@@ -167,11 +167,30 @@ export function RouteStudioPage() {
         return;
       }
       if (field === 'headers') {
-        const parsed = parseHeaders(String(value));
-        rule.match.headers = parsed;
+        rule.match.headers = value
+          ? Object.fromEntries(
+            String(value)
+              .split('\n')
+              .map((line) => line.trim())
+              .filter(Boolean)
+              .map((line) => {
+                const [name, rawValues = ''] = line.split(':');
+                return [
+                  name.trim(),
+                  rawValues
+                    .split(',')
+                    .map((item) => item.trim())
+                    .filter(Boolean),
+                ];
+              }),
+          )
+          : undefined;
         return;
       }
-      rule.match[field] = parseCsv(String(value));
+      rule.match[field] = String(value)
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
     });
   };
 
@@ -190,7 +209,7 @@ export function RouteStudioPage() {
 
   const simulateDraft = async () => {
     if (!selectedScenario) {
-      setSimulationError('Select a scenario first.');
+      setSimulationError(t('routeStudio.error.selectScenario'));
       setSheetOpen(true);
       return;
     }
@@ -216,9 +235,9 @@ export function RouteStudioPage() {
         setRoutingDraft(nextDraft);
       }
       setExplanation(routeExplanation);
-      setSimulationStatus(`Simulated route for ${selectedScenario.scenario}.`);
+      setSimulationStatus(t('routeStudio.status.simulated', { scenario: selectedScenario.scenario }));
     } catch (actionError) {
-      setSimulationError(extractValidationMessage(actionError, 'Route simulation failed'));
+      setSimulationError(extractValidationMessage(actionError, t('routeStudio.error.simulation')));
     } finally {
       setSimulationLoading(false);
     }
@@ -235,9 +254,9 @@ export function RouteStudioPage() {
     try {
       const nextDraft = applyAdvancedDrafts();
       if (!nextDraft) {
-        throw new Error('Routing draft is not ready yet.');
+        throw new Error(t('routeStudio.error.draftNotReady'));
       }
-      const result = await routingApi.update({
+      await routingApi.update({
         'default-profile': nextDraft['default-profile'],
         profiles: nextDraft.profiles,
         rules: nextDraft.rules,
@@ -245,9 +264,9 @@ export function RouteStudioPage() {
       });
       setRoutingConfig(cloneRoutingConfig(nextDraft));
       setRoutingDraft(cloneRoutingConfig(nextDraft));
-      setRoutingStatus(result.message ?? 'Routing draft saved.');
+      setRoutingStatus(t('routeStudio.status.saved'));
     } catch (saveError) {
-      setRoutingError(extractValidationMessage(saveError, 'Failed to save routing draft'));
+      setRoutingError(extractValidationMessage(saveError, t('routeStudio.error.save')));
     } finally {
       setSavingDraft(false);
     }
@@ -259,13 +278,13 @@ export function RouteStudioPage() {
     }
     const reset = cloneRoutingConfig(routingConfig);
     setRoutingDraft(reset);
-    setRoutingStatus('Reset route draft to runtime truth.');
+    setRoutingStatus(t('routeStudio.status.reset'));
     setRoutingError(null);
   };
 
   const promoteToChange = () => {
     if (!selectedScenario) {
-      setSimulationError('Select a scenario before promoting it.');
+      setSimulationError(t('routeStudio.error.promoteWithoutScenario'));
       return;
     }
 
@@ -281,21 +300,19 @@ export function RouteStudioPage() {
     <div className="workspace-grid">
       <section className="hero">
         <div>
-          <p className="workspace-eyebrow">PRISM / ROUTE STUDIO</p>
-          <h1>Draft routing truth before publish</h1>
-          <p className="workspace-summary">
-            Route Studio owns the full authoring loop: default-profile selection, rule mutation, advanced policy editing, and draft simulation before promotion.
-          </p>
+          <p className="workspace-eyebrow">{t('routeStudio.hero.eyebrow')}</p>
+          <h1>{t('routeStudio.hero.title')}</h1>
+          <p className="workspace-summary">{t('routeStudio.hero.summary')}</p>
         </div>
         <div className="hero-actions">
           <button className="button button--primary" onClick={() => void simulateDraft()}>
-            Simulate draft
+            {t('routeStudio.hero.simulateDraft')}
           </button>
           <button className="button button--ghost" onClick={() => void saveRoutingDraft()} disabled={savingDraft || routingLoading}>
-            {savingDraft ? 'Saving…' : 'Save routing draft'}
+            {savingDraft ? t('routeStudio.authoring.saving') : t('routeStudio.hero.saveDraft')}
           </button>
           <button className="button button--ghost" onClick={promoteToChange}>
-            Promote to change
+            {t('routeStudio.hero.promoteToChange')}
           </button>
         </div>
       </section>

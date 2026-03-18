@@ -11,8 +11,8 @@ use crate::{AppState, handler::dashboard::config_tx};
 use super::{
     shared::total_model_resolution_steps,
     types::{
-        ChangeStudioResponse, FactRow, InspectorRow, InspectorSection, RegistryRow,
-        WorkspaceInspector, WorkspaceQuery,
+        ChangeStudioResponse, FactRow, InspectorRow, InspectorSection, RegistryRow, UiText,
+        WorkspaceAction, WorkspaceActionEffect, WorkspaceInspector, WorkspaceQuery,
     },
 };
 
@@ -27,11 +27,11 @@ pub async fn change_studio(
     let registry = build_registry_rows(&config);
     let publish_facts = vec![
         FactRow {
-            label: "Config version".to_string(),
+            label: UiText::new("changeStudio.fact.configVersion"),
             value: config_version.clone(),
         },
         FactRow {
-            label: "Config path".to_string(),
+            label: UiText::new("changeStudio.fact.configPath"),
             value: state
                 .config_path
                 .lock()
@@ -39,11 +39,11 @@ pub async fn change_studio(
                 .unwrap_or_else(|_| "unavailable".to_string()),
         },
         FactRow {
-            label: "Providers".to_string(),
+            label: UiText::new("common.providers"),
             value: config.providers.len().to_string(),
         },
         FactRow {
-            label: "Selected window".to_string(),
+            label: UiText::new("changeStudio.fact.selectedWindow"),
             value: query.range.clone(),
         },
     ];
@@ -71,11 +71,12 @@ fn build_registry_rows(config: &Config) -> Vec<RegistryRow> {
     vec![
         RegistryRow {
             family: "providers".to_string(),
+            family_label: UiText::new("changeStudio.family.providers"),
             record: format!("{} providers", config.providers.len()),
             state: if config.providers.is_empty() {
-                "empty".to_string()
+                UiText::new("common.empty")
             } else {
-                "configured".to_string()
+                UiText::new("common.configured")
             },
             state_tone: if config.providers.is_empty() {
                 "warning".to_string()
@@ -86,11 +87,12 @@ fn build_registry_rows(config: &Config) -> Vec<RegistryRow> {
         },
         RegistryRow {
             family: "auth-profiles".to_string(),
+            family_label: UiText::new("changeStudio.family.authProfiles"),
             record: format!("{explicit_auth_profiles} explicit profiles"),
             state: if explicit_auth_profiles == 0 {
-                "implicit-only".to_string()
+                UiText::new("changeStudio.state.implicitOnly")
             } else {
-                "configured".to_string()
+                UiText::new("common.configured")
             },
             state_tone: if explicit_auth_profiles == 0 {
                 "info".to_string()
@@ -101,11 +103,12 @@ fn build_registry_rows(config: &Config) -> Vec<RegistryRow> {
         },
         RegistryRow {
             family: "auth-keys".to_string(),
+            family_label: UiText::new("changeStudio.family.authKeys"),
             record: format!("{} auth keys", config.auth_keys.len()),
             state: if config.auth_keys.is_empty() {
-                "empty".to_string()
+                UiText::new("common.empty")
             } else {
-                "configured".to_string()
+                UiText::new("common.configured")
             },
             state_tone: if config.auth_keys.is_empty() {
                 "warning".to_string()
@@ -116,18 +119,20 @@ fn build_registry_rows(config: &Config) -> Vec<RegistryRow> {
         },
         RegistryRow {
             family: "route-profiles".to_string(),
+            family_label: UiText::new("changeStudio.family.routeProfiles"),
             record: format!("{} profiles", config.routing.profiles.len()),
-            state: "live".to_string(),
+            state: UiText::new("changeStudio.state.live"),
             state_tone: "success".to_string(),
             dependents: format!("{} rules", config.routing.rules.len()),
         },
         RegistryRow {
             family: "model-resolution".to_string(),
+            family_label: UiText::new("changeStudio.family.modelResolution"),
             record: format!("{} transforms", total_model_resolution_steps(config)),
             state: if total_model_resolution_steps(config) == 0 {
-                "baseline".to_string()
+                UiText::new("changeStudio.state.baseline")
             } else {
-                "customized".to_string()
+                UiText::new("changeStudio.state.customized")
             },
             state_tone: if total_model_resolution_steps(config) == 0 {
                 "info".to_string()
@@ -141,49 +146,73 @@ fn build_registry_rows(config: &Config) -> Vec<RegistryRow> {
 
 fn change_inspector(config: &Config, config_version: String) -> WorkspaceInspector {
     WorkspaceInspector {
-        eyebrow: "CHANGE / CONFIG".to_string(),
-        title: config_version,
-        summary: "Change Studio currently uses the config transaction path as the runtime truth until structured change objects land.".to_string(),
+        eyebrow: UiText::new("changeStudio.inspector.eyebrow"),
+        title: UiText::with_values(
+            "changeStudio.inspector.title",
+            [("configVersion", config_version)],
+        ),
+        summary: UiText::new("changeStudio.inspector.summary"),
         sections: vec![
             InspectorSection {
-                title: "Current shape".to_string(),
+                title: UiText::new("changeStudio.inspector.currentShape"),
                 rows: vec![
                     InspectorRow {
-                        label: "Providers".to_string(),
+                        label: UiText::new("common.providers"),
                         value: config.providers.len().to_string(),
+                        value_text: None,
                     },
                     InspectorRow {
-                        label: "Auth keys".to_string(),
+                        label: UiText::new("changeStudio.inspector.authKeys"),
                         value: config.auth_keys.len().to_string(),
+                        value_text: None,
                     },
                     InspectorRow {
-                        label: "Route rules".to_string(),
+                        label: UiText::new("changeStudio.inspector.routeRules"),
                         value: config.routing.rules.len().to_string(),
+                        value_text: None,
                     },
                 ],
             },
             InspectorSection {
-                title: "Transaction path".to_string(),
+                title: UiText::new("changeStudio.inspector.transactionPath"),
                 rows: vec![
                     InspectorRow {
-                        label: "Validate".to_string(),
+                        label: UiText::new("changeStudio.inspector.validate"),
                         value: "available".to_string(),
+                        value_text: Some(UiText::new("common.available")),
                     },
                     InspectorRow {
-                        label: "Apply".to_string(),
+                        label: UiText::new("changeStudio.inspector.apply"),
                         value: "available".to_string(),
+                        value_text: Some(UiText::new("common.available")),
                     },
                     InspectorRow {
-                        label: "Reload".to_string(),
+                        label: UiText::new("changeStudio.inspector.reload"),
                         value: "available".to_string(),
+                        value_text: Some(UiText::new("common.available")),
                     },
                 ],
             },
         ],
         actions: vec![
-            "Open raw YAML".to_string(),
-            "Validate current config".to_string(),
-            "Reload runtime".to_string(),
+            WorkspaceAction {
+                id: "open-raw-yaml".to_string(),
+                label: UiText::new("changeStudio.action.openRawYaml"),
+                effect: WorkspaceActionEffect::Navigate,
+                target_workspace: Some("change-studio".to_string()),
+            },
+            WorkspaceAction {
+                id: "validate-current-config".to_string(),
+                label: UiText::new("changeStudio.action.validateCurrentConfig"),
+                effect: WorkspaceActionEffect::Navigate,
+                target_workspace: Some("change-studio".to_string()),
+            },
+            WorkspaceAction {
+                id: "reload-runtime".to_string(),
+                label: UiText::new("changeStudio.action.reloadRuntime"),
+                effect: WorkspaceActionEffect::Reload,
+                target_workspace: None,
+            },
         ],
     }
 }

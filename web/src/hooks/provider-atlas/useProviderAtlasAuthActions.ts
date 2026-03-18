@@ -1,4 +1,5 @@
 import { useState, type Dispatch, type SetStateAction } from 'react';
+import { useI18n } from '../../i18n';
 import { confirmAction, navigateTo } from '../../lib/browser';
 import {
   isManagedMode,
@@ -42,6 +43,7 @@ export function useProviderAtlasAuthActions({
   importPath,
   setDeviceFlow,
 }: UseProviderAtlasAuthActionsOptions) {
+  const { t } = useI18n();
   const [refreshingProfileId, setRefreshingProfileId] = useState<string | null>(null);
   const [importingProfileId, setImportingProfileId] = useState<string | null>(null);
   const [authStatus, setAuthStatus] = useState<string | null>(null);
@@ -59,14 +61,14 @@ export function useProviderAtlasAuthActions({
     clearAuthMessages();
     try {
       const response = await authProfilesApi.refresh(provider, profileId);
-      setAuthStatus(`Refreshed auth profile ${response.profile.qualified_name}.`);
+      setAuthStatus(t('providerAtlas.authStatus.refreshed', { profile: response.profile.qualified_name }));
       await loadProfiles();
       if (selectedProvider === provider) {
         const refreshed = await providersApi.get(provider);
         setDetail(refreshed);
       }
     } catch (refreshError) {
-      setAuthError(getApiErrorMessage(refreshError, 'Failed to refresh auth profile'));
+      setAuthError(getApiErrorMessage(refreshError, t('providerAtlas.authError.refresh')));
     } finally {
       setRefreshingProfileId(null);
     }
@@ -74,7 +76,7 @@ export function useProviderAtlasAuthActions({
 
   const importSelectedProfile = async () => {
     if (!selectedAuthProfile) {
-      setAuthError('Select an auth profile first.');
+      setAuthError(t('providerAtlas.authError.selectProfile'));
       return;
     }
 
@@ -86,10 +88,10 @@ export function useProviderAtlasAuthActions({
         selectedAuthProfile.id,
         importPath.trim() || undefined,
       );
-      setAuthStatus(`Imported local credentials into ${response.profile.qualified_name}.`);
+      setAuthStatus(t('providerAtlas.authStatus.imported', { profile: response.profile.qualified_name }));
       await loadProfiles();
     } catch (importError) {
-      setAuthError(getApiErrorMessage(importError, 'Failed to import local auth state'));
+      setAuthError(getApiErrorMessage(importError, t('providerAtlas.authError.importLocal')));
     } finally {
       setImportingProfileId(null);
     }
@@ -97,33 +99,33 @@ export function useProviderAtlasAuthActions({
 
   const deleteSelectedProfile = async () => {
     if (!selectedAuthProfile) {
-      setAuthError('Select an auth profile first.');
+      setAuthError(t('providerAtlas.authError.selectProfile'));
       return;
     }
-    if (!confirmAction(`Delete auth profile "${selectedAuthProfile.qualified_name}"?`)) {
+    if (!confirmAction(t('providerAtlas.authConfirm.deleteProfile', { profile: selectedAuthProfile.qualified_name }))) {
       return;
     }
 
     clearAuthMessages();
     try {
       await authProfilesApi.remove(selectedAuthProfile.provider, selectedAuthProfile.id);
-      setAuthStatus(`Deleted auth profile ${selectedAuthProfile.qualified_name}.`);
+      setAuthStatus(t('providerAtlas.authStatus.deleted', { profile: selectedAuthProfile.qualified_name }));
       setSelectedAuthProfileId(null);
       await loadProfiles();
       await reload();
     } catch (deleteError) {
-      setAuthError(getApiErrorMessage(deleteError, 'Failed to delete auth profile'));
+      setAuthError(getApiErrorMessage(deleteError, t('providerAtlas.authError.delete')));
     }
   };
 
   const saveAuthProfile = async () => {
     if (!authForm.provider.trim() || !authForm.id.trim()) {
-      setAuthError('Provider and profile id are required.');
+      setAuthError(t('providerAtlas.authError.providerAndIdRequired'));
       return;
     }
 
     if (!isManagedMode(authForm.mode) && authEditorMode === 'create' && !authForm.secret.trim()) {
-      setAuthError('Secret is required for API key and bearer token auth profiles.');
+      setAuthError(t('providerAtlas.authError.secretRequired'));
       return;
     }
 
@@ -153,14 +155,16 @@ export function useProviderAtlasAuthActions({
             });
 
       setAuthStatus(
-        `${authEditorMode === 'edit' ? 'Saved' : 'Created'} auth profile ${response.profile.qualified_name}.`,
+        authEditorMode === 'edit'
+          ? t('providerAtlas.authStatus.saved', { profile: response.profile.qualified_name })
+          : t('providerAtlas.authStatus.created', { profile: response.profile.qualified_name }),
       );
       setSelectedAuthProfileId(profileKey(response.profile.provider, response.profile.id));
       setAuthForm((current) => ({ ...current, secret: '' }));
       await loadProfiles();
       await reload();
     } catch (createError) {
-      setAuthError(getApiErrorMessage(createError, 'Failed to save auth profile'));
+      setAuthError(getApiErrorMessage(createError, t('providerAtlas.authError.save')));
     } finally {
       setAuthSaving(false);
     }
@@ -168,15 +172,15 @@ export function useProviderAtlasAuthActions({
 
   const connectSelectedProfile = async () => {
     if (!selectedAuthProfile) {
-      setAuthError('Select an auth profile first.');
+      setAuthError(t('providerAtlas.authError.selectProfile'));
       return;
     }
     if (selectedAuthProfile.mode !== 'anthropic-claude-subscription') {
-      setAuthError('Secret connect is only supported for Claude subscription profiles.');
+      setAuthError(t('providerAtlas.authError.connectSecretMode'));
       return;
     }
     if (!connectSecret.trim()) {
-      setAuthError('Enter the subscription token first.');
+      setAuthError(t('providerAtlas.authError.subscriptionTokenRequired'));
       return;
     }
 
@@ -187,12 +191,12 @@ export function useProviderAtlasAuthActions({
       const response = await authProfilesApi.connect(selectedAuthProfile.provider, selectedAuthProfile.id, {
         secret: connectSecret.trim(),
       });
-      setAuthStatus(`Connected ${response.profile.qualified_name}.`);
+      setAuthStatus(t('providerAtlas.authStatus.connected', { profile: response.profile.qualified_name }));
       setConnectSecret('');
       await loadProfiles();
       await reload();
     } catch (connectError) {
-      setAuthError(getApiErrorMessage(connectError, 'Failed to connect auth profile'));
+      setAuthError(getApiErrorMessage(connectError, t('providerAtlas.authError.connect')));
     } finally {
       setConnectingProfileId(null);
     }
@@ -200,11 +204,11 @@ export function useProviderAtlasAuthActions({
 
   const startBrowserOauth = async () => {
     if (!selectedAuthProfile) {
-      setAuthError('Select an auth profile first.');
+      setAuthError(t('providerAtlas.authError.selectProfile'));
       return;
     }
     if (selectedAuthProfile.mode !== 'codex-oauth') {
-      setAuthError('Browser OAuth is only available for Codex OAuth profiles.');
+      setAuthError(t('providerAtlas.authError.browserOauthMode'));
       return;
     }
 
@@ -220,18 +224,18 @@ export function useProviderAtlasAuthActions({
       });
       navigateTo(response.auth_url);
     } catch (startError) {
-      setAuthError(getApiErrorMessage(startError, 'Failed to start browser OAuth'));
+      setAuthError(getApiErrorMessage(startError, t('providerAtlas.authError.startBrowserOauth')));
       setConnectingProfileId(null);
     }
   };
 
   const startDeviceFlow = async () => {
     if (!selectedAuthProfile) {
-      setAuthError('Select an auth profile first.');
+      setAuthError(t('providerAtlas.authError.selectProfile'));
       return;
     }
     if (selectedAuthProfile.mode !== 'codex-oauth') {
-      setAuthError('Device flow is only available for Codex OAuth profiles.');
+      setAuthError(t('providerAtlas.authError.deviceFlowMode'));
       return;
     }
 
@@ -249,9 +253,9 @@ export function useProviderAtlasAuthActions({
         target_profile_key: currentKey,
         target_qualified_name: selectedAuthProfile.qualified_name,
       });
-      setAuthStatus(`Started device flow for ${selectedAuthProfile.qualified_name}.`);
+      setAuthStatus(t('providerAtlas.authStatus.deviceFlowStarted', { profile: selectedAuthProfile.qualified_name }));
     } catch (startError) {
-      setAuthError(getApiErrorMessage(startError, 'Failed to start device flow'));
+      setAuthError(getApiErrorMessage(startError, t('providerAtlas.authError.startDeviceFlow')));
     } finally {
       setConnectingProfileId(null);
     }

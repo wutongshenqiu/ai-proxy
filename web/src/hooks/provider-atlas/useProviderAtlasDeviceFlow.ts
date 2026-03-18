@@ -1,4 +1,5 @@
 import { useEffect, type Dispatch, type SetStateAction } from 'react';
+import { useI18n } from '../../i18n';
 import { resolveDeviceFlowProfileLabel, type DeviceFlowState } from '../../lib/authProfileDraft';
 import { authProfilesApi } from '../../services/authProfiles';
 import { getApiErrorMessage } from '../../services/errors';
@@ -20,6 +21,7 @@ export function useProviderAtlasDeviceFlow({
   setAuthStatus,
   setAuthError,
 }: UseProviderAtlasDeviceFlowOptions) {
+  const { t } = useI18n();
   useEffect(() => {
     if (!deviceFlow) {
       return;
@@ -37,7 +39,7 @@ export function useProviderAtlasDeviceFlow({
             return;
           }
           const profileLabel = resolveDeviceFlowProfileLabel(deviceFlow, result.profile);
-          setAuthStatus(`Connected ${profileLabel} via device flow.`);
+          setAuthStatus(t('providerAtlas.authStatus.deviceFlowConnected', { profile: profileLabel }));
           setDeviceFlow(null);
           await loadProfiles();
           await reload();
@@ -46,7 +48,7 @@ export function useProviderAtlasDeviceFlow({
           if (cancelled) {
             return;
           }
-          setAuthError(getApiErrorMessage(pollError, 'Device flow polling failed'));
+          setAuthError(getApiErrorMessage(pollError, t('providerAtlas.authError.deviceFlowPolling')));
         });
     }, Math.max(deviceFlow.interval_secs, 2) * 1000);
 
@@ -54,5 +56,5 @@ export function useProviderAtlasDeviceFlow({
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [deviceFlow, loadProfiles, reload, setAuthError, setAuthStatus, setDeviceFlow]);
+  }, [deviceFlow, loadProfiles, reload, setAuthError, setAuthStatus, setDeviceFlow, t]);
 }

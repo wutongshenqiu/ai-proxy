@@ -1,4 +1,5 @@
-import type { ShellInspectorState, SourceMode, TimeRangeMode } from './shell';
+import type { LocalizedText } from './i18n';
+import type { ShellInspectorState, SourceMode, TimeRangeMode, WorkspaceId } from './shell';
 
 export type StatusTone = 'neutral' | 'success' | 'warning' | 'danger' | 'info';
 
@@ -8,23 +9,23 @@ export interface WorkspaceQuery {
 }
 
 export interface FactRow {
-  label: string;
+  label: LocalizedText;
   value: string;
 }
 
 export interface KpiMetric {
-  label: string;
+  label: LocalizedText;
   value: string;
-  delta: string;
+  delta: LocalizedText;
 }
 
 export interface SignalItem {
   id: string;
-  title: string;
-  detail: string;
-  severity: string;
+  title: LocalizedText;
+  detail: LocalizedText;
+  severity: LocalizedText;
   severity_tone: StatusTone;
-  target_workspace: string;
+  target_workspace: WorkspaceId;
 }
 
 export interface CommandCenterResponse {
@@ -38,17 +39,17 @@ export interface CommandCenterResponse {
 export interface TrafficSessionItem {
   request_id: string;
   model: string;
-  decision: string;
-  result: string;
+  decision: LocalizedText;
+  result: LocalizedText;
   result_tone: StatusTone;
   latency_ms: number;
 }
 
 export interface TimelineStep {
-  label: string;
+  label: LocalizedText;
   tone: StatusTone;
-  title: string;
-  detail: string;
+  title: LocalizedText;
+  detail: LocalizedText;
 }
 
 export interface TrafficLabResponse {
@@ -62,10 +63,10 @@ export interface TrafficLabResponse {
 export interface ProviderAtlasRow {
   provider: string;
   format: string;
-  auth: string;
-  status: string;
+  auth: LocalizedText;
+  status: LocalizedText;
   status_tone: StatusTone;
-  rotation: string;
+  rotation: LocalizedText;
   region: string;
   wire_api: string;
   model_count: number;
@@ -81,7 +82,7 @@ export interface RouteScenarioRow {
   scenario: string;
   winner: string;
   delta: string;
-  decision: string;
+  decision: LocalizedText;
   decision_tone: StatusTone;
   endpoint: string;
   source_format: string;
@@ -101,8 +102,9 @@ export interface RouteStudioResponse {
 
 export interface RegistryRow {
   family: string;
+  family_label: LocalizedText;
   record: string;
-  state: string;
+  state: LocalizedText;
   state_tone: StatusTone;
   dependents: string;
 }

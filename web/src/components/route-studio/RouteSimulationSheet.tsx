@@ -1,4 +1,5 @@
 import { WorkbenchSheet } from '../WorkbenchSheet';
+import { useI18n } from '../../i18n';
 import type { RouteExplanation } from '../../types/backend';
 import type { RouteScenarioRow } from '../../types/controlPlane';
 
@@ -25,19 +26,21 @@ export function RouteSimulationSheet({
   onPromoteToChange,
   onSimulateDraft,
 }: RouteSimulationSheetProps) {
+  const { t } = useI18n();
+
   return (
     <WorkbenchSheet
       open={open}
       onClose={onClose}
-      title="Route simulation workbench"
-      subtitle="Run a real explain against the selected scenario using the current local draft, then promote it into change review."
+      title={t('routeStudio.simulation.title')}
+      subtitle={t('routeStudio.simulation.subtitle')}
       actions={(
         <>
           <button type="button" className="button button--ghost" onClick={onPromoteToChange} disabled={!selectedScenario}>
-            Promote to change
+            {t('routeStudio.simulation.promote')}
           </button>
           <button type="button" className="button button--primary" onClick={onSimulateDraft} disabled={simulationLoading}>
-            {simulationLoading ? 'Simulating…' : 'Re-run simulation'}
+            {simulationLoading ? t('routeStudio.simulation.simulating') : t('routeStudio.simulation.rerun')}
           </button>
         </>
       )}
@@ -47,12 +50,12 @@ export function RouteSimulationSheet({
 
       {selectedScenario ? (
         <section className="sheet-section">
-          <h3>Scenario posture</h3>
+          <h3>{t('routeStudio.simulation.scenarioPosture')}</h3>
           <div className="detail-grid">
-            <div className="detail-grid__row"><span>Scenario</span><strong>{selectedScenario.scenario}</strong></div>
-            <div className="detail-grid__row"><span>Model</span><strong>{selectedScenario.model}</strong></div>
-            <div className="detail-grid__row"><span>Endpoint</span><strong>{selectedScenario.endpoint}</strong></div>
-            <div className="detail-grid__row"><span>Source format</span><strong>{selectedScenario.source_format}</strong></div>
+            <div className="detail-grid__row"><span>{t('routeStudio.scenario.scenario')}</span><strong>{selectedScenario.scenario}</strong></div>
+            <div className="detail-grid__row"><span>{t('common.model')}</span><strong>{selectedScenario.model}</strong></div>
+            <div className="detail-grid__row"><span>{t('routeStudio.simulation.endpoint')}</span><strong>{selectedScenario.endpoint}</strong></div>
+            <div className="detail-grid__row"><span>{t('routeStudio.simulation.sourceFormat')}</span><strong>{selectedScenario.source_format}</strong></div>
           </div>
         </section>
       ) : null}
@@ -60,17 +63,17 @@ export function RouteSimulationSheet({
       {explanation ? (
         <>
           <section className="sheet-section">
-            <h3>Winning route</h3>
+            <h3>{t('routeStudio.simulation.winningRoute')}</h3>
             <div className="detail-grid">
-              <div className="detail-grid__row"><span>Profile</span><strong>{explanation.profile}</strong></div>
-              <div className="detail-grid__row"><span>Matched rule</span><strong>{explanation.matched_rule ?? 'default'}</strong></div>
-              <div className="detail-grid__row"><span>Provider</span><strong>{explanation.selected?.provider ?? 'none'}</strong></div>
-              <div className="detail-grid__row"><span>Credential</span><strong>{explanation.selected?.credential_name ?? 'none'}</strong></div>
+              <div className="detail-grid__row"><span>{t('common.profile')}</span><strong>{explanation.profile}</strong></div>
+              <div className="detail-grid__row"><span>{t('routeStudio.simulation.matchedRule')}</span><strong>{explanation.matched_rule ?? t('common.default')}</strong></div>
+              <div className="detail-grid__row"><span>{t('common.provider')}</span><strong>{explanation.selected?.provider ?? t('common.none')}</strong></div>
+              <div className="detail-grid__row"><span>{t('routeStudio.simulation.credential')}</span><strong>{explanation.selected?.credential_name ?? t('common.none')}</strong></div>
             </div>
           </section>
 
           <section className="sheet-section">
-            <h3>Alternates and rejections</h3>
+            <h3>{t('routeStudio.simulation.alternates')}</h3>
             <div className="probe-list">
               {explanation.alternates.slice(0, 3).map((alternate) => (
                 <div key={`${alternate.provider}-${alternate.credential_name}`} className="probe-check">
@@ -81,7 +84,7 @@ export function RouteSimulationSheet({
               {explanation.rejections.slice(0, 3).map((rejection) => (
                 <div key={`${rejection.candidate}-${JSON.stringify(rejection.reason)}`} className="probe-check">
                   <span>{rejection.candidate}</span>
-                  <strong>{typeof rejection.reason === 'string' ? rejection.reason : 'missing capability'}</strong>
+                  <strong>{typeof rejection.reason === 'string' ? rejection.reason : t('trafficLab.replay.missingCapability')}</strong>
                 </div>
               ))}
             </div>

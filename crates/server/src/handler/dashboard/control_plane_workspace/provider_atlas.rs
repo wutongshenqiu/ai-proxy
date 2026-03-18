@@ -16,8 +16,8 @@ use crate::{
 use super::{
     shared::{title_case, wire_api_label},
     types::{
-        FactRow, InspectorRow, InspectorSection, ProviderAtlasResponse, ProviderAtlasRow,
-        WorkspaceInspector, WorkspaceQuery,
+        FactRow, InspectorRow, InspectorSection, ProviderAtlasResponse, ProviderAtlasRow, UiText,
+        WorkspaceAction, WorkspaceActionEffect, WorkspaceInspector, WorkspaceQuery, raw_text,
     },
 };
 
@@ -26,13 +26,16 @@ pub async fn provider_atlas(
     Query(query): Query<WorkspaceQuery>,
 ) -> Json<ProviderAtlasResponse> {
     let config = state.config.load();
+    let healthy = config
+        .providers
+        .iter()
+        .filter(|provider| provider_runtime_status(&state, provider).0 == "healthy")
+        .count();
     let rows = config
         .providers
         .iter()
         .map(|provider| provider_row(&state, provider))
         .collect::<Vec<_>>();
-
-    let healthy = rows.iter().filter(|row| row.status == "Healthy").count();
     let managed = config
         .providers
         .iter()
@@ -50,19 +53,19 @@ pub async fn provider_atlas(
         .count();
     let coverage = vec![
         FactRow {
-            label: "Healthy providers".to_string(),
+            label: UiText::new("providerAtlas.coverage.healthyProviders"),
             value: healthy.to_string(),
         },
         FactRow {
-            label: "Managed auth profiles".to_string(),
+            label: UiText::new("providerAtlas.coverage.managedAuthProfiles"),
             value: managed.to_string(),
         },
         FactRow {
-            label: "Verified stream surfaces".to_string(),
+            label: UiText::new("providerAtlas.coverage.verifiedStreamSurfaces"),
             value: stream_ready.to_string(),
         },
         FactRow {
-            label: "Source mode".to_string(),
+            label: UiText::new("providerAtlas.coverage.sourceMode"),
             value: query.source_mode.clone(),
         },
     ];
@@ -92,7 +95,7 @@ fn provider_row(state: &AppState, provider: &ProviderKeyEntry) -> ProviderAtlasR
     let auth = profiles
         .first()
         .map(auth_mode_label)
-        .unwrap_or_else(|| "Static api_key".to_string());
+        .unwrap_or_else(|| UiText::new("providerAtlas.auth.staticApiKey"));
     let rotation = provider_rotation_summary(&profiles);
     let (status, tone, _) = provider_runtime_status(state, provider);
 
@@ -100,7 +103,7 @@ fn provider_row(state: &AppState, provider: &ProviderKeyEntry) -> ProviderAtlasR
         provider: provider.name.clone(),
         format: provider.format.as_str().to_string(),
         auth,
-        status: title_case(status),
+        status: provider_status_label(status),
         status_tone: tone.to_string(),
         rotation,
         region: provider
@@ -112,18 +115,30 @@ fn provider_row(state: &AppState, provider: &ProviderKeyEntry) -> ProviderAtlasR
     }
 }
 
-fn auth_mode_label(profile: &AuthProfileEntry) -> String {
-    match profile.mode {
-        AuthMode::ApiKey => "API key".to_string(),
-        AuthMode::BearerToken => "Bearer token".to_string(),
-        AuthMode::CodexOAuth => "Codex OAuth".to_string(),
-        AuthMode::AnthropicClaudeSubscription => "Claude subscription".to_string(),
+fn provider_status_label(status: &str) -> UiText {
+    match status {
+        "healthy" => UiText::new("common.healthy"),
+        "disabled" => UiText::new("common.disabled"),
+        "degraded" => UiText::new("common.degraded"),
+        "watch" => UiText::new("common.watch"),
+        other => raw_text(title_case(other)),
     }
 }
 
-fn provider_rotation_summary(profiles: &[AuthProfileEntry]) -> String {
+fn auth_mode_label(profile: &AuthProfileEntry) -> UiText {
+    match profile.mode {
+        AuthMode::ApiKey => UiText::new("providerAtlas.auth.apiKey"),
+        AuthMode::BearerToken => UiText::new("providerAtlas.auth.bearerToken"),
+        AuthMode::CodexOAuth => UiText::new("providerAtlas.auth.codexOauth"),
+        AuthMode::AnthropicClaudeSubscription => {
+            UiText::new("providerAtlas.auth.claudeSubscription")
+        }
+    }
+}
+
+fn provider_rotation_summary(profiles: &[AuthProfileEntry]) -> UiText {
     if profiles.is_empty() {
-        return "No auth profile".to_string();
+        return UiText::new("providerAtlas.rotation.none");
     }
 
     for profile in profiles {
@@ -139,36 +154,42 @@ fn provider_rotation_summary(profiles: &[AuthProfileEntry]) -> String {
                     .unwrap_or_default()
                     .is_empty()
             {
-                return "Disconnected".to_string();
+                return UiText::new("providerAtlas.rotation.disconnected");
             }
             if let Some(expires_at) = &profile.expires_at
                 && let Ok(expiry) = DateTime::parse_from_rfc3339(expires_at)
             {
                 let remaining = expiry.with_timezone(&Utc) - Utc::now();
                 if remaining.num_seconds() <= 0 {
-                    return "Expired".to_string();
+                    return UiText::new("providerAtlas.rotation.expired");
                 }
                 if remaining.num_days() < 1 {
-                    return format!("Renews in {}h", remaining.num_hours());
+                    return UiText::with_values(
+                        "providerAtlas.rotation.renewsHours",
+                        [("hours", remaining.num_hours())],
+                    );
                 }
-                return format!("Renews in {}d", remaining.num_days());
+                return UiText::with_values(
+                    "providerAtlas.rotation.renewsDays",
+                    [("days", remaining.num_days())],
+                );
             }
-            return "Managed".to_string();
+            return UiText::new("providerAtlas.rotation.managed");
         }
     }
 
-    "Static".to_string()
+    UiText::new("providerAtlas.rotation.static")
 }
 
 pub(crate) fn provider_runtime_status(
     state: &AppState,
     provider: &ProviderKeyEntry,
-) -> (&'static str, &'static str, String) {
+) -> (&'static str, &'static str, UiText) {
     if provider.disabled {
         return (
             "disabled",
             "neutral",
-            "Provider is disabled in config.".to_string(),
+            UiText::new("providerAtlas.runtime.disabled"),
         );
     }
 
@@ -200,7 +221,7 @@ pub(crate) fn provider_runtime_status(
         return (
             "degraded",
             "warning",
-            "Managed auth is configured but not currently connected.".to_string(),
+            UiText::new("providerAtlas.runtime.disconnected"),
         );
     }
 
@@ -210,27 +231,31 @@ pub(crate) fn provider_runtime_status(
                 return (
                     "degraded",
                     "warning",
-                    "Latest live capability probe failed.".to_string(),
+                    UiText::new("providerAtlas.runtime.probeFailed"),
                 );
             }
             "verified" => {
                 return (
                     "healthy",
                     "success",
-                    "Latest live capability probe passed.".to_string(),
+                    UiText::new("providerAtlas.runtime.probePassed"),
                 );
             }
             _ => {
                 return (
                     "watch",
                     "info",
-                    "No successful live probe has been recorded yet.".to_string(),
+                    UiText::new("providerAtlas.runtime.probePending"),
                 );
             }
         }
     }
 
-    ("watch", "info", "No probe result recorded yet.".to_string())
+    (
+        "watch",
+        "info",
+        UiText::new("providerAtlas.runtime.noProbe"),
+    )
 }
 
 fn provider_inspector(row: &ProviderAtlasRow, config: &Config) -> WorkspaceInspector {
@@ -249,56 +274,80 @@ fn provider_inspector(row: &ProviderAtlasRow, config: &Config) -> WorkspaceInspe
         .count();
 
     WorkspaceInspector {
-        eyebrow: "PROVIDER / PRIMARY".to_string(),
-        title: row.provider.clone(),
-        summary: format!("{} / {} / {}", row.auth, row.status, row.rotation),
+        eyebrow: UiText::new("providerAtlas.inspector.primary.eyebrow"),
+        title: raw_text(row.provider.clone()),
+        summary: UiText::new("providerAtlas.inspector.primary.summary"),
         sections: vec![
             InspectorSection {
-                title: "Identity".to_string(),
+                title: UiText::new("providerAtlas.inspector.identity"),
                 rows: vec![
                     InspectorRow {
-                        label: "Format".to_string(),
+                        label: UiText::new("common.format"),
                         value: row.format.clone(),
+                        value_text: None,
                     },
                     InspectorRow {
-                        label: "Region".to_string(),
+                        label: UiText::new("common.region"),
                         value: row.region.clone(),
+                        value_text: None,
                     },
                     InspectorRow {
-                        label: "Wire".to_string(),
+                        label: UiText::new("providerAtlas.inspector.wire"),
                         value: row.wire_api.clone(),
+                        value_text: None,
                     },
                 ],
             },
             InspectorSection {
-                title: "Impact".to_string(),
+                title: UiText::new("providerAtlas.inspector.impact"),
                 rows: vec![
                     InspectorRow {
-                        label: "Models".to_string(),
+                        label: UiText::new("common.models"),
                         value: row.model_count.to_string(),
+                        value_text: None,
                     },
                     InspectorRow {
-                        label: "Linked route profiles".to_string(),
+                        label: UiText::new("providerAtlas.inspector.linkedRouteProfiles"),
                         value: linked_routes.to_string(),
+                        value_text: None,
                     },
                 ],
             },
         ],
         actions: vec![
-            "Open provider config".to_string(),
-            "Run live health check".to_string(),
-            "Inspect auth profile".to_string(),
+            WorkspaceAction {
+                id: "open-provider-config".to_string(),
+                label: UiText::new("providerAtlas.action.openProviderConfig"),
+                effect: WorkspaceActionEffect::Navigate,
+                target_workspace: Some("provider-atlas".to_string()),
+            },
+            WorkspaceAction {
+                id: "run-live-health-check".to_string(),
+                label: UiText::new("providerAtlas.action.runHealthCheck"),
+                effect: WorkspaceActionEffect::Navigate,
+                target_workspace: Some("provider-atlas".to_string()),
+            },
+            WorkspaceAction {
+                id: "inspect-auth-profile".to_string(),
+                label: UiText::new("providerAtlas.action.inspectAuthProfile"),
+                effect: WorkspaceActionEffect::Navigate,
+                target_workspace: Some("provider-atlas".to_string()),
+            },
         ],
     }
 }
 
 fn default_provider_inspector() -> WorkspaceInspector {
     WorkspaceInspector {
-        eyebrow: "PROVIDER / EMPTY".to_string(),
-        title: "No providers configured".to_string(),
-        summary: "Add at least one provider before using runtime control-plane workflows."
-            .to_string(),
+        eyebrow: UiText::new("providerAtlas.inspector.empty.eyebrow"),
+        title: UiText::new("providerAtlas.inspector.empty.title"),
+        summary: UiText::new("providerAtlas.inspector.empty.summary"),
         sections: vec![],
-        actions: vec!["Create provider".to_string()],
+        actions: vec![WorkspaceAction {
+            id: "create-provider".to_string(),
+            label: UiText::new("providerAtlas.action.createProvider"),
+            effect: WorkspaceActionEffect::Navigate,
+            target_workspace: Some("provider-atlas".to_string()),
+        }],
     }
 }

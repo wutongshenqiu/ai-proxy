@@ -17,8 +17,8 @@ use super::{
         route_endpoint_label, source_format_from_path, total_model_resolution_steps,
     },
     types::{
-        FactRow, InspectorRow, InspectorSection, RouteScenarioRow, RouteStudioResponse,
-        WorkspaceInspector, WorkspaceQuery,
+        FactRow, InspectorRow, InspectorSection, RouteScenarioRow, RouteStudioResponse, UiText,
+        WorkspaceAction, WorkspaceActionEffect, WorkspaceInspector, WorkspaceQuery, raw_text,
     },
 };
 
@@ -30,41 +30,41 @@ pub async fn route_studio(
     let scenarios = build_route_scenarios(&state, &config, &query.range).await;
     let routable = scenarios
         .iter()
-        .filter(|scenario| scenario.decision != "Blocked")
+        .filter(|scenario| scenario.decision.key != "routeStudio.decision.blocked")
         .count();
     let summary_facts = vec![
         FactRow {
-            label: "Default profile".to_string(),
+            label: UiText::new("routeStudio.fact.defaultProfile"),
             value: config.routing.default_profile.clone(),
         },
         FactRow {
-            label: "Profiles".to_string(),
+            label: UiText::new("routeStudio.fact.profiles"),
             value: config.routing.profiles.len().to_string(),
         },
         FactRow {
-            label: "Rules".to_string(),
+            label: UiText::new("routeStudio.fact.rules"),
             value: config.routing.rules.len().to_string(),
         },
         FactRow {
-            label: "Model transforms".to_string(),
+            label: UiText::new("routeStudio.fact.modelTransforms"),
             value: total_model_resolution_steps(&config).to_string(),
         },
     ];
     let explain_facts = vec![
         FactRow {
-            label: "Sampled scenarios".to_string(),
+            label: UiText::new("routeStudio.fact.sampledScenarios"),
             value: scenarios.len().to_string(),
         },
         FactRow {
-            label: "Routable".to_string(),
+            label: UiText::new("routeStudio.fact.routable"),
             value: routable.to_string(),
         },
         FactRow {
-            label: "Blocked".to_string(),
+            label: UiText::new("routeStudio.fact.blocked"),
             value: scenarios.len().saturating_sub(routable).to_string(),
         },
         FactRow {
-            label: "Window".to_string(),
+            label: UiText::new("common.window"),
             value: query.range.clone(),
         },
     ];
@@ -142,11 +142,11 @@ async fn build_route_scenarios(
             .unwrap_or_else(|| "none".to_string());
         let blocked = explanation.selected.is_none();
         let decision = if blocked {
-            "Blocked"
+            UiText::new("routeStudio.decision.blocked")
         } else if !explanation.rejections.is_empty() {
-            "Fallback-ready"
+            UiText::new("routeStudio.decision.fallbackReady")
         } else {
-            "Routable"
+            UiText::new("routeStudio.decision.routable")
         };
         let decision_tone = if blocked {
             "danger"
@@ -171,7 +171,7 @@ async fn build_route_scenarios(
             ),
             winner,
             delta,
-            decision: decision.to_string(),
+            decision,
             decision_tone: decision_tone.to_string(),
             endpoint: route_endpoint_label(&request.endpoint).to_string(),
             source_format: request.source_format.as_str().to_string(),
@@ -202,45 +202,74 @@ fn route_inspector(
         .collect::<Vec<_>>()
         .join(", ");
     WorkspaceInspector {
-        eyebrow: "ROUTE / CURRENT".to_string(),
-        title: config.routing.default_profile.clone(),
-        summary: format!("Profiles: {}", profile_names),
+        eyebrow: UiText::new("routeStudio.inspector.eyebrow"),
+        title: raw_text(config.routing.default_profile.clone()),
+        summary: UiText::with_values(
+            "routeStudio.inspector.summary",
+            [("profiles", profile_names)],
+        ),
         sections: vec![
             InspectorSection {
-                title: "Routing scope".to_string(),
+                title: UiText::new("routeStudio.inspector.routingScope"),
                 rows: vec![
                     InspectorRow {
-                        label: "Default profile".to_string(),
+                        label: UiText::new("routeStudio.fact.defaultProfile"),
                         value: config.routing.default_profile.clone(),
+                        value_text: None,
                     },
                     InspectorRow {
-                        label: "Rules".to_string(),
+                        label: UiText::new("routeStudio.fact.rules"),
                         value: config.routing.rules.len().to_string(),
+                        value_text: None,
                     },
                 ],
             },
             InspectorSection {
-                title: "Current sample".to_string(),
+                title: UiText::new("routeStudio.inspector.currentSample"),
                 rows: vec![
                     InspectorRow {
-                        label: "Scenario".to_string(),
+                        label: UiText::new("routeStudio.inspector.scenario"),
                         value: first_scenario
                             .map(|scenario| scenario.scenario.clone())
                             .unwrap_or_else(|| "none".to_string()),
+                        value_text: None,
                     },
                     InspectorRow {
-                        label: "Decision".to_string(),
+                        label: UiText::new("routeStudio.inspector.decision"),
                         value: first_scenario
-                            .map(|scenario| scenario.decision.clone())
+                            .map(|scenario| {
+                                scenario
+                                    .decision
+                                    .values
+                                    .get("value")
+                                    .cloned()
+                                    .unwrap_or_else(|| scenario.decision.key.clone())
+                            })
                             .unwrap_or_else(|| "n/a".to_string()),
+                        value_text: first_scenario.map(|scenario| scenario.decision.clone()),
                     },
                 ],
             },
         ],
         actions: vec![
-            "Explain route".to_string(),
-            "Open routing config".to_string(),
-            "Patch profiles".to_string(),
+            WorkspaceAction {
+                id: "explain-route".to_string(),
+                label: UiText::new("routeStudio.action.explainRoute"),
+                effect: WorkspaceActionEffect::Navigate,
+                target_workspace: Some("route-studio".to_string()),
+            },
+            WorkspaceAction {
+                id: "open-routing-config".to_string(),
+                label: UiText::new("routeStudio.action.openRoutingConfig"),
+                effect: WorkspaceActionEffect::Navigate,
+                target_workspace: Some("route-studio".to_string()),
+            },
+            WorkspaceAction {
+                id: "patch-profiles".to_string(),
+                label: UiText::new("routeStudio.action.patchProfiles"),
+                effect: WorkspaceActionEffect::Navigate,
+                target_workspace: Some("route-studio".to_string()),
+            },
         ],
     }
 }

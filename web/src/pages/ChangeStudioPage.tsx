@@ -3,10 +3,12 @@ import {
   ChangeEditorSheet,
 } from '../components/change-studio/ChangeStudioSheets';
 import { ChangeStudioOverview } from '../components/change-studio/ChangeStudioOverview';
+import { useI18n } from '../i18n';
 import { useChangeStudioController } from '../hooks/useChangeStudioController';
 import { useChangeStudioData } from '../hooks/useWorkspaceData';
 
 export function ChangeStudioPage() {
+  const { t } = useI18n();
   const { data, error, loading, reload } = useChangeStudioData();
   const controller = useChangeStudioController({ data, reload });
 
@@ -14,25 +16,22 @@ export function ChangeStudioPage() {
     <div className="workspace-grid">
       <section className="hero">
         <div>
-          <p className="workspace-eyebrow">PRISM / CHANGE STUDIO</p>
-          <h1>Registry, structured edit, publish, observe</h1>
-          <p className="workspace-summary">
-            Change management is richer than validate and apply. The workspace is designed
-            around object discovery, structured editing, staged publish, and watch windows.
-          </p>
+          <p className="workspace-eyebrow">{t('changeStudio.hero.eyebrow')}</p>
+          <h1>{t('changeStudio.hero.title')}</h1>
+          <p className="workspace-summary">{t('changeStudio.hero.summary')}</p>
         </div>
         <div className="hero-actions">
           <button
             className="button button--primary"
             onClick={() => void controller.loadEditor('structured')}
           >
-            Create structured change
+            {t('changeStudio.hero.createStructuredChange')}
           </button>
           <button
             className="button button--ghost"
             onClick={() => void controller.loadEditor('yaml')}
           >
-            Open YAML escape hatch
+            {t('changeStudio.hero.openYaml')}
           </button>
         </div>
       </section>

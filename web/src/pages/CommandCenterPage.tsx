@@ -4,22 +4,17 @@ import { KpiCard } from '../components/KpiCard';
 import { Panel } from '../components/Panel';
 import { StatusPill } from '../components/StatusPill';
 import { WorkbenchSheet } from '../components/WorkbenchSheet';
+import { WORKSPACES } from '../constants/workspaces';
+import { useI18n } from '../i18n';
 import { useCommandCenterData } from '../hooks/useWorkspaceData';
 import { configApi } from '../services/config';
 import { getApiErrorMessage } from '../services/errors';
 import { systemApi } from '../services/system';
 import type { SystemHealthResponse, SystemLogEntry } from '../types/backend';
-
-function targetPath(label?: string) {
-  const value = label?.toLowerCase() ?? '';
-  if (value.includes('traffic')) return '/traffic-lab';
-  if (value.includes('provider')) return '/provider-atlas';
-  if (value.includes('route')) return '/route-studio';
-  if (value.includes('change')) return '/change-studio';
-  return '/command-center';
-}
+import type { WorkspaceId } from '../types/shell';
 
 export function CommandCenterPage() {
+  const { t, tx, formatNumber } = useI18n();
   const { data, error, loading } = useCommandCenterData();
   const navigate = useNavigate();
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -37,19 +32,28 @@ export function CommandCenterPage() {
   const [diagnosticTruncated, setDiagnosticTruncated] = useState(false);
   const [repairing, setRepairing] = useState(false);
   const [repairStatus, setRepairStatus] = useState<string | null>(null);
+
+  const workspaceLabel = (workspaceId?: WorkspaceId | null) =>
+    tx(
+      WORKSPACES.find((workspace) => workspace.id === workspaceId)?.label ??
+        WORKSPACES[0].label,
+    );
+
   const firstSignal = data?.signals[0] ?? null;
   const investigationSignal = useMemo(
-    () => data?.signals.find((signal) => targetPath(signal.target_workspace) !== '/command-center') ?? firstSignal,
+    () =>
+      data?.signals.find((signal) => signal.target_workspace !== 'command-center') ??
+      firstSignal,
     [data?.signals, firstSignal],
   );
   const quickActions = useMemo(
     () => [
-      { label: 'Open live investigation', path: '/traffic-lab' },
-      { label: 'Inspect provider roster', path: '/provider-atlas' },
-      { label: 'Review route draft', path: '/route-studio' },
-      { label: 'Open structured change', path: '/change-studio' },
+      { id: 'traffic-lab', label: t('commandCenter.palette.openLiveInvestigation'), path: '/traffic-lab' },
+      { id: 'provider-atlas', label: t('commandCenter.palette.inspectProviderRoster'), path: '/provider-atlas' },
+      { id: 'route-studio', label: t('commandCenter.palette.reviewRouteDraft'), path: '/route-studio' },
+      { id: 'change-studio', label: t('commandCenter.palette.openStructuredChange'), path: '/change-studio' },
     ],
-    [],
+    [t],
   );
 
   useEffect(() => {
@@ -62,10 +66,10 @@ export function CommandCenterPage() {
         setSystemHealth(health);
         setRecentLogs(logs.logs);
       } catch (loadError) {
-        setSystemError(getApiErrorMessage(loadError, 'Failed to load system watch'));
+        setSystemError(getApiErrorMessage(loadError, t('commandCenter.error.loadSystemWatch')));
       }
     })();
-  }, []);
+  }, [t]);
 
   const loadDiagnostics = async (search = diagnosticSearch, level = diagnosticLevel) => {
     setDiagnosticsLoading(true);
@@ -82,7 +86,7 @@ export function CommandCenterPage() {
       setDiagnosticFile(response.file ?? null);
       setDiagnosticTruncated(response.truncated ?? false);
     } catch (loadError) {
-      setDiagnosticsError(getApiErrorMessage(loadError, 'Failed to load diagnostics logs'));
+      setDiagnosticsError(getApiErrorMessage(loadError, t('commandCenter.error.loadDiagnostics')));
     } finally {
       setDiagnosticsLoading(false);
     }
@@ -93,8 +97,8 @@ export function CommandCenterPage() {
     setRepairStatus(null);
     setDiagnosticsError(null);
     try {
-      const result = await configApi.reload();
-      setRepairStatus(result.message);
+      await configApi.reload();
+      setRepairStatus(t('commandCenter.diagnostics.reloadComplete'));
       const [health, logs] = await Promise.all([
         systemApi.health(),
         systemApi.logs({ page: 1, page_size: 3 }),
@@ -103,7 +107,7 @@ export function CommandCenterPage() {
       setRecentLogs(logs.logs);
       await loadDiagnostics();
     } catch (reloadError) {
-      setDiagnosticsError(getApiErrorMessage(reloadError, 'Failed to reload runtime'));
+      setDiagnosticsError(getApiErrorMessage(reloadError, t('commandCenter.error.reloadRuntime')));
     } finally {
       setRepairing(false);
     }
@@ -113,57 +117,64 @@ export function CommandCenterPage() {
     <div className="workspace-grid workspace-grid--command">
       <section className="hero">
         <div>
-          <p className="workspace-eyebrow">PRISM / COMMAND CENTER</p>
-          <h1>Runtime posture before navigation</h1>
-          <p className="workspace-summary">
-            The home workspace is not a KPI wall. It is the place where operators decide what requires action now.
-          </p>
+          <p className="workspace-eyebrow">{t('commandCenter.hero.eyebrow')}</p>
+          <h1>{t('commandCenter.hero.title')}</h1>
+          <p className="workspace-summary">{t('commandCenter.hero.summary')}</p>
         </div>
         <div className="hero-actions">
           <button
             className="button button--primary"
-            onClick={() => navigate(targetPath(investigationSignal?.target_workspace))}
+            onClick={() => navigate(`/${investigationSignal?.target_workspace ?? 'command-center'}`)}
           >
-            Open investigation
+            {t('commandCenter.hero.openInvestigation')}
           </button>
-          <button className="button button--ghost" onClick={() => {
-            setDiagnosticsOpen(true);
-            void loadDiagnostics();
-          }}>
-            Diagnostics
+          <button
+            className="button button--ghost"
+            onClick={() => {
+              setDiagnosticsOpen(true);
+              void loadDiagnostics();
+            }}
+          >
+            {t('commandCenter.hero.diagnostics')}
           </button>
           <button className="button button--ghost" onClick={() => setPaletteOpen(true)}>
-            Command palette
+            {t('commandCenter.hero.commandPalette')}
           </button>
         </div>
       </section>
 
       <section className="kpi-strip">
         {(data?.kpis ?? []).map((metric) => (
-          <KpiCard key={metric.label} label={metric.label} value={metric.value} delta={metric.delta} />
+          <KpiCard
+            key={`${metric.label.key}-${metric.value}`}
+            label={tx(metric.label)}
+            value={metric.value}
+            delta={tx(metric.delta)}
+          />
         ))}
       </section>
 
-      <Panel title="Urgent signal queue" subtitle="Signals should lead, not get buried under summary cards." className="panel--wide">
+      <Panel
+        title={t('commandCenter.panel.signalQueue.title')}
+        subtitle={t('commandCenter.panel.signalQueue.subtitle')}
+        className="panel--wide"
+      >
         <div className="signal-list">
-          {loading && !data ? <p>Loading runtime signals…</p> : null}
+          {loading && !data ? <p>{t('commandCenter.loading.runtimeSignals')}</p> : null}
           {error && !data ? <p>{error}</p> : null}
           {(data?.signals ?? []).map((signal) => (
             <article
               key={signal.id}
               className="signal-row signal-row--interactive"
-              onClick={() => navigate(targetPath(signal.target_workspace))}
+              onClick={() => navigate(`/${signal.target_workspace}`)}
             >
               <div>
-                <strong>{signal.title}</strong>
-                <p>{signal.detail}</p>
+                <strong>{tx(signal.title)}</strong>
+                <p>{tx(signal.detail)}</p>
               </div>
               <div className="signal-row__meta">
-                <StatusPill
-                  label={signal.severity}
-                  tone={signal.severity_tone}
-                />
-                <span>{signal.target_workspace}</span>
+                <StatusPill label={tx(signal.severity)} tone={signal.severity_tone} />
+                <span>{workspaceLabel(signal.target_workspace)}</span>
               </div>
             </article>
           ))}
@@ -171,48 +182,70 @@ export function CommandCenterPage() {
       </Panel>
 
       <div className="two-column">
-        <Panel title="Pressure map" subtitle="Source freshness, change load, and provider stress in one stack.">
+        <Panel
+          title={t('commandCenter.panel.pressureMap.title')}
+          subtitle={t('commandCenter.panel.pressureMap.subtitle')}
+        >
           <ul className="fact-list">
             {(data?.pressure_map ?? []).map((fact) => (
-              <li key={fact.label}><span>{fact.label}</span><strong>{fact.value}</strong></li>
+              <li key={`${fact.label.key}-${fact.value}`}>
+                <span>{tx(fact.label)}</span>
+                <strong>{fact.value}</strong>
+              </li>
             ))}
           </ul>
         </Panel>
-        <Panel title="Watch windows" subtitle="Configuration and runtime truth stay visible until operators close the loop.">
+        <Panel
+          title={t('commandCenter.panel.watchWindows.title')}
+          subtitle={t('commandCenter.panel.watchWindows.subtitle')}
+        >
           <ul className="fact-list">
             {(data?.watch_windows ?? []).map((fact) => (
-              <li key={fact.label}><span>{fact.label}</span><strong>{fact.value}</strong></li>
+              <li key={`${fact.label.key}-${fact.value}`}>
+                <span>{tx(fact.label)}</span>
+                <strong>{fact.value}</strong>
+              </li>
             ))}
           </ul>
         </Panel>
       </div>
 
       <div className="two-column">
-        <Panel title="System watch" subtitle="Health, uptime, and runtime posture should be visible without leaving the control center.">
+        <Panel
+          title={t('commandCenter.panel.systemWatch.title')}
+          subtitle={t('commandCenter.panel.systemWatch.subtitle')}
+        >
           {systemError ? <div className="status-message status-message--danger">{systemError}</div> : null}
           {systemHealth ? (
             <ul className="fact-list">
-              <li><span>Status</span><strong>{systemHealth.status}</strong></li>
-              <li><span>Version</span><strong>{systemHealth.version}</strong></li>
-              <li><span>Uptime</span><strong>{systemHealth.uptime_seconds}s</strong></li>
-              <li><span>Providers</span><strong>{systemHealth.providers.length}</strong></li>
+              <li><span>{t('common.status')}</span><strong>{systemHealth.status}</strong></li>
+              <li><span>{t('common.version')}</span><strong>{systemHealth.version}</strong></li>
+              <li><span>{t('commandCenter.systemWatch.uptime')}</span><strong>{formatNumber(systemHealth.uptime_seconds)}s</strong></li>
+              <li><span>{t('common.providers')}</span><strong>{formatNumber(systemHealth.providers.length)}</strong></li>
             </ul>
           ) : (
-            <div className="status-message">Loading system posture…</div>
+            <div className="status-message">{t('commandCenter.loading.systemPosture')}</div>
           )}
         </Panel>
 
-        <Panel title="Recent logs" subtitle="Operators should see the most recent runtime events before jumping into a deeper drill-down.">
+        <Panel
+          title={t('commandCenter.panel.recentLogs.title')}
+          subtitle={t('commandCenter.panel.recentLogs.subtitle')}
+        >
           <div className="inline-actions">
-            <button type="button" className="button button--ghost" onClick={() => {
-              setDiagnosticsOpen(true);
-              void loadDiagnostics();
-            }}>
-              Open diagnostics
+            <button
+              type="button"
+              className="button button--ghost"
+              onClick={() => {
+                setDiagnosticsOpen(true);
+                void loadDiagnostics();
+              }}
+            >
+              {t('commandCenter.panel.recentLogs.openDiagnostics')}
             </button>
           </div>
           {recentLogs.length === 0 ? (
-            <div className="status-message">No file-backed system logs are available right now.</div>
+            <div className="status-message">{t('commandCenter.panel.recentLogs.empty')}</div>
           ) : (
             <div className="probe-list">
               {recentLogs.map((entry, index) => (
@@ -229,15 +262,15 @@ export function CommandCenterPage() {
       <WorkbenchSheet
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
-        title="Command palette"
-        subtitle="Jump to the next operator workflow without losing shell context."
+        title={t('commandCenter.palette.title')}
+        subtitle={t('commandCenter.palette.subtitle')}
       >
         <section className="sheet-section">
-          <h3>Quick actions</h3>
+          <h3>{t('commandCenter.palette.quickActions')}</h3>
           <div className="action-stack">
             {quickActions.map((action) => (
               <button
-                key={action.label}
+                key={action.id}
                 type="button"
                 className="button button--secondary button--block"
                 onClick={() => {
@@ -253,11 +286,11 @@ export function CommandCenterPage() {
 
         {firstSignal ? (
           <section className="sheet-section">
-            <h3>Top live signal</h3>
+            <h3>{t('commandCenter.palette.topLiveSignal')}</h3>
             <div className="detail-grid">
-              <div className="detail-grid__row"><span>Title</span><strong>{firstSignal.title}</strong></div>
-              <div className="detail-grid__row"><span>Workspace</span><strong>{firstSignal.target_workspace}</strong></div>
-              <div className="detail-grid__row"><span>Severity</span><strong>{firstSignal.severity}</strong></div>
+              <div className="detail-grid__row"><span>{t('commandCenter.palette.signalTitle')}</span><strong>{tx(firstSignal.title)}</strong></div>
+              <div className="detail-grid__row"><span>{t('commandCenter.palette.signalWorkspace')}</span><strong>{workspaceLabel(firstSignal.target_workspace)}</strong></div>
+              <div className="detail-grid__row"><span>{t('commandCenter.palette.signalSeverity')}</span><strong>{tx(firstSignal.severity)}</strong></div>
             </div>
           </section>
         ) : null}
@@ -266,15 +299,25 @@ export function CommandCenterPage() {
       <WorkbenchSheet
         open={diagnosticsOpen}
         onClose={() => setDiagnosticsOpen(false)}
-        title="Diagnostics workbench"
-        subtitle="Search runtime logs, inspect file freshness, and run repair actions without leaving Command Center."
+        title={t('commandCenter.diagnostics.title')}
+        subtitle={t('commandCenter.diagnostics.subtitle')}
         actions={(
           <>
-            <button type="button" className="button button--ghost" onClick={() => void loadDiagnostics()} disabled={diagnosticsLoading}>
-              {diagnosticsLoading ? 'Loading…' : 'Refresh logs'}
+            <button
+              type="button"
+              className="button button--ghost"
+              onClick={() => void loadDiagnostics()}
+              disabled={diagnosticsLoading}
+            >
+              {diagnosticsLoading ? t('common.loading') : t('commandCenter.diagnostics.refreshLogs')}
             </button>
-            <button type="button" className="button button--primary" onClick={() => void reloadRuntime()} disabled={repairing}>
-              {repairing ? 'Reloading…' : 'Reload runtime'}
+            <button
+              type="button"
+              className="button button--primary"
+              onClick={() => void reloadRuntime()}
+              disabled={repairing}
+            >
+              {repairing ? t('commandCenter.diagnostics.reloading') : t('commandCenter.diagnostics.reloadRuntime')}
             </button>
           </>
         )}
@@ -282,10 +325,10 @@ export function CommandCenterPage() {
         {repairStatus ? <div className="status-message status-message--success">{repairStatus}</div> : null}
         {diagnosticsError ? <div className="status-message status-message--danger">{diagnosticsError}</div> : null}
         <section className="sheet-section">
-          <h3>Log search</h3>
+          <h3>{t('commandCenter.diagnostics.logSearch')}</h3>
           <div className="sheet-form">
             <label className="sheet-field">
-              <span>Search</span>
+              <span>{t('common.search')}</span>
               <input
                 name="diagnostic-log-search"
                 autoComplete="off"
@@ -294,9 +337,9 @@ export function CommandCenterPage() {
               />
             </label>
             <label className="sheet-field">
-              <span>Level</span>
+              <span>{t('common.level')}</span>
               <select value={diagnosticLevel} onChange={(event) => setDiagnosticLevel(event.target.value)}>
-                <option value="">all</option>
+                <option value="">{t('common.all')}</option>
                 <option value="ERROR">ERROR</option>
                 <option value="WARN">WARN</option>
                 <option value="INFO">INFO</option>
@@ -305,27 +348,31 @@ export function CommandCenterPage() {
             </label>
           </div>
           <div className="inline-actions">
-            <button type="button" className="button button--ghost" onClick={() => void loadDiagnostics(diagnosticSearch, diagnosticLevel)}>
-              Apply filters
+            <button
+              type="button"
+              className="button button--ghost"
+              onClick={() => void loadDiagnostics(diagnosticSearch, diagnosticLevel)}
+            >
+              {t('commandCenter.diagnostics.applyFilters')}
             </button>
           </div>
           <div className="detail-grid">
-            <div className="detail-grid__row"><span>Total hits</span><strong>{diagnosticTotal}</strong></div>
-            <div className="detail-grid__row"><span>File</span><strong>{diagnosticFile ?? 'not available'}</strong></div>
-            <div className="detail-grid__row"><span>Truncated tail</span><strong>{diagnosticTruncated ? 'yes' : 'no'}</strong></div>
+            <div className="detail-grid__row"><span>{t('commandCenter.diagnostics.totalHits')}</span><strong>{formatNumber(diagnosticTotal)}</strong></div>
+            <div className="detail-grid__row"><span>{t('commandCenter.diagnostics.file')}</span><strong>{diagnosticFile ?? t('common.notAvailable')}</strong></div>
+            <div className="detail-grid__row"><span>{t('commandCenter.diagnostics.truncatedTail')}</span><strong>{diagnosticTruncated ? t('common.yes') : t('common.no')}</strong></div>
           </div>
         </section>
 
         <section className="sheet-section">
-          <h3>Matching log lines</h3>
-          {diagnosticsLoading ? <div className="status-message">Loading diagnostics logs…</div> : null}
+          <h3>{t('commandCenter.diagnostics.matchingLines')}</h3>
+          {diagnosticsLoading ? <div className="status-message">{t('commandCenter.loading.diagnosticsLogs')}</div> : null}
           {diagnosticLogs.length === 0 && !diagnosticsLoading ? (
-            <div className="status-message">No log lines matched the current filters.</div>
+            <div className="status-message">{t('commandCenter.diagnostics.empty')}</div>
           ) : (
             <div className="probe-list">
               {diagnosticLogs.map((entry, index) => (
                 <div key={`${entry.timestamp}-${entry.level}-${index}`} className="probe-check">
-                  <span>{entry.level} · {entry.target || 'runtime'}</span>
+                  <span>{entry.level} · {entry.target || t('common.runtime')}</span>
                   <strong>{entry.message}</strong>
                 </div>
               ))}

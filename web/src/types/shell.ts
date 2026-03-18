@@ -1,3 +1,5 @@
+import type { LocalizedText } from './i18n';
+
 export type WorkspaceId =
   | 'command-center'
   | 'traffic-lab'
@@ -6,19 +8,26 @@ export type WorkspaceId =
   | 'change-studio';
 
 export type SourceMode = 'runtime' | 'hybrid' | 'external';
-export type LocaleMode = 'en' | 'zh';
+export type LocaleMode = 'en-US' | 'zh-CN' | 'en-XA';
 export type EnvironmentMode = 'production' | 'staging';
 export type TimeRangeMode = '15m' | '1h' | '6h' | '24h';
 
 export interface ShellInspectorSection {
-  title: string;
-  rows: Array<{ label: string; value: string }>;
+  title: LocalizedText;
+  rows: Array<{ label: LocalizedText; value: string; value_text?: LocalizedText }>;
+}
+
+export interface ShellInspectorAction {
+  id: string;
+  label: LocalizedText;
+  effect: 'navigate' | 'reload';
+  target_workspace?: WorkspaceId;
 }
 
 export interface ShellInspectorState {
-  eyebrow: string;
-  title: string;
-  summary: string;
+  eyebrow: LocalizedText;
+  title: LocalizedText;
+  summary: LocalizedText;
   sections: ShellInspectorSection[];
-  actions: string[];
+  actions: ShellInspectorAction[];
 }

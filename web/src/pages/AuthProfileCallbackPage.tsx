@@ -1,23 +1,25 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { LoaderCircle, ShieldCheck, ShieldX } from 'lucide-react';
+import { useI18n } from '../i18n';
 import { authProfilesApi } from '../services/authProfiles';
 import { getApiErrorMessage } from '../services/errors';
 
 const completionRequests = new Map<string, Promise<unknown>>();
 
 export function AuthProfileCallbackPage() {
+  const { t } = useI18n();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const oauthState = searchParams.get('state');
   const code = searchParams.get('code');
   const callbackErrorMessage = searchParams.get('error')
-    ? `OAuth provider returned an error: ${searchParams.get('error')}`
+    ? t('auth.callback.providerError', { error: searchParams.get('error') ?? '' })
     : !oauthState || !code
-      ? 'Missing OAuth state or code.'
+      ? t('auth.callback.missing')
       : null;
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
-  const [message, setMessage] = useState('Completing OAuth login…');
+  const [message, setMessage] = useState(t('auth.callback.loading'));
 
   useEffect(() => {
     if (callbackErrorMessage || !oauthState || !code) {
@@ -38,7 +40,7 @@ export function AuthProfileCallbackPage() {
           return;
         }
         setStatus('success');
-        setMessage('OAuth login completed. Redirecting back to Provider Atlas…');
+        setMessage(t('auth.callback.success'));
         window.setTimeout(() => {
           navigate('/provider-atlas', { replace: true });
         }, 1200);
@@ -48,7 +50,7 @@ export function AuthProfileCallbackPage() {
           return;
         }
         setStatus('error');
-        setMessage(getApiErrorMessage(loadError, 'Failed to complete OAuth login.'));
+        setMessage(getApiErrorMessage(loadError, t('auth.callback.error')));
       })
       .finally(() => {
         completionRequests.delete(operationKey);
@@ -57,7 +59,7 @@ export function AuthProfileCallbackPage() {
     return () => {
       cancelled = true;
     };
-  }, [callbackErrorMessage, code, navigate, oauthState]);
+  }, [callbackErrorMessage, code, navigate, oauthState, t]);
 
   const effectiveStatus = callbackErrorMessage ? 'error' : status;
   const effectiveMessage = callbackErrorMessage ?? message;
@@ -66,8 +68,8 @@ export function AuthProfileCallbackPage() {
     <div className="auth-screen">
       <div className="auth-card">
         <div className="auth-hero">
-          <p className="workspace-eyebrow">PRISM / AUTH CALLBACK</p>
-          <h1>Managed auth callback</h1>
+          <p className="workspace-eyebrow">{t('auth.callback.eyebrow')}</p>
+          <h1>{t('auth.callback.title')}</h1>
           <p className="auth-copy">{effectiveMessage}</p>
         </div>
         <div className="auth-meta" style={{ justifyContent: 'center' }}>
@@ -77,7 +79,7 @@ export function AuthProfileCallbackPage() {
         </div>
         {effectiveStatus === 'error' ? (
           <button type="button" className="button button--primary auth-submit" onClick={() => navigate('/provider-atlas')}>
-            Back to Provider Atlas
+            {t('auth.callback.back')}
           </button>
         ) : null}
       </div>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useI18n } from '../i18n';
 import {
   buildAuthKeyCreateRequest,
   emptyAccessForm,
@@ -30,6 +31,7 @@ export function useChangeStudioController({
   data,
   reload,
 }: ChangeStudioControllerOptions) {
+  const { t } = useI18n();
   const [selectedFamily, setSelectedFamily] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<'structured' | 'yaml'>('structured');
@@ -94,7 +96,7 @@ export function useChangeStudioController({
       setTenantMetrics(response);
       setSelectedTenantId(tenantId);
     } catch (loadError) {
-      setTenantError(getApiErrorMessage(loadError, 'Failed to load tenant metrics'));
+      setTenantError(getApiErrorMessage(loadError, t('changeStudio.error.loadTenantMetrics')));
     } finally {
       setTenantLoading(false);
     }
@@ -127,7 +129,7 @@ export function useChangeStudioController({
       setConfigPath(rawConfig.path);
       setRouteDraft(readRouteDraft());
     } catch (loadError) {
-      setActionError(getApiErrorMessage(loadError, 'Failed to load configuration draft'));
+      setActionError(getApiErrorMessage(loadError, t('changeStudio.error.loadDraft')));
     } finally {
       setLoadingEditor(false);
     }
@@ -162,7 +164,7 @@ export function useChangeStudioController({
         await loadTenantMetrics(selectedTenantId);
       }
     } catch (refreshError) {
-      setAccessError(getApiErrorMessage(refreshError, 'Failed to refresh access posture'));
+      setAccessError(getApiErrorMessage(refreshError, t('changeStudio.error.refreshAccess')));
     } finally {
       setRefreshingAccess(false);
     }
@@ -175,9 +177,9 @@ export function useChangeStudioController({
     try {
       const result = await configApi.validate(yaml);
       setValidationResult(result);
-      setActionStatus(result.valid ? 'Validation passed.' : 'Validation returned issues.');
+      setActionStatus(result.valid ? t('changeStudio.status.validationPassed') : t('changeStudio.status.validationIssues'));
     } catch (validationError) {
-      setActionError(getApiErrorMessage(validationError, 'Validation failed'));
+      setActionError(getApiErrorMessage(validationError, t('changeStudio.error.validate')));
     } finally {
       setValidating(false);
     }
@@ -191,10 +193,10 @@ export function useChangeStudioController({
       const result = await configApi.apply(yaml, configVersion);
       setApplyResult(result);
       setConfigVersion(result.config_version);
-      setActionStatus(result.message);
+      setActionStatus(t('changeStudio.status.appliedConfig', { version: result.config_version }));
       await reload();
     } catch (applyError) {
-      setActionError(getApiErrorMessage(applyError, 'Apply failed'));
+      setActionError(getApiErrorMessage(applyError, t('changeStudio.error.apply')));
     } finally {
       setApplying(false);
     }
@@ -205,11 +207,11 @@ export function useChangeStudioController({
     setActionError(null);
     setActionStatus(null);
     try {
-      const result = await configApi.reload();
-      setActionStatus(result.message);
+      await configApi.reload();
+      setActionStatus(t('changeStudio.status.reloadedRuntime'));
       await reload();
     } catch (reloadError) {
-      setActionError(getApiErrorMessage(reloadError, 'Runtime reload failed'));
+      setActionError(getApiErrorMessage(reloadError, t('changeStudio.error.reloadRuntime')));
     } finally {
       setReloading(false);
     }
@@ -225,7 +227,7 @@ export function useChangeStudioController({
     try {
       await loadAccessData();
     } catch (loadError) {
-      setAccessError(getApiErrorMessage(loadError, 'Failed to load access controls'));
+      setAccessError(getApiErrorMessage(loadError, t('changeStudio.error.loadAccess')));
     }
   };
 
@@ -256,10 +258,10 @@ export function useChangeStudioController({
           expires_at: body.expires_at ?? null,
         };
         await authKeysApi.update(selectedAuthKeyId, update);
-        setAccessStatus(`Saved auth key ${accessForm.name || selectedAuthKeyId}.`);
+        setAccessStatus(t('changeStudio.status.savedAuthKey', { key: accessForm.name || selectedAuthKeyId }));
       } else {
         const response = await authKeysApi.create(body);
-        setAccessStatus(response.message);
+        setAccessStatus(t('changeStudio.status.createdAuthKey', { key: body.name || response.key }));
         setRevealedKey(response.key);
       }
       await loadAccessData();
@@ -272,7 +274,7 @@ export function useChangeStudioController({
         await loadTenantMetrics(accessForm.tenantId.trim());
       }
     } catch (createError) {
-      setAccessError(getApiErrorMessage(createError, 'Failed to save auth key'));
+      setAccessError(getApiErrorMessage(createError, t('changeStudio.error.saveAuthKey')));
     } finally {
       setSavingKey(false);
     }
@@ -280,7 +282,7 @@ export function useChangeStudioController({
 
   const revealAuthKey = async () => {
     if (selectedAuthKeyId === null) {
-      setAccessError('Select an auth key first.');
+      setAccessError(t('changeStudio.error.selectAuthKey'));
       return;
     }
 
@@ -290,9 +292,9 @@ export function useChangeStudioController({
     try {
       const response = await authKeysApi.reveal(selectedAuthKeyId);
       setRevealedKey(response.key);
-      setAccessStatus(`Revealed auth key ${selectedAuthKey?.name ?? selectedAuthKeyId}.`);
+      setAccessStatus(t('changeStudio.status.revealedAuthKey', { key: selectedAuthKey?.name ?? selectedAuthKeyId ?? '' }));
     } catch (revealError) {
-      setAccessError(getApiErrorMessage(revealError, 'Failed to reveal auth key'));
+      setAccessError(getApiErrorMessage(revealError, t('changeStudio.error.revealAuthKey')));
     } finally {
       setRevealingKey(false);
     }
@@ -300,7 +302,7 @@ export function useChangeStudioController({
 
   const deleteAuthKey = async () => {
     if (selectedAuthKeyId === null) {
-      setAccessError('Select an auth key first.');
+      setAccessError(t('changeStudio.error.selectAuthKey'));
       return;
     }
 
@@ -309,12 +311,12 @@ export function useChangeStudioController({
     setAccessStatus(null);
     try {
       await authKeysApi.remove(selectedAuthKeyId);
-      setAccessStatus(`Deleted auth key ${selectedAuthKey?.name ?? selectedAuthKeyId}.`);
+      setAccessStatus(t('changeStudio.status.deletedAuthKey', { key: selectedAuthKey?.name ?? selectedAuthKeyId ?? '' }));
       setRevealedKey(null);
       await loadAccessData();
       setSelectedAuthKeyId(null);
     } catch (deleteError) {
-      setAccessError(getApiErrorMessage(deleteError, 'Failed to delete auth key'));
+      setAccessError(getApiErrorMessage(deleteError, t('changeStudio.error.deleteAuthKey')));
     } finally {
       setDeletingKey(false);
     }

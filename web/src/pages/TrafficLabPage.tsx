@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Panel } from '../components/Panel';
 import { StatusPill } from '../components/StatusPill';
 import { WorkbenchSheet } from '../components/WorkbenchSheet';
+import { useI18n } from '../i18n';
 import { useTrafficLabData } from '../hooks/useWorkspaceData';
 import { getApiErrorMessage } from '../services/errors';
 import { logsApi } from '../services/logs';
@@ -25,6 +26,7 @@ function sourceFormatFromPath(path: string) {
 }
 
 export function TrafficLabPage() {
+  const { t, tx, formatDurationMs } = useI18n();
   const { data, error, loading } = useTrafficLabData();
   const timeRange = useShellStore((state) => state.timeRange);
   const sourceMode = useShellStore((state) => state.sourceMode);
@@ -72,12 +74,12 @@ export function TrafficLabPage() {
       const haystack = [
         session.request_id,
         session.model,
-        session.decision,
-        session.result,
+        tx(session.decision),
+        tx(session.result),
       ].join(' ').toLowerCase();
       return haystack.includes(needle);
     });
-  }, [data?.sessions, sessionFilter]);
+  }, [data?.sessions, sessionFilter, tx]);
 
   const selectedSession = useMemo(
     () => data?.sessions.find((session) => session.request_id === selectedRequestId) ?? null,
@@ -98,12 +100,12 @@ export function TrafficLabPage() {
       savedAt: new Date().toISOString(),
     };
     localStorage.setItem('prism-control-plane:traffic-lens', JSON.stringify(payload));
-    setLensStatus('Saved the current traffic lens to local storage.');
+    setLensStatus(t('trafficLab.status.lensSaved'));
   };
 
   const handleReplay = async () => {
     if (!selectedRequestId) {
-      setReplayError('Select a request session first.');
+      setReplayError(t('trafficLab.error.selectSession'));
       setReplayOpen(true);
       return;
     }
@@ -115,7 +117,7 @@ export function TrafficLabPage() {
     try {
       const record = await logsApi.getRequest(selectedRequestId);
       if (!record) {
-        throw new Error('Selected request no longer exists in the log window.');
+        throw new Error(t('trafficLab.error.requestMissing'));
       }
       setRequestRecord(record);
       const routeExplanation = await routingApi.explain({
@@ -129,7 +131,7 @@ export function TrafficLabPage() {
       });
       setExplanation(routeExplanation);
     } catch (actionError) {
-      setReplayError(getApiErrorMessage(actionError, 'Replay failed'));
+      setReplayError(getApiErrorMessage(actionError, t('trafficLab.error.replay')));
     } finally {
       setReplayLoading(false);
     }
@@ -137,7 +139,7 @@ export function TrafficLabPage() {
 
   const openSessionDetail = async () => {
     if (!selectedRequestId) {
-      setDetailError('Select a request session first.');
+      setDetailError(t('trafficLab.error.selectSession'));
       setDetailOpen(true);
       return;
     }
@@ -148,11 +150,11 @@ export function TrafficLabPage() {
     try {
       const record = await logsApi.getRequest(selectedRequestId);
       if (!record) {
-        throw new Error('Selected request no longer exists in the log window.');
+        throw new Error(t('trafficLab.error.requestMissing'));
       }
       setDetailRecord(record);
     } catch (loadError) {
-      setDetailError(getApiErrorMessage(loadError, 'Failed to load request detail'));
+      setDetailError(getApiErrorMessage(loadError, t('trafficLab.error.detail')));
     } finally {
       setDetailLoading(false);
     }
@@ -162,21 +164,19 @@ export function TrafficLabPage() {
     <div className="workspace-grid">
       <section className="hero">
         <div>
-          <p className="workspace-eyebrow">PRISM / TRAFFIC LAB</p>
-          <h1>Request sessions, not log rows</h1>
-          <p className="workspace-summary">
-            Debugging is the shortest operator loop. This workspace keeps request selection, trace reasoning, replay, and compare in one screen.
-          </p>
+          <p className="workspace-eyebrow">{t('trafficLab.hero.eyebrow')}</p>
+          <h1>{t('trafficLab.hero.title')}</h1>
+          <p className="workspace-summary">{t('trafficLab.hero.summary')}</p>
         </div>
         <div className="hero-actions">
           <button className="button button--primary" onClick={() => void handleReplay()}>
-            Replay with draft
+            {t('trafficLab.hero.replay')}
           </button>
           <button className="button button--ghost" onClick={() => void openSessionDetail()}>
-            Inspect selected session
+            {t('trafficLab.hero.inspectSession')}
           </button>
           <button className="button button--ghost" onClick={handleSaveLens}>
-            Save lens
+            {t('trafficLab.hero.saveLens')}
           </button>
         </div>
       </section>
@@ -184,28 +184,28 @@ export function TrafficLabPage() {
       {lensStatus ? <div className="status-message status-message--success">{lensStatus}</div> : null}
       {selectedSession ? (
         <div className="status-message status-message--warning">
-          Active session: <strong>{selectedSession.request_id}</strong> · {selectedSession.model} · {selectedSession.latency_ms} ms
+          {t('trafficLab.status.activeSession')} <strong>{selectedSession.request_id}</strong> · {selectedSession.model} · {formatDurationMs(selectedSession.latency_ms)}
         </div>
       ) : null}
 
       <div className="two-column two-column--70-30">
-        <Panel title="Request sessions" subtitle="URL-shareable filters, live state, and evidence-first drill-down.">
+        <Panel title={t('trafficLab.panel.sessions.title')} subtitle={t('trafficLab.panel.sessions.subtitle')}>
           <div className="inline-actions">
             <input
               name="traffic-session-filter"
-              placeholder="Filter by request, model, or result"
+              placeholder={t('trafficLab.filter.placeholder')}
               autoComplete="off"
               value={sessionFilter}
               onChange={(event) => updateSearch({ q: event.target.value || null })}
             />
           </div>
           <div className="table-grid table-grid--sessions">
-            <div className="table-grid__head">Session</div>
-            <div className="table-grid__head">Model</div>
-            <div className="table-grid__head">Decision</div>
-            <div className="table-grid__head">Result</div>
-            <div className="table-grid__head">Latency</div>
-            {loading && !data ? <div className="table-grid__cell">Loading sessions…</div> : null}
+            <div className="table-grid__head">{t('trafficLab.table.session')}</div>
+            <div className="table-grid__head">{t('common.model')}</div>
+            <div className="table-grid__head">{t('trafficLab.table.decision')}</div>
+            <div className="table-grid__head">{t('common.result')}</div>
+            <div className="table-grid__head">{t('common.latency')}</div>
+            {loading && !data ? <div className="table-grid__cell">{t('trafficLab.loading.sessions')}</div> : null}
             {error && !data ? <div className="table-grid__cell">{error}</div> : null}
             {visibleSessions.flatMap((session) => {
               const selected = session.request_id === selectedRequestId;
@@ -222,39 +222,39 @@ export function TrafficLabPage() {
                   {session.model}
                 </div>,
                 <div key={`${session.request_id}-decision`} className={cellClass} onClick={() => updateSearch({ request: session.request_id })}>
-                  {session.decision}
+                  {tx(session.decision)}
                 </div>,
                 <div key={`${session.request_id}-result`} className={cellClass} onClick={() => updateSearch({ request: session.request_id })}>
-                  <StatusPill label={session.result} tone={session.result_tone} />
+                  <StatusPill label={tx(session.result)} tone={session.result_tone} />
                 </div>,
                 <div
                   key={`${session.request_id}-latency`}
                   className={`${cellClass} table-grid__cell--mono`}
                   onClick={() => updateSearch({ request: session.request_id })}
                 >
-                  {session.latency_ms} ms
+                  {formatDurationMs(session.latency_ms)}
                 </div>,
               ];
             })}
           </div>
         </Panel>
 
-        <Panel title="Current window facts" subtitle="Range-level truth, shareable filters, and compare mode for the selected request stream.">
+        <Panel title={t('trafficLab.panel.windowFacts.title')} subtitle={t('trafficLab.panel.windowFacts.subtitle')}>
           <ul className="fact-list">
             {(data?.compare_facts ?? []).map((fact) => (
-              <li key={fact.label}><span>{fact.label}</span><strong>{fact.value}</strong></li>
+              <li key={`${fact.label.key}-${fact.value}`}><span>{tx(fact.label)}</span><strong>{fact.value}</strong></li>
             ))}
-            <li><span>Live updates</span><strong>{live ? 'connected' : 'paused'}</strong></li>
-            <li><span>Filter</span><strong>{sessionFilter || 'none'}</strong></li>
+            <li><span>{t('trafficLab.fact.liveUpdates')}</span><strong>{live ? t('common.connected') : t('common.paused')}</strong></li>
+            <li><span>{t('trafficLab.fact.filter')}</span><strong>{sessionFilter || t('common.none')}</strong></li>
           </ul>
           <div className="sheet-form">
             <label className="sheet-field">
-              <span>Compare request</span>
+              <span>{t('trafficLab.fact.compareRequest')}</span>
               <select
                 value={compareRequestId ?? ''}
                 onChange={(event) => updateSearch({ compare: event.target.value || null })}
               >
-                <option value="">none</option>
+                <option value="">{t('common.none')}</option>
                 {visibleSessions
                   .filter((session) => session.request_id !== selectedRequestId)
                   .map((session) => (
@@ -267,23 +267,23 @@ export function TrafficLabPage() {
           </div>
           {selectedSession && compareSession ? (
             <div className="detail-grid">
-              <div className="detail-grid__row"><span>Primary</span><strong>{selectedSession.request_id}</strong></div>
-              <div className="detail-grid__row"><span>Compare</span><strong>{compareSession.request_id}</strong></div>
-              <div className="detail-grid__row"><span>Latency delta</span><strong>{selectedSession.latency_ms - compareSession.latency_ms} ms</strong></div>
-              <div className="detail-grid__row"><span>Result delta</span><strong>{selectedSession.result} vs {compareSession.result}</strong></div>
+              <div className="detail-grid__row"><span>{t('trafficLab.compare.primary')}</span><strong>{selectedSession.request_id}</strong></div>
+              <div className="detail-grid__row"><span>{t('trafficLab.compare.secondary')}</span><strong>{compareSession.request_id}</strong></div>
+              <div className="detail-grid__row"><span>{t('trafficLab.compare.latencyDelta')}</span><strong>{formatDurationMs(selectedSession.latency_ms - compareSession.latency_ms)}</strong></div>
+              <div className="detail-grid__row"><span>{t('trafficLab.compare.resultDelta')}</span><strong>{tx(selectedSession.result)} vs {tx(compareSession.result)}</strong></div>
             </div>
           ) : null}
         </Panel>
       </div>
 
-      <Panel title="Execution trace" subtitle="Reason as a decision timeline, not as disconnected cards.">
+      <Panel title={t('trafficLab.panel.trace.title')} subtitle={t('trafficLab.panel.trace.subtitle')}>
         <div className="timeline">
           {(data?.trace ?? []).map((step) => (
-            <article key={`${step.label}-${step.title}`} className="timeline-step">
-              <StatusPill label={step.label} tone={step.tone} />
+            <article key={`${step.label.key}-${step.title.key}`} className="timeline-step">
+              <StatusPill label={tx(step.label)} tone={step.tone} />
               <div>
-                <strong>{step.title}</strong>
-                <p>{step.detail}</p>
+                <strong>{tx(step.title)}</strong>
+                <p>{tx(step.detail)}</p>
               </div>
             </article>
           ))}
@@ -293,20 +293,20 @@ export function TrafficLabPage() {
       <WorkbenchSheet
         open={replayOpen}
         onClose={() => setReplayOpen(false)}
-        title="Request replay workbench"
-        subtitle="Use the selected live request as the baseline for a real route explain."
+        title={t('trafficLab.replay.title')}
+        subtitle={t('trafficLab.replay.subtitle')}
       >
-        {replayLoading ? <div className="status-message">Loading request and route explanation…</div> : null}
+        {replayLoading ? <div className="status-message">{t('trafficLab.loading.replay')}</div> : null}
         {replayError ? <div className="status-message status-message--danger">{replayError}</div> : null}
 
         {requestRecord ? (
           <section className="sheet-section">
-            <h3>Selected request</h3>
+            <h3>{t('trafficLab.replay.selectedRequest')}</h3>
             <div className="detail-grid">
-              <div className="detail-grid__row"><span>Request</span><strong>{requestRecord.request_id}</strong></div>
-              <div className="detail-grid__row"><span>Path</span><strong>{requestRecord.path}</strong></div>
-              <div className="detail-grid__row"><span>Model</span><strong>{requestRecord.requested_model ?? requestRecord.model ?? 'unknown'}</strong></div>
-              <div className="detail-grid__row"><span>Status</span><strong>{requestRecord.status}</strong></div>
+              <div className="detail-grid__row"><span>{t('trafficLab.replay.request')}</span><strong>{requestRecord.request_id}</strong></div>
+              <div className="detail-grid__row"><span>{t('common.path')}</span><strong>{requestRecord.path}</strong></div>
+              <div className="detail-grid__row"><span>{t('common.model')}</span><strong>{requestRecord.requested_model ?? requestRecord.model ?? t('common.unknown')}</strong></div>
+              <div className="detail-grid__row"><span>{t('common.status')}</span><strong>{requestRecord.status}</strong></div>
             </div>
           </section>
         ) : null}
@@ -314,25 +314,25 @@ export function TrafficLabPage() {
         {explanation ? (
           <>
             <section className="sheet-section">
-              <h3>Route explanation</h3>
+              <h3>{t('trafficLab.replay.routeExplanation')}</h3>
               <div className="detail-grid">
-                <div className="detail-grid__row"><span>Profile</span><strong>{explanation.profile}</strong></div>
-                <div className="detail-grid__row"><span>Matched rule</span><strong>{explanation.matched_rule ?? 'default'}</strong></div>
-                <div className="detail-grid__row"><span>Winner</span><strong>{explanation.selected?.provider ?? 'none'}</strong></div>
-                <div className="detail-grid__row"><span>Credential</span><strong>{explanation.selected?.credential_name ?? 'none'}</strong></div>
+                <div className="detail-grid__row"><span>{t('common.profile')}</span><strong>{explanation.profile}</strong></div>
+                <div className="detail-grid__row"><span>{t('trafficLab.replay.matchedRule')}</span><strong>{explanation.matched_rule ?? t('common.default')}</strong></div>
+                <div className="detail-grid__row"><span>{t('trafficLab.replay.winner')}</span><strong>{explanation.selected?.provider ?? t('common.none')}</strong></div>
+                <div className="detail-grid__row"><span>{t('trafficLab.replay.credential')}</span><strong>{explanation.selected?.credential_name ?? t('common.none')}</strong></div>
               </div>
             </section>
 
             <section className="sheet-section">
-              <h3>Rejections</h3>
+              <h3>{t('trafficLab.replay.rejections')}</h3>
               {explanation.rejections.length === 0 ? (
-                <div className="status-message status-message--success">No rejected candidates for the selected request.</div>
+                <div className="status-message status-message--success">{t('trafficLab.replay.noRejections')}</div>
               ) : (
                 <div className="probe-list">
                   {explanation.rejections.map((rejection) => (
                     <div key={`${rejection.candidate}-${JSON.stringify(rejection.reason)}`} className="probe-check">
                       <span>{rejection.candidate}</span>
-                      <strong>{typeof rejection.reason === 'string' ? rejection.reason : 'missing capability'}</strong>
+                      <strong>{typeof rejection.reason === 'string' ? rejection.reason : t('trafficLab.replay.missingCapability')}</strong>
                     </div>
                   ))}
                 </div>
@@ -345,55 +345,55 @@ export function TrafficLabPage() {
       <WorkbenchSheet
         open={detailOpen}
         onClose={() => setDetailOpen(false)}
-        title="Request session detail"
-        subtitle="Inspect the raw request, upstream transformation, response body, and retry chain without leaving the traffic workspace."
+        title={t('trafficLab.detail.title')}
+        subtitle={t('trafficLab.detail.subtitle')}
       >
-        {detailLoading ? <div className="status-message">Loading request detail…</div> : null}
+        {detailLoading ? <div className="status-message">{t('trafficLab.loading.detail')}</div> : null}
         {detailError ? <div className="status-message status-message--danger">{detailError}</div> : null}
 
         {detailRecord ? (
           <>
             <section className="sheet-section">
-              <h3>Request posture</h3>
+              <h3>{t('trafficLab.detail.requestPosture')}</h3>
               <div className="detail-grid">
-                <div className="detail-grid__row"><span>Request</span><strong>{detailRecord.request_id}</strong></div>
-                <div className="detail-grid__row"><span>Path</span><strong>{detailRecord.path}</strong></div>
-                <div className="detail-grid__row"><span>Provider</span><strong>{detailRecord.provider ?? 'n/a'}</strong></div>
-                <div className="detail-grid__row"><span>Tenant</span><strong>{detailRecord.tenant_id ?? 'global'}</strong></div>
-                <div className="detail-grid__row"><span>Status</span><strong>{detailRecord.status}</strong></div>
-                <div className="detail-grid__row"><span>Latency</span><strong>{detailRecord.latency_ms} ms</strong></div>
+                <div className="detail-grid__row"><span>{t('trafficLab.replay.request')}</span><strong>{detailRecord.request_id}</strong></div>
+                <div className="detail-grid__row"><span>{t('common.path')}</span><strong>{detailRecord.path}</strong></div>
+                <div className="detail-grid__row"><span>{t('common.provider')}</span><strong>{detailRecord.provider ?? t('common.notAvailable')}</strong></div>
+                <div className="detail-grid__row"><span>{t('common.tenant')}</span><strong>{detailRecord.tenant_id ?? t('common.global')}</strong></div>
+                <div className="detail-grid__row"><span>{t('common.status')}</span><strong>{detailRecord.status}</strong></div>
+                <div className="detail-grid__row"><span>{t('common.latency')}</span><strong>{formatDurationMs(detailRecord.latency_ms)}</strong></div>
               </div>
             </section>
 
             <section className="sheet-section">
-              <h3>Retry chain</h3>
+              <h3>{t('trafficLab.detail.retryChain')}</h3>
               {detailRecord.attempts && detailRecord.attempts.length > 0 ? (
                 <div className="probe-list">
                   {detailRecord.attempts.map((attempt) => (
                     <div key={`${attempt.attempt_index}-${attempt.provider}-${attempt.model}`} className="probe-check">
                       <span>{attempt.provider} / {attempt.model}</span>
-                      <strong>{attempt.status ?? 'error'} · {attempt.latency_ms} ms</strong>
+                      <strong>{attempt.status ?? t('trafficLab.detail.errorStatus')} · {formatDurationMs(attempt.latency_ms)}</strong>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="status-message">No retry chain recorded for this request.</div>
+                <div className="status-message">{t('trafficLab.detail.noRetryChain')}</div>
               )}
             </section>
 
             <section className="sheet-section">
-              <h3>Payloads</h3>
+              <h3>{t('trafficLab.detail.payloads')}</h3>
               <div className="code-block">
-                <strong>Request body</strong>
-                <pre>{detailRecord.request_body ?? 'No request body captured.'}</pre>
+                <strong>{t('trafficLab.detail.requestBody')}</strong>
+                <pre>{detailRecord.request_body ?? t('trafficLab.detail.noRequestBody')}</pre>
               </div>
               <div className="code-block">
-                <strong>Upstream request</strong>
-                <pre>{detailRecord.upstream_request_body ?? 'No upstream request body captured.'}</pre>
+                <strong>{t('trafficLab.detail.upstreamRequest')}</strong>
+                <pre>{detailRecord.upstream_request_body ?? t('trafficLab.detail.noUpstreamBody')}</pre>
               </div>
               <div className="code-block">
-                <strong>Response body</strong>
-                <pre>{detailRecord.response_body ?? detailRecord.stream_content_preview ?? 'No response body captured.'}</pre>
+                <strong>{t('trafficLab.detail.responseBody')}</strong>
+                <pre>{detailRecord.response_body ?? detailRecord.stream_content_preview ?? t('trafficLab.detail.noResponseBody')}</pre>
               </div>
             </section>
           </>

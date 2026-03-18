@@ -3282,7 +3282,10 @@ async fn test_control_plane_command_center_workspace_endpoint() {
             .as_array()
             .is_some_and(|items| !items.is_empty())
     );
-    assert_eq!(body["inspector"]["eyebrow"], "SIGNAL / ACTIVE");
+    assert_eq!(
+        body["inspector"]["eyebrow"]["key"],
+        "commandCenter.inspector.eyebrow"
+    );
 }
 
 #[tokio::test]
@@ -3360,7 +3363,10 @@ async fn test_control_plane_route_studio_workspace_endpoint() {
             .as_array()
             .is_some_and(|items| !items.is_empty())
     );
-    assert_eq!(body["inspector"]["eyebrow"], "ROUTE / CURRENT");
+    assert_eq!(
+        body["inspector"]["eyebrow"]["key"],
+        "routeStudio.inspector.eyebrow"
+    );
 }
 
 #[tokio::test]
@@ -3386,5 +3392,8 @@ async fn test_control_plane_change_studio_workspace_endpoint() {
             .as_array()
             .is_some_and(|items| items.len() >= 4)
     );
-    assert_eq!(body["inspector"]["eyebrow"], "CHANGE / CONFIG");
+    assert_eq!(
+        body["inspector"]["eyebrow"]["key"],
+        "changeStudio.inspector.eyebrow"
+    );
 }

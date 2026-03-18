@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useI18n } from '../i18n';
 import { reconcileSelection } from '../lib/selection';
 import { useProviderAtlasAuthWorkbench } from './provider-atlas/useProviderAtlasAuthWorkbench';
 import { useProviderAtlasRegistryWorkbench } from './provider-atlas/useProviderAtlasRegistryWorkbench';
@@ -25,6 +26,7 @@ export function useProviderAtlasController({
   data,
   reload,
 }: ProviderAtlasControllerOptions) {
+  const { t } = useI18n();
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [detail, setDetail] = useState<ProviderDetail | null>(null);
@@ -186,7 +188,7 @@ export function useProviderAtlasController({
         disabled: provider.disabled,
       });
     } catch (editorError) {
-      setActionError(getApiErrorMessage(editorError, 'Failed to load provider detail'));
+      setActionError(getApiErrorMessage(editorError, t('providerAtlas.error.loadDetail')));
     } finally {
       setLoadingDetail(false);
     }
@@ -197,13 +199,13 @@ export function useProviderAtlasController({
       return;
     }
     setActionError(null);
-    setActionStatus('Running real provider health probe…');
+    setActionStatus(t('providerAtlas.status.runningHealthProbe'));
     try {
       const result = await providersApi.healthCheck(selectedProvider);
       setHealth(result);
-      setActionStatus(`Health probe completed with status ${result.status}.`);
+      setActionStatus(t('providerAtlas.status.healthProbeCompleted', { status: result.status }));
     } catch (probeError) {
-      setActionError(getApiErrorMessage(probeError, 'Health probe failed'));
+      setActionError(getApiErrorMessage(probeError, t('providerAtlas.error.healthProbe')));
     }
   };
 
@@ -224,9 +226,9 @@ export function useProviderAtlasController({
         },
       });
       setPreview(result);
-      setActionStatus(`Presentation preview generated for ${selectedProvider}.`);
+      setActionStatus(t('providerAtlas.status.previewGenerated', { provider: selectedProvider }));
     } catch (previewError) {
-      setActionError(getApiErrorMessage(previewError, 'Presentation preview failed'));
+      setActionError(getApiErrorMessage(previewError, t('providerAtlas.error.preview')));
     } finally {
       setPreviewing(false);
     }
@@ -246,13 +248,13 @@ export function useProviderAtlasController({
         weight: Number(registryWorkbench.formState.weight) || 1,
         disabled: registryWorkbench.formState.disabled,
       });
-      setActionStatus(`Saved provider ${selectedProvider}.`);
+      setActionStatus(t('providerAtlas.status.savedProvider', { provider: selectedProvider }));
       await reload();
       await loadRuntimeSurfaces();
       const refreshed = await providersApi.get(selectedProvider);
       setDetail(refreshed);
     } catch (saveError) {
-      setActionError(getApiErrorMessage(saveError, 'Failed to save provider'));
+      setActionError(getApiErrorMessage(saveError, t('providerAtlas.error.saveProvider')));
     } finally {
       setSaving(false);
     }

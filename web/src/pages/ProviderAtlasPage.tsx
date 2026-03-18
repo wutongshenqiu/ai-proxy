@@ -3,9 +3,11 @@ import { ProviderAtlasOverview } from '../components/provider-atlas/ProviderAtla
 import { ProviderEditorSheet } from '../components/provider-atlas/ProviderEditorSheet';
 import { ProviderRegistrySheet } from '../components/provider-atlas/ProviderRegistrySheet';
 import { useProviderAtlasController } from '../hooks/useProviderAtlasController';
+import { useI18n } from '../i18n';
 import { useProviderAtlasData } from '../hooks/useWorkspaceData';
 
 export function ProviderAtlasPage() {
+  const { t } = useI18n();
   const { data, error, loading, reload } = useProviderAtlasData();
   const controller = useProviderAtlasController({ data, reload });
 
@@ -13,22 +15,16 @@ export function ProviderAtlasPage() {
     <div className="workspace-grid">
       <section className="hero">
         <div>
-          <p className="workspace-eyebrow">PRISM / PROVIDER ATLAS</p>
-          <h1>Runtime entities with identity and auth posture</h1>
-          <p className="workspace-summary">
-            Provider management should feel like runtime operations, not static CRUD. Coverage,
-            auth state, protocol exposure, and routing participation stay visible together.
-          </p>
+          <p className="workspace-eyebrow">{t('providerAtlas.hero.eyebrow')}</p>
+          <h1>{t('providerAtlas.hero.title')}</h1>
+          <p className="workspace-summary">{t('providerAtlas.hero.summary')}</p>
         </div>
         <div className="hero-actions">
           <button className="button button--primary" onClick={() => void controller.openEditor()}>
-            Open provider editor
+            {t('providerAtlas.hero.openEditor')}
           </button>
-          <button
-            className="button button--ghost"
-            onClick={() => void controller.openAuthWorkbench()}
-          >
-            Auth profile workbench
+          <button className="button button--ghost" onClick={() => void controller.openAuthWorkbench()}>
+            {t('providerAtlas.hero.openAuthWorkbench')}
           </button>
         </div>
       </section>
@@ -134,9 +130,7 @@ export function ProviderAtlasPage() {
         }
         onConnectSecretChange={controller.setConnectSecret}
         onImportPathChange={controller.setImportPath}
-        onSelectExistingProfile={(currentKey) => {
-          controller.setSelectedAuthProfileId(currentKey);
-        }}
+        onSelectExistingProfile={controller.setSelectedAuthProfileId}
       />
     </div>
   );
